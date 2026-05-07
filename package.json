@@ -1,0 +1,40 @@
+{
+  "name": "seraphim-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SeraphimOS — AI-powered autonomous orchestration platform",
+  "workspaces": [
+    "packages/core",
+    "packages/services",
+    "packages/drivers",
+    "packages/app",
+    "packages/infra",
+    "packages/dashboard"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "lint:fix": "eslint packages/*/src/**/*.ts --fix",
+    "format": "prettier --write packages/*/src/**/*.ts",
+    "format:check": "prettier --check packages/*/src/**/*.ts",
+    "typecheck": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf packages/*/dist",
+    "dev:local": "node scripts/dev-local.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^10.2.1",
+    "happy-dom": "^20.9.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.1",
+    "vitest": "^4.1.5"
+  }
+}

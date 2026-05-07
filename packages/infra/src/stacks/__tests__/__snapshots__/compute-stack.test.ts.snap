@@ -1,0 +1,1514 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "AgentRuntimeServiceName": {
+      "Description": "ECS agent runtime service name",
+      "Export": {
+        "Name": "SeraphimAgentRuntimeService",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "AgentRuntimeServiceA417A3CA",
+          "Name",
+        ],
+      },
+    },
+    "AlertHandlerArn": {
+      "Description": "Alert handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimAlertHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "AlertHandler13C27ADA",
+          "Arn",
+        ],
+      },
+    },
+    "AuditHandlerArn": {
+      "Description": "Audit handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimAuditHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "AuditHandlerD2AD8C41",
+          "Arn",
+        ],
+      },
+    },
+    "ClusterArn": {
+      "Description": "ECS Fargate cluster ARN",
+      "Export": {
+        "Name": "SeraphimClusterArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "SeraphimCluster57FD387C",
+          "Arn",
+        ],
+      },
+    },
+    "LearningHandlerArn": {
+      "Description": "Learning handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimLearningHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "LearningHandlerA545A44C",
+          "Arn",
+        ],
+      },
+    },
+    "MemoryHandlerArn": {
+      "Description": "Memory handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimMemoryHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "MemoryHandler88AB4C1A",
+          "Arn",
+        ],
+      },
+    },
+    "WorkflowHandlerArn": {
+      "Description": "Workflow handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimWorkflowHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "WorkflowHandler6AB65591",
+          "Arn",
+        ],
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "AgentRuntimeExecutionRole21587064": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Description": "ECS task execution role for pulling images and writing logs",
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "AgentRuntimeExecutionRoleDefaultPolicy27320ADC": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AgentRuntimeLogs79CAC269",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "AgentRuntimeExecutionRoleDefaultPolicy27320ADC",
+        "Roles": [
+          {
+            "Ref": "AgentRuntimeExecutionRole21587064",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "AgentRuntimeLogs79CAC269": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "LogGroupName": "/seraphim/agent-runtime",
+        "RetentionInDays": 30,
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AgentRuntimeServiceA417A3CA": {
+      "DependsOn": [
+        "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4",
+        "AgentRuntimeTaskRole86065EF1",
+      ],
+      "Properties": {
+        "Cluster": {
+          "Ref": "SeraphimCluster57FD387C",
+        },
+        "DeploymentConfiguration": {
+          "Alarms": {
+            "AlarmNames": [],
+            "Enable": false,
+            "Rollback": false,
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": true,
+          },
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": 50,
+        },
+        "DeploymentController": {
+          "Type": "ECS",
+        },
+        "DesiredCount": 2,
+        "EnableECSManagedTags": false,
+        "EnableExecuteCommand": true,
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": [
+              {
+                "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+              },
+            ],
+            "Subnets": [
+              {
+                "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+              },
+              {
+                "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+              },
+            ],
+          },
+        },
+        "TaskDefinition": {
+          "Ref": "AgentRuntimeTaskDefB082A023",
+        },
+      },
+      "Type": "AWS::ECS::Service",
+    },
+    "AgentRuntimeServiceTaskCountTargetAE319975": {
+      "DependsOn": [
+        "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4",
+        "AgentRuntimeTaskRole86065EF1",
+      ],
+      "Properties": {
+        "MaxCapacity": 10,
+        "MinCapacity": 2,
+        "ResourceId": {
+          "Fn::Join": [
+            "",
+            [
+              "service/",
+              {
+                "Ref": "SeraphimCluster57FD387C",
+              },
+              "/",
+              {
+                "Fn::GetAtt": [
+                  "AgentRuntimeServiceA417A3CA",
+                  "Name",
+                ],
+              },
+            ],
+          ],
+        },
+        "RoleARN": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition",
+              },
+              ":iam::",
+              {
+                "Ref": "AWS::AccountId",
+              },
+              ":role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService",
+            ],
+          ],
+        },
+        "ScalableDimension": "ecs:service:DesiredCount",
+        "ServiceNamespace": "ecs",
+      },
+      "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+    },
+    "AgentRuntimeServiceTaskCountTargetCpuScalingC7FC04AC": {
+      "DependsOn": [
+        "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4",
+        "AgentRuntimeTaskRole86065EF1",
+      ],
+      "Properties": {
+        "PolicyName": "TestComputeStackAgentRuntimeServiceTaskCountTargetCpuScaling7A7F8984",
+        "PolicyType": "TargetTrackingScaling",
+        "ScalingTargetId": {
+          "Ref": "AgentRuntimeServiceTaskCountTargetAE319975",
+        },
+        "TargetTrackingScalingPolicyConfiguration": {
+          "PredefinedMetricSpecification": {
+            "PredefinedMetricType": "ECSServiceAverageCPUUtilization",
+          },
+          "ScaleInCooldown": 60,
+          "ScaleOutCooldown": 30,
+          "TargetValue": 70,
+        },
+      },
+      "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+    },
+    "AgentRuntimeServiceTaskCountTargetMemoryScalingAC375822": {
+      "DependsOn": [
+        "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4",
+        "AgentRuntimeTaskRole86065EF1",
+      ],
+      "Properties": {
+        "PolicyName": "TestComputeStackAgentRuntimeServiceTaskCountTargetMemoryScalingB44AB64C",
+        "PolicyType": "TargetTrackingScaling",
+        "ScalingTargetId": {
+          "Ref": "AgentRuntimeServiceTaskCountTargetAE319975",
+        },
+        "TargetTrackingScalingPolicyConfiguration": {
+          "PredefinedMetricSpecification": {
+            "PredefinedMetricType": "ECSServiceAverageMemoryUtilization",
+          },
+          "ScaleInCooldown": 60,
+          "ScaleOutCooldown": 30,
+          "TargetValue": 75,
+        },
+      },
+      "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+    },
+    "AgentRuntimeTaskDefB082A023": {
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Environment": [
+              {
+                "Name": "NODE_ENV",
+                "Value": "production",
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region",
+                },
+              },
+            ],
+            "Essential": true,
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                "curl -f http://localhost:3000/health || exit 1",
+              ],
+              "Interval": 10,
+              "Retries": 3,
+              "StartPeriod": 30,
+              "Timeout": 5,
+            },
+            "Image": "node:20-slim",
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "AgentRuntimeLogs79CAC269",
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region",
+                },
+                "awslogs-stream-prefix": "agent-runtime",
+              },
+            },
+            "Name": "AgentRuntime",
+            "PortMappings": [
+              {
+                "ContainerPort": 3000,
+                "Protocol": "tcp",
+              },
+            ],
+          },
+        ],
+        "Cpu": "1024",
+        "ExecutionRoleArn": {
+          "Fn::GetAtt": [
+            "AgentRuntimeExecutionRole21587064",
+            "Arn",
+          ],
+        },
+        "Family": "TestComputeStackAgentRuntimeTaskDef94BE32D1",
+        "Memory": "2048",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE",
+        ],
+        "RuntimePlatform": {
+          "CpuArchitecture": "ARM64",
+          "OperatingSystemFamily": "LINUX",
+        },
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "AgentRuntimeTaskRole86065EF1",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::ECS::TaskDefinition",
+    },
+    "AgentRuntimeTaskRole86065EF1": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Description": "IAM role for SeraphimOS agent runtime ECS tasks",
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "rds-db:connect",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:rds-db:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":dbuser:",
+                    {
+                      "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttSeraphimAuroraDEBEBA5FDBClusterResourceId31B07538",
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "AuroraAccess",
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8",
+              },
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttAuditTrailTable4CEE68C7Arn31C71D66",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttAuditTrailTable4CEE68C7Arn31C71D66",
+                      },
+                      "/index/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttEventsTableD24865E5Arn2808B4A2",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttEventsTableD24865E5Arn2808B4A2",
+                      },
+                      "/index/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttArtifactsBucket2AAC5544ArnD57FAE19",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttArtifactsBucket2AAC5544ArnD57FAE19",
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttLogsBucket9C4D8843Arn695CF659",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttLogsBucket9C4D8843Arn695CF659",
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:secretsmanager:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":secret:seraphim/*",
+                  ],
+                ],
+              },
+              "Sid": "SecretsManagerAccess",
+            },
+            {
+              "Action": "kms:Decrypt",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::ImportValue": "TestSecretsStack:ExportsOutputFnGetAttSecretsEncryptionKey25C5552EArnA97EA41C",
+              },
+            },
+            {
+              "Action": "events:PutEvents",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:events:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":event-bus/seraphim-events",
+                  ],
+                ],
+              },
+              "Sid": "EventBridgeAccess",
+            },
+            {
+              "Action": [
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": "logs:DescribeLogGroups",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:DescribeLogStreams",
+                "logs:PutLogEvents",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "AgentRuntimeTaskRoleDefaultPolicy2ABC11C4",
+        "Roles": [
+          {
+            "Ref": "AgentRuntimeTaskRole86065EF1",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "AlertDLQC893C774": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-alert-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AlertHandler13C27ADA": {
+      "DependsOn": [
+        "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "LambdaExecutionRoleD5C26073",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes alert events, formats notifications, delivers through channels",
+        "Environment": {
+          "Variables": {
+            "ARTIFACTS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+            },
+            "AUDIT_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefAuditTrailTable4CEE68C774EE8E82",
+            },
+            "EVENTS_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefEventsTableD24865E55C5ECA9E",
+            },
+            "LOGS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefLogsBucket9C4D88434A6140BD",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-alert-handler",
+        "Handler": "handlers/alert-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaExecutionRoleD5C26073",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+            },
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "AlertHandlerSqsEventSourceTestComputeStackAlertQueueA9B4D52E0B25F17E": {
+      "Properties": {
+        "BatchSize": 5,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "AlertQueue78A7D684",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "AlertHandler13C27ADA",
+        },
+        "MaximumBatchingWindowInSeconds": 2,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "AlertQueue78A7D684": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "QueueName": "seraphim-alert-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "AlertDLQC893C774",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AuditDLQ88DC7299": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-audit-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AuditHandlerD2AD8C41": {
+      "DependsOn": [
+        "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "LambdaExecutionRoleD5C26073",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes audit events from SQS, writes to DynamoDB with hash chain",
+        "Environment": {
+          "Variables": {
+            "ARTIFACTS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+            },
+            "AUDIT_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefAuditTrailTable4CEE68C774EE8E82",
+            },
+            "EVENTS_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefEventsTableD24865E55C5ECA9E",
+            },
+            "LOGS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefLogsBucket9C4D88434A6140BD",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-audit-handler",
+        "Handler": "handlers/audit-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaExecutionRoleD5C26073",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+            },
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "AuditHandlerSqsEventSourceTestComputeStackAuditQueueB42A2592E4C84BE7": {
+      "Properties": {
+        "BatchSize": 10,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "AuditQueue1D3C234B",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "AuditHandlerD2AD8C41",
+        },
+        "MaximumBatchingWindowInSeconds": 5,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "AuditQueue1D3C234B": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "QueueName": "seraphim-audit-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "AuditDLQ88DC7299",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "LambdaExecutionRoleD5C26073": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Description": "IAM role for SeraphimOS Lambda event handlers",
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "LambdaExecutionRoleDefaultPolicy6D69732F": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "rds-db:connect",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:rds-db:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":dbuser:",
+                    {
+                      "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttSeraphimAuroraDEBEBA5FDBClusterResourceId31B07538",
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "AuroraAccess",
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8",
+              },
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttAuditTrailTable4CEE68C7Arn31C71D66",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttAuditTrailTable4CEE68C7Arn31C71D66",
+                      },
+                      "/index/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "dynamodb:BatchGetItem",
+                "dynamodb:GetRecords",
+                "dynamodb:GetShardIterator",
+                "dynamodb:Query",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:ConditionCheckItem",
+                "dynamodb:BatchWriteItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTable",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttEventsTableD24865E5Arn2808B4A2",
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::ImportValue": "TestDataStack:ExportsOutputFnGetAttEventsTableD24865E5Arn2808B4A2",
+                      },
+                      "/index/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuditQueue1D3C234B",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "MemoryQueue4814398B",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AlertQueue78A7D684",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WorkflowQueue883428C9",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "LearningQueue6E327ECF",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:secretsmanager:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":secret:seraphim/*",
+                  ],
+                ],
+              },
+              "Sid": "SecretsManagerAccess",
+            },
+            {
+              "Action": "kms:Decrypt",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::ImportValue": "TestSecretsStack:ExportsOutputFnGetAttSecretsEncryptionKey25C5552EArnA97EA41C",
+              },
+            },
+            {
+              "Action": "events:PutEvents",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:events:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":event-bus/seraphim-events",
+                  ],
+                ],
+              },
+              "Sid": "EventBridgeAccess",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "Roles": [
+          {
+            "Ref": "LambdaExecutionRoleD5C26073",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "LearningDLQ3FF2C584": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-learning-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "LearningHandlerA545A44C": {
+      "DependsOn": [
+        "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "LambdaExecutionRoleD5C26073",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes learning events, feeds into the Learning Engine",
+        "Environment": {
+          "Variables": {
+            "ARTIFACTS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+            },
+            "AUDIT_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefAuditTrailTable4CEE68C774EE8E82",
+            },
+            "EVENTS_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefEventsTableD24865E55C5ECA9E",
+            },
+            "LOGS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefLogsBucket9C4D88434A6140BD",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-learning-handler",
+        "Handler": "handlers/learning-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaExecutionRoleD5C26073",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+            },
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "LearningHandlerSqsEventSourceTestComputeStackLearningQueueFEB0A0FFFEE57BC8": {
+      "Properties": {
+        "BatchSize": 10,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "LearningQueue6E327ECF",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "LearningHandlerA545A44C",
+        },
+        "MaximumBatchingWindowInSeconds": 10,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "LearningQueue6E327ECF": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "QueueName": "seraphim-learning-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "LearningDLQ3FF2C584",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MemoryDLQ4E6BFD76": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-memory-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MemoryHandler88AB4C1A": {
+      "DependsOn": [
+        "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "LambdaExecutionRoleD5C26073",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes memory events, triggers entity extraction, stores in Aurora",
+        "Environment": {
+          "Variables": {
+            "ARTIFACTS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+            },
+            "AUDIT_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefAuditTrailTable4CEE68C774EE8E82",
+            },
+            "EVENTS_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefEventsTableD24865E55C5ECA9E",
+            },
+            "LOGS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefLogsBucket9C4D88434A6140BD",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-memory-handler",
+        "Handler": "handlers/memory-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaExecutionRoleD5C26073",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+            },
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "MemoryHandlerSqsEventSourceTestComputeStackMemoryQueue3FAB03F8AAC00D9D": {
+      "Properties": {
+        "BatchSize": 10,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "MemoryQueue4814398B",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "MemoryHandler88AB4C1A",
+        },
+        "MaximumBatchingWindowInSeconds": 5,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "MemoryQueue4814398B": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "QueueName": "seraphim-memory-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "MemoryDLQ4E6BFD76",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "SeraphimCluster57FD387C": {
+      "Properties": {
+        "ClusterName": "seraphim-agents",
+        "ClusterSettings": [
+          {
+            "Name": "containerInsights",
+            "Value": "enabled",
+          },
+        ],
+      },
+      "Type": "AWS::ECS::Cluster",
+    },
+    "WorkflowDLQDFB65C35": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-workflow-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "WorkflowHandler6AB65591": {
+      "DependsOn": [
+        "LambdaExecutionRoleDefaultPolicy6D69732F",
+        "LambdaExecutionRoleD5C26073",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes workflow events, triggers next steps in state machines",
+        "Environment": {
+          "Variables": {
+            "ARTIFACTS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+            },
+            "AUDIT_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefAuditTrailTable4CEE68C774EE8E82",
+            },
+            "EVENTS_TABLE_NAME": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefEventsTableD24865E55C5ECA9E",
+            },
+            "LOGS_BUCKET": {
+              "Fn::ImportValue": "TestDataStack:ExportsOutputRefLogsBucket9C4D88434A6140BD",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-workflow-handler",
+        "Handler": "handlers/workflow-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaExecutionRoleD5C26073",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttComputeSG6CF58B99GroupIdE3F10208",
+            },
+          ],
+          "SubnetIds": [
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet1SubnetE7A5372B639132BD",
+            },
+            {
+              "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C691BD816",
+            },
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "WorkflowHandlerSqsEventSourceTestComputeStackWorkflowQueueFE33C78EAEF61B38": {
+      "Properties": {
+        "BatchSize": 10,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "WorkflowQueue883428C9",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "WorkflowHandler6AB65591",
+        },
+        "MaximumBatchingWindowInSeconds": 5,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "WorkflowQueue883428C9": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "QueueName": "seraphim-workflow-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "WorkflowDLQDFB65C35",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

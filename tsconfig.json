@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "incremental": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@seraphim/core": ["./packages/core/src"],
+      "@seraphim/core/*": ["./packages/core/src/*"],
+      "@seraphim/services": ["./packages/services/src"],
+      "@seraphim/services/*": ["./packages/services/src/*"],
+      "@seraphim/drivers": ["./packages/drivers/src"],
+      "@seraphim/drivers/*": ["./packages/drivers/src/*"],
+      "@seraphim/app": ["./packages/app/dist"],
+      "@seraphim/app/*": ["./packages/app/dist/*"],
+      "@seraphim/infra": ["./packages/infra/src"],
+      "@seraphim/infra/*": ["./packages/infra/src/*"],
+      "@seraphim/dashboard": ["./packages/dashboard/src"],
+      "@seraphim/dashboard/*": ["./packages/dashboard/src/*"]
+    }
+  },
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/services" },
+    { "path": "./packages/drivers" },
+    { "path": "./packages/app" },
+    { "path": "./packages/infra" },
+    { "path": "./packages/dashboard" }
+  ],
+  "files": [],
+  "exclude": ["node_modules", "dist"]
+}

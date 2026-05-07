@@ -1,0 +1,662 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ApiStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "RestApiId": {
+      "Description": "REST API Gateway ID",
+      "Export": {
+        "Name": "SeraphimRestApiId",
+      },
+      "Value": {
+        "Ref": "SeraphimRestApiD9BA4368",
+      },
+    },
+    "RestApiUrl": {
+      "Description": "REST API Gateway URL",
+      "Export": {
+        "Name": "SeraphimRestApiUrl",
+      },
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "SeraphimRestApiD9BA4368",
+            },
+            ".execute-api.",
+            {
+              "Ref": "AWS::Region",
+            },
+            ".",
+            {
+              "Ref": "AWS::URLSuffix",
+            },
+            "/",
+            {
+              "Ref": "SeraphimRestApiDeploymentStagev1C0FE5689",
+            },
+            "/",
+          ],
+        ],
+      },
+    },
+    "SeraphimRestApiEndpoint1BD0609C": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "SeraphimRestApiD9BA4368",
+            },
+            ".execute-api.",
+            {
+              "Ref": "AWS::Region",
+            },
+            ".",
+            {
+              "Ref": "AWS::URLSuffix",
+            },
+            "/",
+            {
+              "Ref": "SeraphimRestApiDeploymentStagev1C0FE5689",
+            },
+            "/",
+          ],
+        ],
+      },
+    },
+    "UserPoolClientId": {
+      "Description": "Cognito User Pool Client ID",
+      "Export": {
+        "Name": "SeraphimUserPoolClientId",
+      },
+      "Value": {
+        "Ref": "SeraphimUserPoolSeraphimAppClientE6BDF8A1",
+      },
+    },
+    "UserPoolId": {
+      "Description": "Cognito User Pool ID",
+      "Export": {
+        "Name": "SeraphimUserPoolId",
+      },
+      "Value": {
+        "Ref": "SeraphimUserPoolF02BC77D",
+      },
+    },
+    "WebSocketApiEndpoint": {
+      "Description": "WebSocket API endpoint URL",
+      "Export": {
+        "Name": "SeraphimWebSocketApiEndpoint",
+      },
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "wss://",
+            {
+              "Ref": "SeraphimWebSocketApi",
+            },
+            ".execute-api.",
+            {
+              "Ref": "AWS::Region",
+            },
+            ".amazonaws.com/v1",
+          ],
+        ],
+      },
+    },
+    "WebSocketApiId": {
+      "Description": "WebSocket API Gateway ID",
+      "Export": {
+        "Name": "SeraphimWebSocketApiId",
+      },
+      "Value": {
+        "Ref": "SeraphimWebSocketApi",
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "RestApiAccessLogs583CC468": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "LogGroupName": "/seraphim/api-gateway/rest",
+        "RetentionInDays": 30,
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "SeraphimCognitoAuthorizer76D5A36A": {
+      "Properties": {
+        "IdentitySource": "method.request.header.Authorization",
+        "Name": "seraphim-cognito-authorizer",
+        "ProviderARNs": [
+          {
+            "Fn::GetAtt": [
+              "SeraphimUserPoolF02BC77D",
+              "Arn",
+            ],
+          },
+        ],
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+        "Type": "COGNITO_USER_POOLS",
+      },
+      "Type": "AWS::ApiGateway::Authorizer",
+    },
+    "SeraphimRestApiAccount0F161D69": {
+      "DeletionPolicy": "Retain",
+      "DependsOn": [
+        "SeraphimRestApiD9BA4368",
+      ],
+      "Properties": {
+        "CloudWatchRoleArn": {
+          "Fn::GetAtt": [
+            "SeraphimRestApiCloudWatchRole66B79462",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::ApiGateway::Account",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimRestApiCloudWatchRole66B79462": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "apigateway.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimRestApiD9BA4368": {
+      "Properties": {
+        "Description": "SeraphimOS REST API — agent management, commands, and queries",
+        "EndpointConfiguration": {
+          "Types": [
+            "REGIONAL",
+          ],
+        },
+        "Name": "seraphim-api",
+      },
+      "Type": "AWS::ApiGateway::RestApi",
+    },
+    "SeraphimRestApiDeploymentEDE3BF03397039b62cd3c9bad91a95b890707dcf": {
+      "DependsOn": [
+        "SeraphimRestApiagentsGETF375CC88",
+        "SeraphimRestApiagentsOPTIONS767F79EE",
+        "SeraphimRestApiagentsCF01ECB7",
+        "SeraphimRestApihealthGETC177BEF7",
+        "SeraphimRestApihealthOPTIONSB88B4789",
+        "SeraphimRestApihealth2C3A6C52",
+        "SeraphimRestApiOPTIONS5D1617DA",
+      ],
+      "Properties": {
+        "Description": "SeraphimOS REST API — agent management, commands, and queries",
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Deployment",
+    },
+    "SeraphimRestApiDeploymentStagev1C0FE5689": {
+      "DependsOn": [
+        "SeraphimRestApiAccount0F161D69",
+      ],
+      "Properties": {
+        "AccessLogSetting": {
+          "DestinationArn": {
+            "Fn::GetAtt": [
+              "RestApiAccessLogs583CC468",
+              "Arn",
+            ],
+          },
+          "Format": "{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","user":"$context.identity.user","caller":"$context.identity.caller","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","resourcePath":"$context.resourcePath","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength"}",
+        },
+        "DeploymentId": {
+          "Ref": "SeraphimRestApiDeploymentEDE3BF03397039b62cd3c9bad91a95b890707dcf",
+        },
+        "MethodSettings": [
+          {
+            "DataTraceEnabled": false,
+            "HttpMethod": "*",
+            "LoggingLevel": "INFO",
+            "MetricsEnabled": true,
+            "ResourcePath": "/*",
+            "ThrottlingBurstLimit": 100,
+            "ThrottlingRateLimit": 50,
+          },
+        ],
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+        "StageName": "v1",
+        "TracingEnabled": true,
+      },
+      "Type": "AWS::ApiGateway::Stage",
+    },
+    "SeraphimRestApiOPTIONS5D1617DA": {
+      "Properties": {
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "HttpMethod": "OPTIONS",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Correlation-Id'",
+                "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Max-Age": "'3600'",
+              },
+              "StatusCode": "204",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{ statusCode: 200 }",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Max-Age": true,
+            },
+            "StatusCode": "204",
+          },
+        ],
+        "ResourceId": {
+          "Fn::GetAtt": [
+            "SeraphimRestApiD9BA4368",
+            "RootResourceId",
+          ],
+        },
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "SeraphimRestApiagentsCF01ECB7": {
+      "Properties": {
+        "ParentId": {
+          "Fn::GetAtt": [
+            "SeraphimRestApiD9BA4368",
+            "RootResourceId",
+          ],
+        },
+        "PathPart": "agents",
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Resource",
+    },
+    "SeraphimRestApiagentsGETF375CC88": {
+      "Properties": {
+        "AuthorizationType": "COGNITO_USER_POOLS",
+        "AuthorizerId": {
+          "Ref": "SeraphimCognitoAuthorizer76D5A36A",
+        },
+        "HttpMethod": "GET",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseTemplates": {
+                "application/json": "{"agents":[]}",
+              },
+              "StatusCode": "200",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{"statusCode": 200}",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+          },
+        ],
+        "ResourceId": {
+          "Ref": "SeraphimRestApiagentsCF01ECB7",
+        },
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "SeraphimRestApiagentsOPTIONS767F79EE": {
+      "Properties": {
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "HttpMethod": "OPTIONS",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Correlation-Id'",
+                "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Max-Age": "'3600'",
+              },
+              "StatusCode": "204",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{ statusCode: 200 }",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Max-Age": true,
+            },
+            "StatusCode": "204",
+          },
+        ],
+        "ResourceId": {
+          "Ref": "SeraphimRestApiagentsCF01ECB7",
+        },
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "SeraphimRestApihealth2C3A6C52": {
+      "Properties": {
+        "ParentId": {
+          "Fn::GetAtt": [
+            "SeraphimRestApiD9BA4368",
+            "RootResourceId",
+          ],
+        },
+        "PathPart": "health",
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Resource",
+    },
+    "SeraphimRestApihealthGETC177BEF7": {
+      "Properties": {
+        "AuthorizationType": "NONE",
+        "HttpMethod": "GET",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseTemplates": {
+                "application/json": "{"status":"healthy"}",
+              },
+              "StatusCode": "200",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{"statusCode": 200}",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": "200",
+          },
+        ],
+        "ResourceId": {
+          "Ref": "SeraphimRestApihealth2C3A6C52",
+        },
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "SeraphimRestApihealthOPTIONSB88B4789": {
+      "Properties": {
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "HttpMethod": "OPTIONS",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Correlation-Id'",
+                "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'",
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Max-Age": "'3600'",
+              },
+              "StatusCode": "204",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{ statusCode: 200 }",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Max-Age": true,
+            },
+            "StatusCode": "204",
+          },
+        ],
+        "ResourceId": {
+          "Ref": "SeraphimRestApihealth2C3A6C52",
+        },
+        "RestApiId": {
+          "Ref": "SeraphimRestApiD9BA4368",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "SeraphimUserPoolF02BC77D": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AccountRecoverySetting": {
+          "RecoveryMechanisms": [
+            {
+              "Name": "verified_email",
+              "Priority": 1,
+            },
+          ],
+        },
+        "AdminCreateUserConfig": {
+          "AllowAdminCreateUserOnly": true,
+        },
+        "AliasAttributes": [
+          "email",
+        ],
+        "AutoVerifiedAttributes": [
+          "email",
+        ],
+        "EmailVerificationMessage": "The verification code to your new account is {####}",
+        "EmailVerificationSubject": "Verify your new account",
+        "EnabledMfas": [
+          "SOFTWARE_TOKEN_MFA",
+        ],
+        "MfaConfiguration": "OPTIONAL",
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 12,
+            "RequireLowercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": true,
+            "RequireUppercase": true,
+            "TemporaryPasswordValidityDays": 7,
+          },
+        },
+        "Schema": [
+          {
+            "Mutable": true,
+            "Name": "email",
+            "Required": true,
+          },
+          {
+            "Mutable": true,
+            "Name": "name",
+            "Required": false,
+          },
+          {
+            "AttributeDataType": "String",
+            "Mutable": false,
+            "Name": "tenantId",
+          },
+          {
+            "AttributeDataType": "String",
+            "Mutable": true,
+            "Name": "role",
+          },
+        ],
+        "SmsVerificationMessage": "The verification code to your new account is {####}",
+        "UserPoolName": "seraphim-users",
+        "VerificationMessageTemplate": {
+          "DefaultEmailOption": "CONFIRM_WITH_CODE",
+          "EmailMessage": "The verification code to your new account is {####}",
+          "EmailSubject": "Verify your new account",
+          "SmsMessage": "The verification code to your new account is {####}",
+        },
+      },
+      "Type": "AWS::Cognito::UserPool",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimUserPoolSeraphimAppClientE6BDF8A1": {
+      "Properties": {
+        "AccessTokenValidity": 60,
+        "AllowedOAuthFlows": [
+          "implicit",
+          "code",
+        ],
+        "AllowedOAuthFlowsUserPoolClient": true,
+        "AllowedOAuthScopes": [
+          "profile",
+          "phone",
+          "email",
+          "openid",
+          "aws.cognito.signin.user.admin",
+        ],
+        "CallbackURLs": [
+          "https://example.com",
+        ],
+        "ClientName": "seraphim-app",
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_PASSWORD_AUTH",
+          "ALLOW_USER_SRP_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH",
+        ],
+        "GenerateSecret": false,
+        "IdTokenValidity": 60,
+        "PreventUserExistenceErrors": "ENABLED",
+        "RefreshTokenValidity": 43200,
+        "SupportedIdentityProviders": [
+          "COGNITO",
+        ],
+        "TokenValidityUnits": {
+          "AccessToken": "minutes",
+          "IdToken": "minutes",
+          "RefreshToken": "minutes",
+        },
+        "UserPoolId": {
+          "Ref": "SeraphimUserPoolF02BC77D",
+        },
+      },
+      "Type": "AWS::Cognito::UserPoolClient",
+    },
+    "SeraphimWebSocketApi": {
+      "Properties": {
+        "Description": "SeraphimOS WebSocket API for real-time dashboard updates",
+        "Name": "seraphim-websocket",
+        "ProtocolType": "WEBSOCKET",
+        "RouteSelectionExpression": "$request.body.action",
+      },
+      "Type": "AWS::ApiGatewayV2::Api",
+    },
+    "WebSocketStage": {
+      "Properties": {
+        "ApiId": {
+          "Ref": "SeraphimWebSocketApi",
+        },
+        "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "ThrottlingBurstLimit": 50,
+          "ThrottlingRateLimit": 25,
+        },
+        "StageName": "v1",
+      },
+      "Type": "AWS::ApiGatewayV2::Stage",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

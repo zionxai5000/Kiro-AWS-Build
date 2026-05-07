@@ -1,0 +1,215 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TenantIsolationStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "EnterpriseTierSGId": {
+      "Description": "Enterprise tier tenant security group ID",
+      "Export": {
+        "Name": "SeraphimTenantEnterpriseSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "EnterpriseTierSGA33900AD",
+          "GroupId",
+        ],
+      },
+    },
+    "FreeTierSGId": {
+      "Description": "Free tier tenant security group ID",
+      "Export": {
+        "Name": "SeraphimTenantFreeSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "FreeTierSG3C174227",
+          "GroupId",
+        ],
+      },
+    },
+    "PremiumTierSGId": {
+      "Description": "Premium tier tenant security group ID",
+      "Export": {
+        "Name": "SeraphimTenantPremiumSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "PremiumTierSG8D8A49D9",
+          "GroupId",
+        ],
+      },
+    },
+    "StandardTierSGId": {
+      "Description": "Standard tier tenant security group ID",
+      "Export": {
+        "Name": "SeraphimTenantStandardSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "StandardTierSG480C6BBD",
+          "GroupId",
+        ],
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "EnterpriseTierSGA33900AD": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS enterprise tier tenants",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "enterprise: HTTPS inbound",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+          {
+            "CidrIp": "10.0.0.0/16",
+            "Description": "enterprise: Redis from VPC only",
+            "FromPort": 6379,
+            "IpProtocol": "tcp",
+            "ToPort": 6379,
+          },
+          {
+            "CidrIp": "10.0.0.0/16",
+            "Description": "enterprise: PostgreSQL from VPC only",
+            "FromPort": 5432,
+            "IpProtocol": "tcp",
+            "ToPort": 5432,
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "VpcStack:ExportsOutputRefTestVpcE77CE67811D13B85",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "FreeTierSG3C174227": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS free tier tenants",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "free: HTTPS outbound only",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "free: HTTPS inbound",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "VpcStack:ExportsOutputRefTestVpcE77CE67811D13B85",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "PremiumTierSG8D8A49D9": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS premium tier tenants",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "premium: HTTPS inbound",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+          {
+            "CidrIp": "10.0.0.0/16",
+            "Description": "premium: Redis from VPC only",
+            "FromPort": 6379,
+            "IpProtocol": "tcp",
+            "ToPort": 6379,
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "VpcStack:ExportsOutputRefTestVpcE77CE67811D13B85",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "StandardTierSG480C6BBD": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS standard tier tenants",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "standard: HTTPS inbound",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+        ],
+        "VpcId": {
+          "Fn::ImportValue": "VpcStack:ExportsOutputRefTestVpcE77CE67811D13B85",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

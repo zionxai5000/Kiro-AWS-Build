@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SeraphimOS Dashboard</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <script>
+      // Production API Gateway URL — injected at build time for S3 hosting
+      window.__SERAPHIM_API_URL__ = 'http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com/api';
+      // Cognito authentication configuration
+      window.__SERAPHIM_COGNITO_POOL_ID__ = 'us-east-1_Sk7yrXhSI';
+      window.__SERAPHIM_COGNITO_CLIENT_ID__ = '77p41spm5d420kdg6ut9c6f4u1';
+      window.__SERAPHIM_COGNITO_REGION__ = 'us-east-1';
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

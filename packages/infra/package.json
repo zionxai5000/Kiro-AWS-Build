@@ -1,0 +1,27 @@
+{
+  "name": "@seraphim/infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AWS CDK infrastructure stacks",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@seraphim/core": "*",
+    "aws-cdk-lib": "2.178.2",
+    "constructs": "10.4.2",
+    "node-pg-migrate": "^8.0.4",
+    "pg": "^8.20.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "lint": "eslint 'src/**/*.ts'",
+    "clean": "tsc --build --clean && rm -rf dist",
+    "migrate:up": "node-pg-migrate up --tsconfig tsconfig.json --migrations-dir src/migrations --migration-file-language ts",
+    "migrate:down": "node-pg-migrate down --tsconfig tsconfig.json --migrations-dir src/migrations --migration-file-language ts",
+    "migrate:create": "node-pg-migrate create --tsconfig tsconfig.json --migrations-dir src/migrations --migration-file-language ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0"
+  }
+}

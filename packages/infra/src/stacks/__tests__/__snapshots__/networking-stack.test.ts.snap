@@ -1,0 +1,601 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`NetworkingStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "ComputeSecurityGroupId": {
+      "Description": "Compute tier security group ID",
+      "Export": {
+        "Name": "SeraphimComputeSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "ComputeSG6CF58B99",
+          "GroupId",
+        ],
+      },
+    },
+    "DataSecurityGroupId": {
+      "Description": "Data tier security group ID",
+      "Export": {
+        "Name": "SeraphimDataSGId",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "DataSG0CB91D25",
+          "GroupId",
+        ],
+      },
+    },
+    "VpcId": {
+      "Description": "SeraphimOS VPC ID",
+      "Export": {
+        "Name": "SeraphimVpcId",
+      },
+      "Value": {
+        "Ref": "SeraphimVpcF67F1559",
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "ComputeSG6CF58B99": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS compute tier (ECS Fargate, Lambda)",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "DataSG0CB91D25": {
+      "Properties": {
+        "GroupDescription": "Security group for SeraphimOS data tier (Aurora, caches)",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "255.255.255.255/32",
+            "Description": "Disallow all traffic",
+            "FromPort": 252,
+            "IpProtocol": "icmp",
+            "ToPort": 86,
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "DataSGfromTestNetworkingStackComputeSGBBF1517C5432E6512519": {
+      "Properties": {
+        "Description": "Allow PostgreSQL access from compute tier",
+        "FromPort": 5432,
+        "GroupId": {
+          "Fn::GetAtt": [
+            "DataSG0CB91D25",
+            "GroupId",
+          ],
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ComputeSG6CF58B99",
+            "GroupId",
+          ],
+        },
+        "ToPort": 5432,
+      },
+      "Type": "AWS::EC2::SecurityGroupIngress",
+    },
+    "SeraphimVpcF67F1559": {
+      "Properties": {
+        "CidrBlock": "10.0.0.0/16",
+        "EnableDnsHostnames": true,
+        "EnableDnsSupport": true,
+        "InstanceTenancy": "default",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::VPC",
+    },
+    "SeraphimVpcIGW81CD0396": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::InternetGateway",
+    },
+    "SeraphimVpcPrivateComputeSubnet1DefaultRoute06A0B2D2": {
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "SeraphimVpcPublicSubnet1NATGatewayD30A442F",
+        },
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet1RouteTable06A0BCED",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "SeraphimVpcPrivateComputeSubnet1RouteTable06A0BCED": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateComputeSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPrivateComputeSubnet1RouteTableAssociationCAEF55EF": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet1RouteTable06A0BCED",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet1SubnetE7A5372B",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPrivateComputeSubnet1SubnetE7A5372B": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.2.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "PrivateCompute",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Private",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateComputeSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcPrivateComputeSubnet2DefaultRoute61BF0437": {
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "SeraphimVpcPublicSubnet1NATGatewayD30A442F",
+        },
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet2RouteTableD0DD3FC9",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "SeraphimVpcPrivateComputeSubnet2RouteTableAssociation68CB5AC2": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet2RouteTableD0DD3FC9",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPrivateComputeSubnet2RouteTableD0DD3FC9": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateComputeSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPrivateComputeSubnet2Subnet2F6DC34C": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.3.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "PrivateCompute",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Private",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateComputeSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcPrivateDataSubnet1RouteTableAssociation36E9F43E": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateDataSubnet1RouteTableD3F96896",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPrivateDataSubnet1SubnetDE79085B",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPrivateDataSubnet1RouteTableD3F96896": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateDataSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPrivateDataSubnet1SubnetDE79085B": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.4.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "PrivateData",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateDataSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcPrivateDataSubnet2RouteTable67F38559": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateDataSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPrivateDataSubnet2RouteTableAssociationDA9F3BE8": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPrivateDataSubnet2RouteTable67F38559",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPrivateDataSubnet2Subnet102445FA",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPrivateDataSubnet2Subnet102445FA": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.5.0/24",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "PrivateData",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Isolated",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PrivateDataSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcPublicSubnet1DefaultRouteAF527938": {
+      "DependsOn": [
+        "SeraphimVpcVPCGWD9AEF4F2",
+      ],
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "SeraphimVpcIGW81CD0396",
+        },
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPublicSubnet1RouteTableAD4B3551",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "SeraphimVpcPublicSubnet1EIP54A8FE88": {
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet1",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::EIP",
+    },
+    "SeraphimVpcPublicSubnet1NATGatewayD30A442F": {
+      "DependsOn": [
+        "SeraphimVpcPublicSubnet1DefaultRouteAF527938",
+        "SeraphimVpcPublicSubnet1RouteTableAssociationE4AACB3A",
+      ],
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "SeraphimVpcPublicSubnet1EIP54A8FE88",
+            "AllocationId",
+          ],
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPublicSubnet1Subnet4E410F2B",
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet1",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::NatGateway",
+    },
+    "SeraphimVpcPublicSubnet1RouteTableAD4B3551": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPublicSubnet1RouteTableAssociationE4AACB3A": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPublicSubnet1RouteTableAD4B3551",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPublicSubnet1Subnet4E410F2B",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPublicSubnet1Subnet4E410F2B": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.0.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Public",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Public",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcPublicSubnet2DefaultRoute64123D0C": {
+      "DependsOn": [
+        "SeraphimVpcVPCGWD9AEF4F2",
+      ],
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "SeraphimVpcIGW81CD0396",
+        },
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPublicSubnet2RouteTable09AE0921",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "SeraphimVpcPublicSubnet2RouteTable09AE0921": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "SeraphimVpcPublicSubnet2RouteTableAssociation7E814FB4": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "SeraphimVpcPublicSubnet2RouteTable09AE0921",
+        },
+        "SubnetId": {
+          "Ref": "SeraphimVpcPublicSubnet2Subnet11BF3DEE",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "SeraphimVpcPublicSubnet2Subnet11BF3DEE": {
+      "Properties": {
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": "",
+            },
+          ],
+        },
+        "CidrBlock": "10.0.1.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "Public",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Public",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestNetworkingStack/SeraphimVpc/PublicSubnet2",
+          },
+        ],
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+    "SeraphimVpcVPCGWD9AEF4F2": {
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "SeraphimVpcIGW81CD0396",
+        },
+        "VpcId": {
+          "Ref": "SeraphimVpcF67F1559",
+        },
+      },
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

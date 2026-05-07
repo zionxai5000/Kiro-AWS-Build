@@ -1,0 +1,19 @@
+{
+  "name": "@seraphim/app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Application layer: ZionX app factory, ZXMG media production, Zion Alpha trading",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@seraphim/core": "*",
+    "@seraphim/services": "*",
+    "@seraphim/drivers": "*"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run --config ../../vitest.config.ts --project app",
+    "lint": "eslint 'src/**/*.ts'",
+    "clean": "tsc --build --clean && rm -rf dist"
+  }
+}

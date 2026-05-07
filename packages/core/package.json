@@ -1,0 +1,26 @@
+{
+  "name": "@seraphim/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kernel interfaces, types, state machine engine, agent runtime, DB layer",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run --config ../../vitest.config.ts --project core",
+    "lint": "eslint 'src/**/*.ts'",
+    "clean": "tsc --build --clean && rm -rf dist"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1040.0",
+    "pg": "^8.20.0",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
+}

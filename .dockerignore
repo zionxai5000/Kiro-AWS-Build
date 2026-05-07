@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/__tests__
+**/*.test.ts
+**/local-server.ts
+.git
+.github
+.kiro
+.vscode
+*.log
+*.md
+!package.json
+!package-lock.json
+!tsconfig.json
+packages/infra
+packages/dashboard

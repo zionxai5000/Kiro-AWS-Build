@@ -1,0 +1,21 @@
+{
+  "name": "@seraphim/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shaar web dashboard for SeraphimOS — real-time agent monitoring and system visibility",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "lint": "eslint 'src/**/*.ts'"
+  },
+  "dependencies": {
+    "@seraphim/core": "*"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.9.0",
+    "vite": "^6.3.5"
+  }
+}

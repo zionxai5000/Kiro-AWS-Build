@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+packages/infra/cdk.out
+packages/infra/cdk.out.deploy

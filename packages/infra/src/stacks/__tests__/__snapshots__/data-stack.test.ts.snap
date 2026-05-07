@@ -1,0 +1,682 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`DataStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "ArtifactsBucketName": {
+      "Description": "S3 artifacts bucket name",
+      "Export": {
+        "Name": "SeraphimArtifactsBucket",
+      },
+      "Value": {
+        "Ref": "ArtifactsBucket2AAC5544",
+      },
+    },
+    "AuditTrailTableName": {
+      "Description": "DynamoDB audit trail table name",
+      "Export": {
+        "Name": "SeraphimAuditTrailTable",
+      },
+      "Value": {
+        "Ref": "AuditTrailTable4CEE68C7",
+      },
+    },
+    "AuroraClusterEndpoint": {
+      "Description": "Aurora PostgreSQL cluster writer endpoint",
+      "Export": {
+        "Name": "SeraphimAuroraEndpoint",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "SeraphimAuroraDEBEBA5F",
+          "Endpoint.Address",
+        ],
+      },
+    },
+    "EventsTableName": {
+      "Description": "DynamoDB events table name",
+      "Export": {
+        "Name": "SeraphimEventsTable",
+      },
+      "Value": {
+        "Ref": "EventsTableD24865E5",
+      },
+    },
+    "LogsBucketName": {
+      "Description": "S3 logs bucket name",
+      "Export": {
+        "Name": "SeraphimLogsBucket",
+      },
+      "Value": {
+        "Ref": "LogsBucket9C4D8843",
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "ArtifactsBucket2AAC5544": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "DataEncryptionKey101796EE",
+                    "Arn",
+                  ],
+                },
+                "SSEAlgorithm": "aws:kms",
+              },
+            },
+          ],
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "TransitionToIA",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "STANDARD_IA",
+                  "TransitionInDays": 90,
+                },
+              ],
+            },
+          ],
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true,
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled",
+        },
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "ArtifactsBucketPolicy852CB646": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "ArtifactsBucket2AAC5544",
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false",
+                },
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*",
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "ArtifactsBucket2AAC5544",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ArtifactsBucket2AAC5544",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::S3::BucketPolicy",
+    },
+    "AuditTrailTable4CEE68C7": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "tenantId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "timestamp#recordId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "actionType",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "agentId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "pillar",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "actionType-index",
+            "KeySchema": [
+              {
+                "AttributeName": "actionType",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp#recordId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "agentId-index",
+            "KeySchema": [
+              {
+                "AttributeName": "agentId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp#recordId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "pillar-index",
+            "KeySchema": [
+              {
+                "AttributeName": "pillar",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp#recordId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "tenantId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "timestamp#recordId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::GetAtt": [
+              "DataEncryptionKey101796EE",
+              "Arn",
+            ],
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS",
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
+        "TableName": "seraphim-audit-trail",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "AuroraClusterParams017E4FEA": {
+      "Properties": {
+        "Description": "SeraphimOS Aurora cluster params — pgvector enabled",
+        "Family": "aurora-postgresql16",
+        "Parameters": {
+          "shared_preload_libraries": "pgvector",
+        },
+      },
+      "Type": "AWS::RDS::DBClusterParameterGroup",
+    },
+    "DataEncryptionKey101796EE": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Description": "KMS key for SeraphimOS data-layer encryption at rest",
+        "EnableKeyRotation": true,
+        "KeyPolicy": {
+          "Statement": [
+            {
+              "Action": "kms:*",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":iam::",
+                      {
+                        "Ref": "AWS::AccountId",
+                      },
+                      ":root",
+                    ],
+                  ],
+                },
+              },
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::KMS::Key",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "DataEncryptionKeyAlias1C564342": {
+      "Properties": {
+        "AliasName": "alias/seraphim/data",
+        "TargetKeyId": {
+          "Fn::GetAtt": [
+            "DataEncryptionKey101796EE",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::KMS::Alias",
+    },
+    "EventsTableD24865E5": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "tenantId#source",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "timestamp#eventId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "eventType",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "correlationId",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "eventType-index",
+            "KeySchema": [
+              {
+                "AttributeName": "eventType",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp#eventId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "correlationId-index",
+            "KeySchema": [
+              {
+                "AttributeName": "correlationId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "timestamp#eventId",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "tenantId#source",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "timestamp#eventId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::GetAtt": [
+              "DataEncryptionKey101796EE",
+              "Arn",
+            ],
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS",
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
+        "TableName": "seraphim-events",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "LogsBucket9C4D8843": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::GetAtt": [
+                    "DataEncryptionKey101796EE",
+                    "Arn",
+                  ],
+                },
+                "SSEAlgorithm": "aws:kms",
+              },
+            },
+          ],
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "ExpirationInDays": 365,
+              "Id": "ExpireLogs",
+              "Status": "Enabled",
+            },
+            {
+              "Id": "TransitionToGlacier",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "GLACIER",
+                  "TransitionInDays": 90,
+                },
+              ],
+            },
+          ],
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true,
+        },
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "LogsBucketPolicyD70D9252": {
+      "Properties": {
+        "Bucket": {
+          "Ref": "LogsBucket9C4D8843",
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false",
+                },
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*",
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "LogsBucket9C4D8843",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "LogsBucket9C4D8843",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::S3::BucketPolicy",
+    },
+    "SeraphimAuroraDEBEBA5F": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "BackupRetentionPeriod": 14,
+        "CopyTagsToSnapshot": true,
+        "DBClusterParameterGroupName": {
+          "Ref": "AuroraClusterParams017E4FEA",
+        },
+        "DBSubnetGroupName": {
+          "Ref": "SeraphimAuroraSubnetsDD4E528E",
+        },
+        "DatabaseName": "seraphim",
+        "DeletionProtection": true,
+        "Engine": "aurora-postgresql",
+        "EngineVersion": "16.6",
+        "KmsKeyId": {
+          "Fn::GetAtt": [
+            "DataEncryptionKey101796EE",
+            "Arn",
+          ],
+        },
+        "MasterUserPassword": {
+          "Fn::Join": [
+            "",
+            [
+              "{{resolve:secretsmanager:",
+              {
+                "Ref": "SeraphimAuroraSecret3FC38113",
+              },
+              ":SecretString:password::}}",
+            ],
+          ],
+        },
+        "MasterUsername": {
+          "Fn::Join": [
+            "",
+            [
+              "{{resolve:secretsmanager:",
+              {
+                "Ref": "SeraphimAuroraSecret3FC38113",
+              },
+              ":SecretString:username::}}",
+            ],
+          ],
+        },
+        "Port": 5432,
+        "ServerlessV2ScalingConfiguration": {
+          "MaxCapacity": 8,
+          "MinCapacity": 0.5,
+        },
+        "StorageEncrypted": true,
+        "VpcSecurityGroupIds": [
+          {
+            "Fn::ImportValue": "TestNetworkingStack:ExportsOutputFnGetAttDataSG0CB91D25GroupIdF4B41159",
+          },
+        ],
+      },
+      "Type": "AWS::RDS::DBCluster",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimAuroraReader3466277A": {
+      "DeletionPolicy": "Retain",
+      "DependsOn": [
+        "SeraphimAuroraWriterFC984F2C",
+      ],
+      "Properties": {
+        "DBClusterIdentifier": {
+          "Ref": "SeraphimAuroraDEBEBA5F",
+        },
+        "DBInstanceClass": "db.serverless",
+        "Engine": "aurora-postgresql",
+        "PromotionTier": 1,
+        "PubliclyAccessible": false,
+      },
+      "Type": "AWS::RDS::DBInstance",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimAuroraSecret3FC38113": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": {
+          "Fn::Join": [
+            "",
+            [
+              "Generated by the CDK for stack: ",
+              {
+                "Ref": "AWS::StackName",
+              },
+            ],
+          ],
+        },
+        "GenerateSecretString": {
+          "ExcludeCharacters": " %+~\`#$&*()|[]{}:;<>?!'/@"\\",
+          "GenerateStringKey": "password",
+          "PasswordLength": 30,
+          "SecretStringTemplate": "{"username":"postgres"}",
+        },
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "SeraphimAuroraSecretAttachmentEC5DCE79": {
+      "Properties": {
+        "SecretId": {
+          "Ref": "SeraphimAuroraSecret3FC38113",
+        },
+        "TargetId": {
+          "Ref": "SeraphimAuroraDEBEBA5F",
+        },
+        "TargetType": "AWS::RDS::DBCluster",
+      },
+      "Type": "AWS::SecretsManager::SecretTargetAttachment",
+    },
+    "SeraphimAuroraSubnetsDD4E528E": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "DBSubnetGroupDescription": "Subnets for SeraphimAurora database",
+        "SubnetIds": [
+          {
+            "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateDataSubnet1SubnetDE79085B49A7BA31",
+          },
+          {
+            "Fn::ImportValue": "TestNetworkingStack:ExportsOutputRefSeraphimVpcPrivateDataSubnet2Subnet102445FAD18D63CE",
+          },
+        ],
+      },
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "SeraphimAuroraWriterFC984F2C": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "DBClusterIdentifier": {
+          "Ref": "SeraphimAuroraDEBEBA5F",
+        },
+        "DBInstanceClass": "db.serverless",
+        "Engine": "aurora-postgresql",
+        "PromotionTier": 0,
+        "PubliclyAccessible": false,
+      },
+      "Type": "AWS::RDS::DBInstance",
+      "UpdateReplacePolicy": "Retain",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

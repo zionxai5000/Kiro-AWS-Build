@@ -1,0 +1,20 @@
+{
+  "name": "@seraphim/drivers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "External service adapters: App Store, YouTube, Kalshi, etc.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@seraphim/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run --config ../../vitest.config.ts --project drivers",
+    "lint": "eslint 'src/**/*.ts'",
+    "clean": "tsc --build --clean && rm -rf dist"
+  }
+}

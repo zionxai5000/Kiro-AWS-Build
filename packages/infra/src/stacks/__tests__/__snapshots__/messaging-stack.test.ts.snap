@@ -1,0 +1,1031 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MessagingStack > should match the CloudFormation snapshot 1`] = `
+{
+  "Outputs": {
+    "AlertQueueUrl": {
+      "Description": "Alert queue URL",
+      "Export": {
+        "Name": "SeraphimAlertQueueUrl",
+      },
+      "Value": {
+        "Ref": "AlertQueue78A7D684",
+      },
+    },
+    "AuditQueueUrl": {
+      "Description": "Audit FIFO queue URL",
+      "Export": {
+        "Name": "SeraphimAuditQueueUrl",
+      },
+      "Value": {
+        "Ref": "AuditQueue1D3C234B",
+      },
+    },
+    "BaselineUpdatedHandlerArn": {
+      "Description": "Baseline updated handler Lambda ARN",
+      "Export": {
+        "Name": "SeraphimBaselineUpdatedHandlerArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "BaselineUpdatedHandler9E3742D6",
+          "Arn",
+        ],
+      },
+    },
+    "EventBusArn": {
+      "Description": "EventBridge custom event bus ARN",
+      "Export": {
+        "Name": "SeraphimEventBusArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "SeraphimEventBus844C9539",
+          "Arn",
+        ],
+      },
+    },
+    "EventBusName": {
+      "Description": "EventBridge custom event bus name",
+      "Export": {
+        "Name": "SeraphimEventBusName",
+      },
+      "Value": {
+        "Ref": "SeraphimEventBus844C9539",
+      },
+    },
+    "LearningQueueUrl": {
+      "Description": "Learning queue URL",
+      "Export": {
+        "Name": "SeraphimLearningQueueUrl",
+      },
+      "Value": {
+        "Ref": "LearningQueue6E327ECF",
+      },
+    },
+    "MemoryQueueUrl": {
+      "Description": "Memory queue URL",
+      "Export": {
+        "Name": "SeraphimMemoryQueueUrl",
+      },
+      "Value": {
+        "Ref": "MemoryQueue4814398B",
+      },
+    },
+    "ReferenceIngestionQueueUrl": {
+      "Description": "Reference ingestion queue URL",
+      "Export": {
+        "Name": "SeraphimReferenceIngestionQueueUrl",
+      },
+      "Value": {
+        "Ref": "ReferenceIngestionQueue2421BFB5",
+      },
+    },
+    "WorkflowQueueUrl": {
+      "Description": "Workflow FIFO queue URL",
+      "Export": {
+        "Name": "SeraphimWorkflowQueueUrl",
+      },
+      "Value": {
+        "Ref": "WorkflowQueue883428C9",
+      },
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+  },
+  "Resources": {
+    "AlertDLQC893C774": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-alert-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AlertEventRule2EF30398": {
+      "Properties": {
+        "Description": "Routes alert and notification events to the alert queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "alert.threshold.exceeded",
+            "alert.agent.degraded",
+            "alert.budget.exceeded",
+            "alert.driver.failure",
+            "alert.security.violation",
+            "alert.system.health",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-alert-events",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "AlertQueue78A7D684",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "AlertQueue78A7D684": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-alert-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "AlertDLQC893C774",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 30,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AlertQueuePolicyF8935DD2": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "AlertEventRule2EF30398",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AlertQueue78A7D684",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "ReferenceIngestionFailedRule4879A139",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AlertQueue78A7D684",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "AlertQueue78A7D684",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+    "AuditDLQ88DC7299": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "ContentBasedDeduplication": true,
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-audit-events-dlq.fifo",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AuditEventRuleE4660C93": {
+      "Properties": {
+        "Description": "Routes audit-related events to the audit FIFO queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "audit.action.recorded",
+            "audit.governance.decision",
+            "audit.state.transition",
+            "audit.security.event",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-audit-events",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "AuditQueue1D3C234B",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+            "SqsParameters": {
+              "MessageGroupId": "audit-events",
+            },
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "AuditQueue1D3C234B": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "ContentBasedDeduplication": true,
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-audit-events.fifo",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "AuditDLQ88DC7299",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "AuditQueuePolicyAD440BFB": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "AuditEventRuleE4660C93",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AuditQueue1D3C234B",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "AuditQueue1D3C234B",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+    "BaselineUpdatedHandler9E3742D6": {
+      "DependsOn": [
+        "BaselineUpdatedHandlerServiceRoleDefaultPolicyA897A5C9",
+        "BaselineUpdatedHandlerServiceRole8D33B949",
+      ],
+      "Properties": {
+        "Architectures": [
+          "arm64",
+        ],
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
+          },
+          "S3Key": "5b4305cf6d018d7ef373b5aef623384178958e57001660d74fd498d2ec020c94.zip",
+        },
+        "Description": "Processes baseline.updated events, notifies Training Cascade and Quality Gate",
+        "Environment": {
+          "Variables": {
+            "EVENT_BUS_NAME": {
+              "Ref": "SeraphimEventBus844C9539",
+            },
+            "NODE_ENV": "production",
+          },
+        },
+        "FunctionName": "seraphim-baseline-updated-handler",
+        "Handler": "handlers/baseline-updated-handler.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "BaselineUpdatedHandlerServiceRole8D33B949",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs20.x",
+        "Timeout": 30,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "BaselineUpdatedHandlerServiceRole8D33B949": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BaselineUpdatedHandlerServiceRoleDefaultPolicyA897A5C9": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueUrl",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ReferenceIngestionQueue2421BFB5",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": "events:PutEvents",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "SeraphimEventBus844C9539",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BaselineUpdatedHandlerServiceRoleDefaultPolicyA897A5C9",
+        "Roles": [
+          {
+            "Ref": "BaselineUpdatedHandlerServiceRole8D33B949",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "BaselineUpdatedHandlerSqsEventSourceTestMessagingStackReferenceIngestionQueue29FE24714DE0699A": {
+      "Properties": {
+        "BatchSize": 10,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "ReferenceIngestionQueue2421BFB5",
+            "Arn",
+          ],
+        },
+        "FunctionName": {
+          "Ref": "BaselineUpdatedHandler9E3742D6",
+        },
+        "MaximumBatchingWindowInSeconds": 5,
+      },
+      "Type": "AWS::Lambda::EventSourceMapping",
+    },
+    "BaselineUpdatedRule8B9A30D1": {
+      "Properties": {
+        "Description": "Routes baseline.updated events to Quality Gate and Training Cascade consumers",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "baseline.updated",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-baseline-updated",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ReferenceIngestionQueue2421BFB5",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "LearningDLQ3FF2C584": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-learning-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "LearningEventRule80BFB9D7": {
+      "Properties": {
+        "Description": "Routes learning and improvement events to the learning queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "learning.pattern.detected",
+            "learning.fix.proposed",
+            "learning.fix.verified",
+            "learning.fix.applied",
+            "learning.failure.analyzed",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-learning-events",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "LearningQueue6E327ECF",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "LearningQueue6E327ECF": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-learning-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "LearningDLQ3FF2C584",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "LearningQueuePolicy7273F09E": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "LearningEventRule80BFB9D7",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "LearningQueue6E327ECF",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "LearningQueue6E327ECF",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+    "MemoryDLQ4E6BFD76": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-memory-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MemoryEventRule710546E8": {
+      "Properties": {
+        "Description": "Routes memory-related events to the memory queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "memory.episodic.stored",
+            "memory.semantic.stored",
+            "memory.procedural.stored",
+            "memory.working.updated",
+            "memory.entity.extracted",
+            "memory.conflict.detected",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-memory-events",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "MemoryQueue4814398B",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "MemoryQueue4814398B": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-memory-events",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "MemoryDLQ4E6BFD76",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "MemoryQueuePolicyF8FBE206": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "MemoryEventRule710546E8",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "MemoryQueue4814398B",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "MemoryQueue4814398B",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+    "ReferenceIngestedRuleC4B28866": {
+      "Properties": {
+        "Description": "Routes reference.ingested events to the reference ingestion queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "reference.ingested",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-reference-ingested",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ReferenceIngestionQueue2421BFB5",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "ReferenceIngestionDLQ34922948": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-reference-ingestion-events-dlq",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ReferenceIngestionFailedRule4879A139": {
+      "Properties": {
+        "Description": "Routes reference.ingestion.failed events to the alert queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "reference.ingestion.failed",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-reference-ingestion-failed",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "AlertQueue78A7D684",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "ReferenceIngestionQueue2421BFB5": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-reference-ingestion-queue",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "ReferenceIngestionDLQ34922948",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ReferenceIngestionQueuePolicyC0BEECD6": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "ReferenceIngestedRuleC4B28866",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ReferenceIngestionQueue2421BFB5",
+                  "Arn",
+                ],
+              },
+            },
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "BaselineUpdatedRule8B9A30D1",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ReferenceIngestionQueue2421BFB5",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "ReferenceIngestionQueue2421BFB5",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+    "SeraphimEventBus844C9539": {
+      "Properties": {
+        "Name": "seraphim-events",
+      },
+      "Type": "AWS::Events::EventBus",
+    },
+    "WorkflowDLQDFB65C35": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "ContentBasedDeduplication": true,
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "QueueName": "seraphim-workflow-events-dlq.fifo",
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "WorkflowEventRule0A08CCA4": {
+      "Properties": {
+        "Description": "Routes workflow and state transition events to the workflow FIFO queue",
+        "EventBusName": {
+          "Ref": "SeraphimEventBus844C9539",
+        },
+        "EventPattern": {
+          "detail-type": [
+            "workflow.state.transition",
+            "workflow.gate.evaluated",
+            "workflow.completed",
+            "workflow.failed",
+            "agent.lifecycle.deployed",
+            "agent.lifecycle.upgraded",
+            "agent.lifecycle.terminated",
+          ],
+          "source": [
+            {
+              "prefix": "seraphim.",
+            },
+          ],
+        },
+        "Name": "seraphim-route-workflow-events",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "WorkflowQueue883428C9",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+            "SqsParameters": {
+              "MessageGroupId": "workflow-events",
+            },
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "WorkflowQueue883428C9": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "ContentBasedDeduplication": true,
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 604800,
+        "QueueName": "seraphim-workflow-events.fifo",
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "WorkflowDLQDFB65C35",
+              "Arn",
+            ],
+          },
+          "maxReceiveCount": 3,
+        },
+        "VisibilityTimeout": 60,
+      },
+      "Type": "AWS::SQS::Queue",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "WorkflowQueuePolicyD2E900B3": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+              ],
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "WorkflowEventRule0A08CCA4",
+                      "Arn",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com",
+              },
+              "Resource": {
+                "Fn::GetAtt": [
+                  "WorkflowQueue883428C9",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Queues": [
+          {
+            "Ref": "WorkflowQueue883428C9",
+          },
+        ],
+      },
+      "Type": "AWS::SQS::QueuePolicy",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

@@ -440,12 +440,53 @@ async function main() {
   // Credential Manager — reads from .env locally, Secrets Manager in production
   const credentialManager = new LocalCredentialManager();
 
+  // Load LLM API keys from Secrets Manager into process.env for runtime access
+  try {
+    const { SecretsManagerClient, GetSecretValueCommand } = await import('@aws-sdk/client-secrets-manager');
+    const secretsClient = new SecretsManagerClient({ region: REGION });
+
+    // Load Anthropic key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      try {
+        const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/anthropic' }));
+        if (resp.SecretString) {
+          try {
+            const parsed = JSON.parse(resp.SecretString);
+            process.env.ANTHROPIC_API_KEY = parsed.apiKey || parsed.api_key || parsed.ANTHROPIC_API_KEY || resp.SecretString;
+          } catch {
+            process.env.ANTHROPIC_API_KEY = resp.SecretString;
+          }
+        }
+      } catch (e) { console.warn(`   ⚠️ Could not load seraphim/anthropic: ${(e as Error).message}`); }
+    }
+
+    // Load OpenAI key
+    if (!process.env.OPENAI_API_KEY) {
+      try {
+        const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/openai' }));
+        if (resp.SecretString) {
+          try {
+            const parsed = JSON.parse(resp.SecretString);
+            process.env.OPENAI_API_KEY = parsed.apiKey || parsed.api_key || parsed.OPENAI_API_KEY || resp.SecretString;
+          } catch {
+            process.env.OPENAI_API_KEY = resp.SecretString;
+          }
+        }
+      } catch (e) { console.warn(`   ⚠️ Could not load seraphim/openai: ${(e as Error).message}`); }
+    }
+  } catch (e) {
+    console.warn(`   ⚠️ Secrets Manager SDK not available: ${(e as Error).message}`);
+  }
+
   // Check LLM provider availability
-  const anthropicKey = await credentialManager.getCredential('anthropic', 'api-key');
-  const openaiKey = await credentialManager.getCredential('openai', 'api-key');
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || await credentialManager.getCredential('anthropic', 'api-key');
+  const openaiKey = process.env.OPENAI_API_KEY || await credentialManager.getCredential('openai', 'api-key');
+  // Ensure env vars are set for runtime access
+  if (anthropicKey && !process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = anthropicKey;
+  if (openaiKey && !process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = openaiKey;
   console.log(`🤖 LLM Providers:`);
-  console.log(`   Anthropic (Claude): ${anthropicKey ? '✅ API key configured' : '⚠️ No API key — stub mode'}`);
-  console.log(`   OpenAI (GPT): ${openaiKey ? '✅ API key configured' : '⚠️ No API key — stub mode'}`);
+  console.log(`   Anthropic (Claude): ${process.env.ANTHROPIC_API_KEY ? '✅ API key loaded' : '⚠️ No API key — stub mode'}`);
+  console.log(`   OpenAI (GPT): ${process.env.OPENAI_API_KEY ? '✅ API key loaded' : '⚠️ No API key — stub mode'}`);
 
 
   const mishmarService = new MishmarServiceImpl({

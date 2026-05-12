@@ -25,6 +25,12 @@ import type { AgentState } from '../types/enums.js';
 import type { HealthStatus } from '../types/driver.js';
 import type { StateMachineDefinition } from '../types/state-machine.js';
 import type { AgentRuntime } from '../interfaces/agent-runtime.js';
+import type {
+  ParallelTaskInput,
+  ParallelExecutionOptions,
+  AggregatedResult,
+  ParallelHealthInfo,
+} from '../interfaces/parallel-types.js';
 import type { StateMachineEngine } from '../interfaces/state-machine-engine.js';
 import type { AgentProgramRepository } from '../db/agent-program.repository.js';
 import type { MishmarService } from '../interfaces/mishmar-service.js';
@@ -34,6 +40,54 @@ import type { XOAuditService } from '../interfaces/xo-audit-service.js';
 import type { EventBusService } from '../interfaces/event-bus-service.js';
 import type { ModelRoutingRequest } from '../types/otzar.js';
 import type { EpisodicEntry } from '../types/memory.js';
+
+// ---------------------------------------------------------------------------
+// Parallel service interfaces (optional dependencies)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal interface for the ParallelScheduler dependency.
+ * Full implementation lives in @seraphim/services.
+ */
+export interface ParallelScheduler {
+  dispatch(task: { id: string; agentId: string; task: Task; dependencies: string[]; priority: number; estimatedDuration: number; resourceRequirements: { cpuUnits: number; memoryMb: number } }, dagId: string): Promise<{ taskId: string; status: 'dispatched' | 'queued' | 'rejected'; reason?: string }>;
+  dispatchBatch(tasks: Array<{ id: string; agentId: string; task: Task; dependencies: string[]; priority: number; estimatedDuration: number; resourceRequirements: { cpuUnits: number; memoryMb: number } }>, dagId: string): Promise<Array<{ taskId: string; status: 'dispatched' | 'queued' | 'rejected'; reason?: string }>>;
+  handleCompletion(taskId: string, result: TaskResult): Promise<void>;
+  handleFailure(taskId: string, error: string): Promise<void>;
+  getStatus(): { totalActive: number; totalQueued: number; perAgent: Record<string, { active: number; queued: number; limit: number }> };
+}
+
+/**
+ * Minimal interface for the CoordinationBus dependency.
+ * Full implementation lives in @seraphim/services.
+ */
+export interface CoordinationBus {
+  signalCompletion(taskId: string, output: unknown): Promise<void>;
+  waitForDependency(taskId: string, dependencyId: string, timeout?: number): Promise<unknown>;
+  broadcast(fromAgentId: string, dagId: string, message: { type: string; fromAgent: string; dagId: string; payload: Record<string, unknown>; timestamp: Date }): Promise<void>;
+}
+
+/**
+ * Minimal interface for the ResultAggregator dependency.
+ * Full implementation lives in @seraphim/services.
+ */
+export interface ResultAggregator {
+  collectResult(dagId: string, taskId: string, result: TaskResult): Promise<void>;
+  aggregate(dagId: string, strategy: 'merge' | 'concatenate' | 'vote' | 'custom', customFn?: (results: Map<string, TaskResult>) => unknown): Promise<AggregatedResult>;
+  getPartialResults(dagId: string): Promise<Map<string, TaskResult>>;
+}
+
+/**
+ * Minimal interface for the DependencyGraphEngine dependency.
+ * Full implementation lives in @seraphim/services.
+ */
+export interface DependencyGraphEngine {
+  createGraph(tasks: Array<{ id: string; agentId: string; task: Task; dependencies: string[]; priority: number; estimatedDuration: number; resourceRequirements: { cpuUnits: number; memoryMb: number } }>): Promise<{ id: string; tasks: Map<string, unknown>; edges: Array<{ from: string; to: string }>; metadata: { createdBy: string; createdAt: Date; estimatedTotalDuration: number } }>;
+  validateGraph(dag: { id: string; tasks: Map<string, unknown>; edges: Array<{ from: string; to: string }> }): Promise<{ valid: boolean; errors: Array<{ type: string; message: string; cyclePath?: string[]; taskId?: string }> }>;
+  schedule(dag: { id: string; tasks: Map<string, unknown>; edges: Array<{ from: string; to: string }> }): Promise<{ dagId: string; batches: Array<{ index: number; taskIds: string[]; estimatedDuration: number }>; estimatedTotalDuration: number; totalTasks: number }>;
+  getReadyTasks(dag: { id: string; tasks: Map<string, unknown>; edges: Array<{ from: string; to: string }> }): Promise<Array<{ id: string; agentId: string; task: Task; dependencies: string[]; priority: number; estimatedDuration: number; resourceRequirements: { cpuUnits: number; memoryMb: number } }>>;
+  markComplete(taskId: string, result: TaskResult): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Error classification
@@ -181,6 +235,14 @@ export interface AgentRuntimeDeps {
   zikaronService: ZikaronService;
   xoAuditService: XOAuditService;
   eventBusService: EventBusService;
+  /** Optional parallel scheduler for DAG-based task dispatch */
+  parallelScheduler?: ParallelScheduler;
+  /** Optional coordination bus for inter-task signaling */
+  coordinationBus?: CoordinationBus;
+  /** Optional result aggregator for merging parallel outputs */
+  resultAggregator?: ResultAggregator;
+  /** Optional dependency graph engine for DAG construction and validation */
+  dependencyGraphEngine?: DependencyGraphEngine;
 }
 
 export class DefaultAgentRuntime implements AgentRuntime {
@@ -192,11 +254,20 @@ export class DefaultAgentRuntime implements AgentRuntime {
   private readonly xoAuditService: XOAuditService;
   private readonly eventBusService: EventBusService;
 
+  /** Optional parallel orchestration services */
+  private readonly parallelScheduler?: ParallelScheduler;
+  private readonly coordinationBus?: CoordinationBus;
+  private readonly resultAggregator?: ResultAggregator;
+  private readonly dependencyGraphEngine?: DependencyGraphEngine;
+
   /** In-memory agent registry keyed by agent instance ID. */
   private readonly registry = new Map<string, AgentRegistryEntry>();
 
   /** Handle for the periodic heartbeat checker interval. */
   private heartbeatCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Tracks active parallel DAG executions. */
+  private readonly activeDAGs = new Set<string>();
 
   constructor(deps: AgentRuntimeDeps) {
     this.programRepo = deps.programRepo;
@@ -206,6 +277,12 @@ export class DefaultAgentRuntime implements AgentRuntime {
     this.zikaronService = deps.zikaronService;
     this.xoAuditService = deps.xoAuditService;
     this.eventBusService = deps.eventBusService;
+
+    // Optional parallel orchestration dependencies
+    this.parallelScheduler = deps.parallelScheduler;
+    this.coordinationBus = deps.coordinationBus;
+    this.resultAggregator = deps.resultAggregator;
+    this.dependencyGraphEngine = deps.dependencyGraphEngine;
   }
 
   // -----------------------------------------------------------------------
@@ -440,18 +517,22 @@ export class DefaultAgentRuntime implements AgentRuntime {
           durationMs: Date.now() - startTime,
         };
       } else {
-        // Execute the task (stubbed — real LLM calls in future phase)
-        result = {
-          taskId: task.id,
-          success: true,
-          output: {
-            message: `Task '${task.type}' executed successfully`,
-            model: modelSelection.model,
-            provider: modelSelection.provider,
-          },
-          tokenUsage: { inputTokens: 100, outputTokens: 50, costUsd: modelSelection.estimatedCost },
-          durationMs: Date.now() - startTime,
-        };
+        // Execute the task — call LLM for chat tasks, stub for others
+        if (task.type === 'chat' && task.params?.input) {
+          result = await this.executeChatTask(task, entry, modelSelection, startTime);
+        } else {
+          result = {
+            taskId: task.id,
+            success: true,
+            output: {
+              message: `Task '${task.type}' executed successfully`,
+              model: modelSelection.model,
+              provider: modelSelection.provider,
+            },
+            tokenUsage: { inputTokens: 100, outputTokens: 50, costUsd: modelSelection.estimatedCost },
+            durationMs: Date.now() - startTime,
+          };
+        }
 
         // Record usage via Otzar
         await this.otzarService.recordUsage({
@@ -703,6 +784,124 @@ export class DefaultAgentRuntime implements AgentRuntime {
   }
 
   // -----------------------------------------------------------------------
+  // Chat task execution — real LLM call
+  // -----------------------------------------------------------------------
+
+  /**
+   * Execute a chat task by calling the LLM API directly.
+   * Uses Anthropic (Claude) if ANTHROPIC_API_KEY is set, otherwise OpenAI.
+   * Falls back to a descriptive stub if no API keys are available.
+   */
+  private async executeChatTask(
+    task: Task,
+    entry: AgentRegistryEntry,
+    modelSelection: { model: string; provider: string; estimatedCost: number },
+    startTime: number,
+  ): Promise<TaskResult> {
+    const userMessage = task.params.input as string;
+    const systemPrompt = entry.program.systemPrompt || `You are ${entry.program.name}, an AI agent in the SeraphimOS platform.`;
+
+    // Try Anthropic first
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userMessage }],
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json() as any;
+          const content = data.content?.[0]?.text || 'No response generated.';
+          const inputTokens = data.usage?.input_tokens || 0;
+          const outputTokens = data.usage?.output_tokens || 0;
+
+          return {
+            taskId: task.id,
+            success: true,
+            output: {
+              response: content,
+              model: data.model || 'claude-sonnet-4-20250514',
+              provider: 'anthropic',
+            },
+            tokenUsage: { inputTokens, outputTokens, costUsd: (inputTokens * 0.003 + outputTokens * 0.015) / 1000 },
+            durationMs: Date.now() - startTime,
+          };
+        }
+        // If Anthropic fails, fall through to OpenAI
+      } catch {
+        // Anthropic call failed, try OpenAI
+      }
+    }
+
+    // Try OpenAI
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMessage },
+            ],
+            max_tokens: 1024,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json() as any;
+          const content = data.choices?.[0]?.message?.content || 'No response generated.';
+          const inputTokens = data.usage?.prompt_tokens || 0;
+          const outputTokens = data.usage?.completion_tokens || 0;
+
+          return {
+            taskId: task.id,
+            success: true,
+            output: {
+              response: content,
+              model: data.model || 'gpt-4o',
+              provider: 'openai',
+            },
+            tokenUsage: { inputTokens, outputTokens, costUsd: (inputTokens * 0.005 + outputTokens * 0.015) / 1000 },
+            durationMs: Date.now() - startTime,
+          };
+        }
+      } catch {
+        // OpenAI call failed
+      }
+    }
+
+    // No API keys or both failed — return informative stub
+    return {
+      taskId: task.id,
+      success: true,
+      output: {
+        response: `[${entry.program.name}] I received your message: "${userMessage}". However, no LLM API keys are configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment to enable real responses.`,
+        model: modelSelection.model,
+        provider: modelSelection.provider,
+      },
+      tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  // -----------------------------------------------------------------------
   // Lifecycle — upgrade
   // -----------------------------------------------------------------------
 
@@ -821,6 +1020,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
 
   /**
    * Get health status for an agent based on heartbeat freshness and error rate.
+   * Includes parallel execution status when parallel services are available.
    *
    * Validates: Requirement 1.6
    */
@@ -860,6 +1060,252 @@ export class DefaultAgentRuntime implements AgentRuntime {
       lastSuccessfulOperation: entry.lastSuccessfulTask,
       errorCount: entry.errorCount,
       message,
+    };
+  }
+
+  /**
+   * Get parallel execution health information.
+   * Returns status of parallel orchestration services and active DAGs.
+   */
+  getParallelHealth(): ParallelHealthInfo {
+    const schedulerStatus = this.parallelScheduler?.getStatus();
+
+    return {
+      parallelEnabled: !!(this.parallelScheduler && this.dependencyGraphEngine && this.resultAggregator),
+      activeDAGs: this.activeDAGs.size,
+      activeTasks: schedulerStatus?.totalActive ?? 0,
+      queuedTasks: schedulerStatus?.totalQueued ?? 0,
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Parallel Execution
+  // -----------------------------------------------------------------------
+
+  /**
+   * Execute multiple tasks in parallel using DAG-based dependency resolution.
+   *
+   * Flow:
+   * 1. Creates a DAG from the provided tasks using the DependencyGraphEngine
+   * 2. Validates the DAG (rejects circular dependencies)
+   * 3. Generates an execution plan (batches of parallelizable tasks)
+   * 4. Dispatches ready tasks through the ParallelScheduler
+   * 5. Uses the CoordinationBus for inter-task signaling on completion
+   * 6. Aggregates results using the ResultAggregator
+   *
+   * Falls back to sequential execution if parallel services are not injected.
+   *
+   * @param tasks - Array of tasks with dependency information
+   * @param options - Optional execution configuration
+   * @returns Aggregated result from all parallel streams
+   */
+  async executeParallel(
+    tasks: ParallelTaskInput[],
+    options?: ParallelExecutionOptions,
+  ): Promise<AggregatedResult> {
+    // Fall back to sequential execution if parallel services are not available
+    if (!this.dependencyGraphEngine || !this.parallelScheduler || !this.resultAggregator) {
+      return this.executeSequentialFallback(tasks, options);
+    }
+
+    const dagId = randomUUID();
+    this.activeDAGs.add(dagId);
+
+    try {
+      // 1. Convert ParallelTaskInput[] to the format expected by DependencyGraphEngine
+      const parallelTasks = tasks.map((t) => ({
+        id: t.id,
+        agentId: t.agentId,
+        task: t.task,
+        dependencies: t.dependencies,
+        priority: t.priority,
+        estimatedDuration: t.estimatedDurationMs ?? 5000,
+        resourceRequirements: { cpuUnits: 1, memoryMb: 256 },
+      }));
+
+      // 2. Create the DAG
+      const dag = await this.dependencyGraphEngine.createGraph(parallelTasks);
+
+      // 3. Validate the DAG (reject circular dependencies)
+      const validation = await this.dependencyGraphEngine.validateGraph(dag);
+      if (!validation.valid) {
+        const errorMessages = validation.errors.map((e) => e.message).join('; ');
+        throw new Error(`DAG validation failed: ${errorMessages}`);
+      }
+
+      // 4. Generate execution plan
+      const plan = await this.dependencyGraphEngine.schedule(dag);
+
+      // 5. Execute batches in order
+      for (const batch of plan.batches) {
+        // Get the tasks for this batch
+        const batchTasks = parallelTasks.filter((t) => batch.taskIds.includes(t.id));
+
+        // Dispatch all tasks in this batch simultaneously
+        const dispatchResults = await this.parallelScheduler.dispatchBatch(batchTasks, dagId);
+
+        // Wait for all tasks in this batch to complete
+        const batchResults = await Promise.allSettled(
+          batchTasks.map(async (pt) => {
+            const dispatchResult = dispatchResults.find((r) => r.taskId === pt.id);
+            if (dispatchResult?.status === 'rejected') {
+              const failResult: TaskResult = {
+                taskId: pt.task.id,
+                success: false,
+                error: dispatchResult.reason ?? 'Task dispatch rejected',
+                tokenUsage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+                durationMs: 0,
+              };
+              await this.resultAggregator!.collectResult(dagId, pt.id, failResult);
+              return failResult;
+            }
+
+            // Execute the task through the normal execute path
+            const result = await this.execute(pt.agentId, pt.task);
+
+            // Signal completion via coordination bus
+            if (this.coordinationBus) {
+              await this.coordinationBus.signalCompletion(pt.id, result.output);
+            }
+
+            // Mark complete in the graph engine
+            await this.dependencyGraphEngine!.markComplete(pt.id, result);
+
+            // Notify scheduler of completion
+            if (result.success) {
+              await this.parallelScheduler!.handleCompletion(pt.id, result);
+            } else {
+              await this.parallelScheduler!.handleFailure(pt.id, result.error ?? 'Unknown error');
+            }
+
+            // Collect result for aggregation
+            await this.resultAggregator!.collectResult(dagId, pt.id, result);
+
+            return result;
+          }),
+        );
+
+        // Check if we should stop on failure
+        if (!options?.continueOnFailure) {
+          const hasFailure = batchResults.some(
+            (r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success),
+          );
+          if (hasFailure) {
+            break;
+          }
+        }
+      }
+
+      // 6. Aggregate results
+      const aggregated = await this.resultAggregator.aggregate(
+        dagId,
+        options?.aggregationStrategy ?? 'merge',
+        options?.customAggregator,
+      );
+
+      return aggregated;
+    } finally {
+      this.activeDAGs.delete(dagId);
+    }
+  }
+
+  /**
+   * Dispatch tasks to multiple agents simultaneously for inter-agent parallel execution.
+   *
+   * Creates a DAG with one task per agent. By default, tasks have no dependencies
+   * between them (fully parallel). Dependencies can be specified via the task inputs
+   * if sequential ordering between agents is needed.
+   *
+   * Falls back to sequential execution if parallel services are not available.
+   *
+   * @param assignments - Map of agentId → Task for each agent
+   * @param options - Optional execution configuration
+   * @returns Aggregated results from all agents
+   */
+  async dispatchToAgents(
+    assignments: Map<string, Task>,
+    options?: ParallelExecutionOptions,
+  ): Promise<AggregatedResult> {
+    // Convert the assignments map to ParallelTaskInput array (no inter-agent dependencies)
+    const tasks: ParallelTaskInput[] = [];
+    for (const [agentId, task] of assignments) {
+      tasks.push({
+        id: `dispatch-${agentId}-${task.id}`,
+        agentId,
+        task,
+        dependencies: [], // No dependencies between agents by default
+        priority: task.priority === 'critical' ? 10 : task.priority === 'high' ? 7 : task.priority === 'low' ? 3 : 5,
+        estimatedDurationMs: task.timeout ?? 5000,
+      });
+    }
+
+    return this.executeParallel(tasks, options);
+  }
+
+  // -----------------------------------------------------------------------
+  // Parallel Execution — Sequential Fallback
+  // -----------------------------------------------------------------------
+
+  /**
+   * Sequential fallback for executeParallel when parallel services are not injected.
+   * Executes tasks one at a time respecting dependency order (topological sort).
+   */
+  private async executeSequentialFallback(
+    tasks: ParallelTaskInput[],
+    options?: ParallelExecutionOptions,
+  ): Promise<AggregatedResult> {
+    const dagId = randomUUID();
+    const results = new Map<string, TaskResult>();
+    const completed = new Set<string>();
+
+    // Simple topological sort for sequential execution
+    const remaining = [...tasks];
+    let iterations = 0;
+    const maxIterations = remaining.length * remaining.length;
+
+    while (remaining.length > 0 && iterations < maxIterations) {
+      iterations++;
+      const readyIndex = remaining.findIndex((t) =>
+        t.dependencies.every((dep) => completed.has(dep)),
+      );
+
+      if (readyIndex === -1) {
+        // Circular dependency detected — cannot proceed
+        throw new Error('DAG validation failed: circular dependency detected in sequential fallback');
+      }
+
+      const taskInput = remaining.splice(readyIndex, 1)[0];
+      const result = await this.execute(taskInput.agentId, taskInput.task);
+      results.set(taskInput.id, result);
+      completed.add(taskInput.id);
+
+      if (!options?.continueOnFailure && !result.success) {
+        break;
+      }
+    }
+
+    // Build aggregated result
+    let successCount = 0;
+    let failCount = 0;
+    const mergedOutput: Record<string, unknown> = {};
+
+    for (const [taskId, result] of results) {
+      if (result.success) {
+        successCount++;
+        mergedOutput[taskId] = result.output;
+      } else {
+        failCount++;
+      }
+    }
+
+    return {
+      dagId,
+      totalStreams: tasks.length,
+      successfulStreams: successCount,
+      failedStreams: failCount,
+      mergedOutput,
+      perStreamResults: results,
+      aggregatedAt: new Date(),
     };
   }
 

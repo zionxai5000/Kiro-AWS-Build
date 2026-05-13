@@ -38,6 +38,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
+    "chokidar": "^4.0.3",
     "dotenv": "^17.4.2"
   }
 }

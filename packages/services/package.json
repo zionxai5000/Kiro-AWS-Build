@@ -13,7 +13,8 @@
     "@aws-sdk/lib-dynamodb": "^3.1040.0",
     "@seraphim/core": "*",
     "ajv": "^8.17.1",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "playwright": "^1.60.0"
   },
   "scripts": {
     "build": "tsc --build",

@@ -16,3 +16,9 @@ export type {
   RotationResult,
   RotationSchedule,
 } from './credential-manager.js';
+export type {
+  ParallelTaskInput,
+  ParallelExecutionOptions,
+  AggregatedResult,
+  ParallelHealthInfo,
+} from './parallel-types.js';

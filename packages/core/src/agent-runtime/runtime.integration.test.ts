@@ -342,7 +342,7 @@ describe('Agent Runtime — Integration Tests', () => {
         instance.id,
         expect.objectContaining({
           layer: 'working',
-          tags: ['deploy'],
+          tags: expect.arrayContaining(['working', 'persistence', 'session_continuity']),
         }),
       );
 
@@ -389,8 +389,10 @@ describe('Agent Runtime — Integration Tests', () => {
         expect.objectContaining({
           layer: 'working',
           taskContext: expect.objectContaining({
-            lastTaskId: 'task-mem-1',
-            lastTaskType: 'analysis',
+            currentContext: expect.objectContaining({
+              lastTaskId: 'task-mem-1',
+              lastTaskType: 'analysis',
+            }),
           }),
         }),
       );

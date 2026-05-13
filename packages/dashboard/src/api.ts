@@ -22,7 +22,8 @@ export type WebSocketEventType =
   | 'cost.updated'
   | 'alert.triggered'
   | 'workflow.progress'
-  | 'system.health';
+  | 'system.health'
+  | 'spec.document.updated';
 
 export interface WebSocketMessage {
   type: WebSocketEventType;
@@ -103,6 +104,13 @@ function getBaseUrl(): string {
 }
 
 function getWsUrl(): string {
+  // Use the ALB WebSocket endpoint directly (same host as API)
+  const apiUrl = (window as any).__SERAPHIM_API_URL__;
+  if (apiUrl) {
+    // Convert http://alb-host/api to ws://alb-host/ws
+    const wsBase = apiUrl.replace(/\/api$/, '').replace(/^http/, 'ws');
+    return `${wsBase}/ws`;
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws`;
 }
@@ -112,26 +120,31 @@ function getWsUrl(): string {
 // ---------------------------------------------------------------------------
 
 async function apiFetch<T>(path: string, query?: Record<string, string>): Promise<T> {
-  const url = new URL(getBaseUrl() + path);
+  const baseUrl = getBaseUrl();
+  const url = new URL(baseUrl + path);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value) url.searchParams.set(key, value);
     }
   }
 
-  const token = await getAuthToken();
+  // ALB direct access doesn't require auth; API Gateway does
+  const isDirectALB = baseUrl.includes('elb.amazonaws.com');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  if (!isDirectALB) {
+    const token = await getAuthToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   try {
     const response = await fetch(url.toString(), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers,
       signal: AbortSignal.timeout(8000),
     });
 
   // On 401, trigger re-authentication and retry once
-  if (response.status === 401) {
+  if (response.status === 401 && !isDirectALB) {
     const newToken = await reauthenticate();
     const retryResponse = await fetch(url.toString(), {
       headers: {
@@ -251,6 +264,21 @@ export async function fetchBaselines(): Promise<BaselineData[]> {
 export async function fetchQualityGateResults(): Promise<QualityGateResult[]> {
   const result = await apiFetch<{ results: QualityGateResult[] }>('/quality-gate/results');
   return result.results;
+}
+
+/** Response shape from GET /api/specs/:documentType */
+export interface SpecDocumentResponse {
+  content: string;
+  lastModified: string;
+  hash: string;
+}
+
+/** Valid spec document types */
+export type SpecDocumentType = 'requirements' | 'design' | 'capabilities';
+
+/** Fetch a spec document from GET /specs/:documentType */
+export async function fetchSpecDocument(documentType: SpecDocumentType): Promise<SpecDocumentResponse> {
+  return apiFetch<SpecDocumentResponse>(`/specs/${encodeURIComponent(documentType)}`);
 }
 
 // ---------------------------------------------------------------------------

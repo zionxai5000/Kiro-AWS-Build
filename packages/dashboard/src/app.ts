@@ -24,6 +24,51 @@ import { HeartbeatHistoryView } from './views/heartbeat-history.js';
 import { ReferencesView } from './views/references.js';
 import { QualityGateView } from './views/quality-gate.js';
 import { BaselinesView } from './views/baselines.js';
+import { StudioView } from './views/studio.js';
+import { VideoStudioView } from './views/video-studio.js';
+import { OV1View } from './views/seraphim-core/ov1-view.js';
+import { SV1View } from './views/seraphim-core/sv1-view.js';
+import { RequirementsView as SeraphimRequirementsView } from './views/seraphim-core/requirements-view.js';
+import { DesignView as SeraphimDesignView } from './views/seraphim-core/design-view.js';
+import { CapabilitiesView as SeraphimCapabilitiesView } from './views/seraphim-core/capabilities-view.js';
+
+// Phase 12 — UX Enhancement Components
+import { KingsBriefingCard, type BriefingCardData } from './components/kings-view/BriefingCard.js';
+import { VisualPipelineBoard, type VisualPipelineBoardData } from './components/app-studio/VisualPipelineBoard.js';
+import { RejectionCrisisPanel, type RejectionCrisisPanelData } from './components/app-studio/RejectionCrisisPanel.js';
+import { MarketOpportunityHeatmap, type MarketHeatmapData } from './components/app-studio/MarketHeatmap.js';
+import { ContentDiversityDashboard, type ContentDiversityData } from './components/video-studio/ContentDiversityDashboard.js';
+import { PreGenerationComplianceCheck, type PreGenerationCheckData } from './components/video-studio/PreGenerationCheck.js';
+import { EndToEndProductionTracker, type ProductionTrackerData } from './components/video-studio/ProductionTracker.js';
+import { IntelligenceFeed, type IntelligenceFeedData } from './components/command-center/IntelligenceFeed.js';
+import { StandingOrdersPanel, type StandingOrdersPanelData } from './components/command-center/StandingOrdersPanel.js';
+import {
+  SeraphimGovernanceView,
+  SeraphimMemoryView,
+  SeraphimLearningView,
+  SeraphimDecisionsView,
+  EretzSynergiesView,
+  EretzPatternsView,
+  EretzTrainingView,
+  EretzDirectivesView,
+  EretzStandingOrdersView,
+  ZionXPipelineView,
+  ZionXAppStoreView,
+  ZionXMarketingView,
+  ZionXDesignView,
+  ZionXRevenueView,
+  ZXMGContentPipelineView,
+  ZXMGPerformanceView,
+  ZXMGDistributionView,
+  ZXMGMonetizationView,
+  ZXMGIntelligenceView,
+  ZionAlphaPositionsView,
+  ZionAlphaPerformanceView,
+  ZionAlphaMarketsView,
+  ZionAlphaRiskView,
+  ZionAlphaJournalView,
+  ShaarAgentView,
+} from './views/pillar-views.js';
 
 interface ViewInstance {
   mount(): Promise<void>;
@@ -54,9 +99,10 @@ class PlaceholderView implements ViewInstance {
   }
 }
 
-/** King's View — executive summary landing page */
+/** King's View — executive summary landing page with Briefing Card */
 class KingsView implements ViewInstance {
   private container: HTMLElement;
+  private briefingCard: KingsBriefingCard | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -67,6 +113,7 @@ class KingsView implements ViewInstance {
       <div class="view-header">
         <h2>King's View</h2>
       </div>
+      <div id="kings-briefing-card"></div>
       <div class="kings-view-grid">
         <div class="kings-card">
           <div class="kings-card-label">Total MRR</div>
@@ -90,9 +137,30 @@ class KingsView implements ViewInstance {
         </div>
       </div>
     `;
+
+    // Mount the Briefing Card
+    const briefingEl = this.container.querySelector('#kings-briefing-card') as HTMLElement;
+    if (briefingEl) {
+      const briefingData: BriefingCardData = {
+        priorities: [
+          { id: 'p1', title: 'Scale ZionX app pipeline to 20 apps', urgency: 'high' },
+          { id: 'p2', title: 'Optimize ZXMG content-to-revenue', urgency: 'medium' },
+          { id: 'p3', title: 'Maintain Zion Alpha win rate >65%', urgency: 'low' },
+        ],
+        blockers: [],
+        revenue: { mrr: 0, trend: 'flat', changePercent: 0 },
+        recentEvents: [],
+        lastLoginAt: new Date(Date.now() - 3600000).toISOString(),
+        sessionContinuity: { hasGap: false },
+      };
+      this.briefingCard = new KingsBriefingCard(briefingEl, briefingData);
+      this.briefingCard.mount();
+    }
   }
 
   unmount(): void {
+    this.briefingCard?.unmount();
+    this.briefingCard = null;
     this.container.innerHTML = '';
   }
 }
@@ -219,69 +287,87 @@ export class App {
       case 'seraphim-command-center':
         return new AgentsView(this.viewContainer, this.ws);
       case 'seraphim-governance':
-        return new PlaceholderView(this.viewContainer, 'Governance');
+        return new SeraphimGovernanceView(this.viewContainer);
       case 'seraphim-memory':
-        return new PlaceholderView(this.viewContainer, 'Memory');
+        return new SeraphimMemoryView(this.viewContainer);
       case 'seraphim-resources':
         return new CostsView(this.viewContainer, this.ws);
       case 'seraphim-audit-trail':
         return new AuditView(this.viewContainer);
       case 'seraphim-learning':
-        return new PlaceholderView(this.viewContainer, 'Learning');
+        return new SeraphimLearningView(this.viewContainer);
       case 'seraphim-self-improvement':
         return new HealthView(this.viewContainer, this.ws);
       case 'seraphim-decisions':
-        return new PlaceholderView(this.viewContainer, 'Decisions');
+        return new SeraphimDecisionsView(this.viewContainer);
+      case 'seraphim-ov1':
+        return new OV1View(this.viewContainer);
+      case 'seraphim-sv1':
+        return new SV1View(this.viewContainer);
+      case 'seraphim-requirements':
+        return new SeraphimRequirementsView(this.viewContainer);
+      case 'seraphim-design':
+        return new SeraphimDesignView(this.viewContainer);
+      case 'seraphim-capabilities':
+        return new SeraphimCapabilitiesView(this.viewContainer);
 
       // Eretz Business
       case 'eretz-portfolio':
         return new PillarsView(this.viewContainer);
       case 'eretz-synergies':
-        return new PlaceholderView(this.viewContainer, 'Synergies');
+        return new EretzSynergiesView(this.viewContainer);
       case 'eretz-patterns':
-        return new PlaceholderView(this.viewContainer, 'Patterns');
+        return new EretzPatternsView(this.viewContainer);
       case 'eretz-training':
-        return new PlaceholderView(this.viewContainer, 'Training');
+        return new EretzTrainingView(this.viewContainer);
       case 'eretz-directives':
-        return new PlaceholderView(this.viewContainer, 'Directives');
+        return new EretzDirectivesView(this.viewContainer);
       case 'eretz-standing-orders':
-        return new PlaceholderView(this.viewContainer, 'Standing Orders');
+        return new EretzStandingOrdersView(this.viewContainer);
 
       // ZionX
       case 'zionx-pipeline':
-        return new PlaceholderView(this.viewContainer, 'Pipeline');
+        return new ZionXPipelineView(this.viewContainer);
+      case 'zionx-app-development':
+        return new StudioView(this.viewContainer);
       case 'zionx-app-store':
-        return new PlaceholderView(this.viewContainer, 'App Store');
+        return new ZionXAppStoreView(this.viewContainer);
       case 'zionx-marketing':
-        return new PlaceholderView(this.viewContainer, 'Marketing');
+        return new ZionXMarketingView(this.viewContainer);
       case 'zionx-design':
-        return new PlaceholderView(this.viewContainer, 'Design');
+        return new ZionXDesignView(this.viewContainer);
       case 'zionx-revenue':
-        return new PlaceholderView(this.viewContainer, 'Revenue');
+        return new ZionXRevenueView(this.viewContainer);
 
       // ZXMG
+      case 'zxmg-video-production':
+        return new VideoStudioView(this.viewContainer);
       case 'zxmg-content-pipeline':
-        return new PlaceholderView(this.viewContainer, 'Content Pipeline');
+        return new ZXMGContentPipelineView(this.viewContainer);
       case 'zxmg-performance':
-        return new PlaceholderView(this.viewContainer, 'Performance');
+        return new ZXMGPerformanceView(this.viewContainer);
       case 'zxmg-distribution':
-        return new PlaceholderView(this.viewContainer, 'Distribution');
+        return new ZXMGDistributionView(this.viewContainer);
       case 'zxmg-monetization':
-        return new PlaceholderView(this.viewContainer, 'Monetization');
+        return new ZXMGMonetizationView(this.viewContainer);
       case 'zxmg-intelligence':
-        return new PlaceholderView(this.viewContainer, 'Intelligence');
+        return new ZXMGIntelligenceView(this.viewContainer);
 
       // Zion Alpha
       case 'alpha-positions':
-        return new PlaceholderView(this.viewContainer, 'Positions');
+        return new ZionAlphaPositionsView(this.viewContainer);
       case 'alpha-performance':
-        return new PlaceholderView(this.viewContainer, 'Performance');
+        return new ZionAlphaPerformanceView(this.viewContainer);
       case 'alpha-markets':
-        return new PlaceholderView(this.viewContainer, 'Markets');
+        return new ZionAlphaMarketsView(this.viewContainer);
       case 'alpha-risk':
-        return new PlaceholderView(this.viewContainer, 'Risk');
+        return new ZionAlphaRiskView(this.viewContainer);
       case 'alpha-journal':
-        return new PlaceholderView(this.viewContainer, 'Journal');
+        return new ZionAlphaJournalView(this.viewContainer);
+
+      // Shaar Agent
+      case 'shaar-agent':
+        return new ShaarAgentView(this.viewContainer);
 
       // SME Intelligence
       case 'sme-recommendations':

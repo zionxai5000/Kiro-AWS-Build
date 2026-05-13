@@ -20,6 +20,11 @@ export type ViewName =
   | 'seraphim-learning'
   | 'seraphim-self-improvement'
   | 'seraphim-decisions'
+  | 'seraphim-ov1'
+  | 'seraphim-sv1'
+  | 'seraphim-requirements'
+  | 'seraphim-design'
+  | 'seraphim-capabilities'
   // Eretz Business
   | 'eretz-portfolio'
   | 'eretz-synergies'
@@ -29,11 +34,13 @@ export type ViewName =
   | 'eretz-standing-orders'
   // ZionX
   | 'zionx-pipeline'
+  | 'zionx-app-development'
   | 'zionx-app-store'
   | 'zionx-marketing'
   | 'zionx-design'
   | 'zionx-revenue'
   // ZXMG
+  | 'zxmg-video-production'
   | 'zxmg-content-pipeline'
   | 'zxmg-performance'
   | 'zxmg-distribution'
@@ -45,6 +52,8 @@ export type ViewName =
   | 'alpha-markets'
   | 'alpha-risk'
   | 'alpha-journal'
+  // Shaar Agent
+  | 'shaar-agent'
   // SME Intelligence
   | 'sme-recommendations'
   | 'sme-world-class'
@@ -95,6 +104,11 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'seraphim-learning', label: 'Learning' },
       { id: 'seraphim-self-improvement', label: 'Self-Improvement' },
       { id: 'seraphim-decisions', label: 'Decisions' },
+      { id: 'seraphim-ov1', label: 'OV-1 Operational' },
+      { id: 'seraphim-sv1', label: 'SV-1 System' },
+      { id: 'seraphim-requirements', label: 'Requirements' },
+      { id: 'seraphim-design', label: 'Design' },
+      { id: 'seraphim-capabilities', label: 'Capabilities' },
     ],
   },
   {
@@ -114,6 +128,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'ZionX',
     items: [
       { id: 'zionx-pipeline', label: 'Pipeline' },
+      { id: 'zionx-app-development', label: '⚡ App Development' },
       { id: 'zionx-app-store', label: 'App Store' },
       { id: 'zionx-marketing', label: 'Marketing' },
       { id: 'zionx-design', label: 'Design' },
@@ -124,6 +139,7 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'zxmg',
     label: 'ZXMG',
     items: [
+      { id: 'zxmg-video-production', label: '🎬 Video Production' },
       { id: 'zxmg-content-pipeline', label: 'Content Pipeline' },
       { id: 'zxmg-performance', label: 'Performance' },
       { id: 'zxmg-distribution', label: 'Distribution' },
@@ -141,6 +157,11 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'alpha-risk', label: 'Risk' },
       { id: 'alpha-journal', label: 'Journal' },
     ],
+  },
+  {
+    id: 'shaar-agent',
+    label: 'Shaar Agent',
+    items: null,
   },
   {
     id: 'sme-intelligence',

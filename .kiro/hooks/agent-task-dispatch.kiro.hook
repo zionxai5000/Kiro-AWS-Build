@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Agent Task Executor",
+  "description": "When a SeraphimOS agent writes an approved task file to .kiro/agent-tasks/, Kiro reads the task and executes it. This closes the loop between strategic agent decisions and IDE-level code execution.",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      ".kiro/agent-tasks/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A SeraphimOS agent has dispatched an approved task for execution. Read the task file that was just created in .kiro/agent-tasks/, understand the requirements, and execute the task. When complete, move the task file to .kiro/agent-tasks/completed/ with results appended. If you encounter an error, move it to .kiro/agent-tasks/failed/ with error details. The task was approved by the King — execute it fully."
+  }
+}

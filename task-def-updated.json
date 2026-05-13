@@ -1,0 +1,133 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-east-1:562887205007:task-definition/SeraphimdevComputeAgentRuntimeTaskDef2B3755BC:22",
+    "containerDefinitions": [
+        {
+            "name": "AgentRuntime",
+            "image": "562887205007.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-562887205007-us-east-1:latest-fix",
+            "cpu": 0,
+            "links": [],
+            "portMappings": [
+                {
+                    "containerPort": 3000,
+                    "hostPort": 3000,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "entryPoint": [],
+            "command": [],
+            "environment": [
+                {
+                    "name": "SERAPHIM_MODE",
+                    "value": "production"
+                },
+                {
+                    "name": "AURORA_SECRET_NAME",
+                    "value": "SeraphimAuroraSecret3FC3811-bVxbXGVUFH2L"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "us-east-1"
+                },
+                {
+                    "name": "NODE_ENV",
+                    "value": "production"
+                },
+                {
+                    "name": "PORT",
+                    "value": "3000"
+                }
+            ],
+            "environmentFiles": [],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [],
+            "dnsServers": [],
+            "dnsSearchDomains": [],
+            "extraHosts": [],
+            "dockerSecurityOptions": [],
+            "dockerLabels": {},
+            "ulimits": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/seraphim/agent-runtime",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "agent-runtime"
+                },
+                "secretOptions": []
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:3000/health || exit 1"
+                ],
+                "interval": 15,
+                "timeout": 5,
+                "retries": 5,
+                "startPeriod": 60
+            },
+            "systemControls": [],
+            "credentialSpecs": []
+        }
+    ],
+    "family": "SeraphimdevComputeAgentRuntimeTaskDef2B3755BC",
+    "taskRoleArn": "arn:aws:iam::562887205007:role/Seraphim-dev-Compute-AgentRuntimeTaskRole86065EF1-5PiOQKxisTPG",
+    "executionRoleArn": "arn:aws:iam::562887205007:role/Seraphim-dev-Compute-AgentRuntimeExecutionRole21587-0TDBuZ9InC3H",
+    "networkMode": "awsvpc",
+    "revision": 22,
+    "volumes": [],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.ecr-auth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.17"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "ecs.capability.container-health-check"
+        },
+        {
+            "name": "ecs.capability.execution-role-ecr-pull"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE",
+        "MANAGED_INSTANCES"
+    ],
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "2048",
+    "registeredAt": "2026-05-07T08:48:38.791000-05:00",
+    "registeredBy": "arn:aws:sts::562887205007:assumed-role/cdk-hnb659fds-cfn-exec-role-562887205007-us-east-1/AWSCloudFormation"
+}

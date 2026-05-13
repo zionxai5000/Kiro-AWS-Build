@@ -9,6 +9,10 @@
  * Requirements: 9.1, 9.2, 9.3, 9.4
  */
 
+import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+
 import type { AgentRuntime } from '@seraphim/core/interfaces/agent-runtime.js';
 import type { XOAuditService } from '@seraphim/core/interfaces/xo-audit-service.js';
 import type { OtzarService } from '@seraphim/core/interfaces/otzar-service.js';
@@ -182,8 +186,41 @@ export class ShaarAPIRouter {
       method: 'POST',
       path: '/agents/:id/execute',
       handler: async (req) => {
-        const result = await this.agentRuntime.execute(req.params.id!, req.body as any);
+        // Support both { id, type, ... } (direct Task) and { task: { ... } } (legacy wrapper)
+        const taskBody = (req.body as any)?.task ?? req.body;
+        // Ensure required fields have defaults
+        const task = {
+          id: taskBody.id || `task-${Date.now()}`,
+          type: taskBody.type || 'chat',
+          description: taskBody.description || taskBody.input || '',
+          params: taskBody.params || { input: taskBody.input || taskBody.description || '' },
+          priority: taskBody.priority || 'medium',
+        };
+        const result = await this.agentRuntime.execute(req.params.id!, task as any);
         return { statusCode: 200, body: { result } };
+      },
+    });
+
+    this.routes.push({
+      method: 'GET',
+      path: '/agents/:id/profile',
+      handler: async (req) => {
+        const agents = await this.agentRuntime.listAgents({});
+        const agent = agents.find((a: any) => a.id === req.params.id);
+        if (!agent) {
+          return { statusCode: 404, body: { error: 'Agent not found' } };
+        }
+        // Identity profile is served from the production server's inline handler
+        // which has access to the full program definitions. This fallback returns
+        // the agent metadata without identity data.
+        return {
+          statusCode: 200,
+          body: {
+            agentId: req.params.id,
+            programId: agent.programId,
+            identityProfile: null,
+          },
+        };
       },
     });
 
@@ -386,6 +423,61 @@ export class ShaarAPIRouter {
     this.routes.push({ method: 'GET', path: '/sme/heartbeat-history', handler: async () => {
       return { statusCode: 200, body: { reviews: [], totalReviews: 0, lastReviewDate: null } };
     }});
+
+    // Document API — serve spec markdown files
+    this.routes.push({
+      method: 'GET',
+      path: '/specs/:documentType',
+      handler: async (req) => {
+        return this.handleSpecDocument(req.params.documentType!);
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Document API Handler
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Serve raw markdown content from `.kiro/specs/seraphim-os-core/` directory.
+   * Returns content, lastModified timestamp, and SHA-256 content hash.
+   *
+   * Requirements: 47e.19, 47f.22, 47g.25
+   */
+  async handleSpecDocument(documentType: string): Promise<APIResponse> {
+    const validTypes = ['requirements', 'design', 'capabilities'];
+    if (!validTypes.includes(documentType)) {
+      return { statusCode: 404, body: { error: 'Invalid document type', validTypes } };
+    }
+
+    const filePath = resolve(
+      process.cwd(),
+      '.kiro',
+      'specs',
+      'seraphim-os-core',
+      `${documentType}.md`,
+    );
+
+    try {
+      const [content, fileStat] = await Promise.all([
+        readFile(filePath, 'utf-8'),
+        stat(filePath),
+      ]);
+
+      const hash = createHash('sha256').update(content).digest('hex');
+      const lastModified = fileStat.mtime.toISOString();
+
+      return {
+        statusCode: 200,
+        body: { content, lastModified, hash },
+      };
+    } catch (error: unknown) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        return { statusCode: 404, body: { error: 'Document not found', documentType } };
+      }
+      return { statusCode: 500, body: { error: 'Failed to read document', message: err.message } };
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -5,11 +5,16 @@
  * consumption, and health. Connected to WebSocket for real-time updates
  * when agent state changes.
  *
- * Requirements: 9.1, 18.1, 18.5
+ * Clicking an agent card opens the AgentDetailPanel modal with full
+ * identity, status, and activity information.
+ *
+ * Requirements: 9.1, 18.1, 18.5, 48a.1, 48g.26
  */
 
 import type { AgentData, DashboardWebSocket, WebSocketMessage } from '../api.js';
 import { fetchAgents } from '../api.js';
+import { AgentDetailPanel } from '../components/command-center/AgentDetailPanel.js';
+import type { AgentDetailData } from '../components/command-center/AgentDetailPanel.js';
 
 export class AgentsView {
   private container: HTMLElement;
@@ -92,6 +97,70 @@ export class AgentsView {
       </div>
       <div class="agent-grid">${cards}</div>
     `;
+
+    this.attachCardClickHandlers();
+  }
+
+  private attachCardClickHandlers(): void {
+    const cards = this.container.querySelectorAll('.agent-card');
+    cards.forEach((card) => {
+      (card as HTMLElement).style.cursor = 'pointer';
+      card.addEventListener('click', () => {
+        const agentId = (card as HTMLElement).dataset.agentId;
+        const agent = this.agents.find((a) => a.id === agentId);
+        if (!agent) return;
+        this.showAgentDetail(agent);
+      });
+    });
+  }
+
+  private async showAgentDetail(agent: AgentData): Promise<void> {
+    // Attempt to fetch identity profile from backend
+    let identityProfile: AgentDetailData['identityProfile'] | undefined;
+    try {
+      const API_BASE =
+        (window as any).__SERAPHIM_API_URL__?.replace(/\/api$/, '') ||
+        '';
+      const res = await fetch(`${API_BASE}/api/agents/${agent.id}/profile`);
+      if (res.ok) {
+        const data = await res.json();
+        identityProfile = data.identityProfile;
+      }
+    } catch {
+      /* Profile not available — panel will show without identity section */
+    }
+
+    const detailContainer = document.createElement('div');
+    document.body.appendChild(detailContainer);
+
+    const detailData: AgentDetailData = {
+      id: agent.id,
+      name: agent.name ?? agent.programId,
+      programId: agent.programId,
+      version: agent.version,
+      state: agent.state,
+      pillar: agent.pillar,
+      lastHeartbeat: agent.lastHeartbeat,
+      resourceUsage: {
+        cpuPercent: agent.resourceUsage?.cpuPercent ?? 0,
+        memoryMB: agent.resourceUsage?.memoryMB ?? 0,
+        tokensUsed: agent.resourceUsage?.tokensUsed ?? 0,
+      },
+      identityProfile,
+    };
+
+    const panel = new AgentDetailPanel(detailContainer, detailData, {
+      onClose: () => {
+        panel.destroy();
+        detailContainer.remove();
+      },
+      onChat: (_programId) => {
+        panel.destroy();
+        detailContainer.remove();
+        // Navigate to the agent's pillar chat view
+        // This can be wired to the app router when chat views are available
+      },
+    });
   }
 
   private renderCard(agent: AgentData): string {

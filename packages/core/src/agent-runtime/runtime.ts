@@ -13,7 +13,7 @@
  * - 5.1: Otzar model routing and budget enforcement
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 import type {
   AgentProgram,
@@ -39,7 +39,8 @@ import type { ZikaronService } from '../interfaces/zikaron-service.js';
 import type { XOAuditService } from '../interfaces/xo-audit-service.js';
 import type { EventBusService } from '../interfaces/event-bus-service.js';
 import type { ModelRoutingRequest } from '../types/otzar.js';
-import type { EpisodicEntry } from '../types/memory.js';
+import type { EpisodicEntry, ProceduralEntry } from '../types/memory.js';
+import { buildSystemPrompt } from './prompt-builder.js';
 
 // ---------------------------------------------------------------------------
 // Parallel service interfaces (optional dependencies)
@@ -169,6 +170,51 @@ interface AgentRegistryEntry {
   errorCount: number;
   consecutiveErrors: number;
   lastSuccessfulTask?: Date;
+  workingMemoryState?: WorkingMemoryState;
+}
+
+// ---------------------------------------------------------------------------
+// Working Memory State (persisted to Zikaron)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutable working memory state tracked per agent.
+ * Persisted every 60 seconds and on task completion.
+ *
+ * Validates: Requirements 48c.10, 48c.11, 48c.12, 48c.13
+ */
+export interface WorkingMemoryState {
+  agentId: string;
+  sessionId: string;
+  lastPersistedAt: Date;
+
+  // Active state
+  activeGoals: string[];
+  pendingTasks: Array<{ id: string; description: string; status: string }>;
+  currentContext: Record<string, unknown>;
+
+  // Conversation state
+  conversationCount: number;
+  lastInteractionAt: Date;
+  topicsDiscussed: string[];
+
+  // Decision state
+  recentDecisions: Array<{ decision: string; reasoning: string; outcome?: string; timestamp: Date }>;
+
+  // Persistence metadata
+  persistenceHash: string;
+  sessionContinuity: SessionContinuityRecord;
+}
+
+/**
+ * Session continuity record tracking agent session transitions and persistence integrity.
+ *
+ * Validates: Requirement 48c.13
+ */
+export interface SessionContinuityRecord {
+  lastActiveTimestamp: Date;
+  lastPersistedHash: string;
+  sessionTransitions: Array<{ from: string; to: string; timestamp: Date; reason: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +223,7 @@ interface AgentRegistryEntry {
 
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 const STALE_THRESHOLD_MS = 90_000; // 90 seconds
+const WORKING_MEMORY_PERSIST_INTERVAL_MS = 60_000; // 60 seconds
 const AGENT_SM_DEFINITION_PREFIX = 'agent-lifecycle-';
 const SYSTEMIC_ERROR_THRESHOLD = 3;
 
@@ -266,6 +313,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
   /** Handle for the periodic heartbeat checker interval. */
   private heartbeatCheckInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Handle for the periodic working memory persistence interval. */
+  private workingMemoryPersistInterval: ReturnType<typeof setInterval> | null = null;
+
   /** Tracks active parallel DAG executions. */
   private readonly activeDAGs = new Set<string>();
 
@@ -283,6 +333,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
     this.coordinationBus = deps.coordinationBus;
     this.resultAggregator = deps.resultAggregator;
     this.dependencyGraphEngine = deps.dependencyGraphEngine;
+
+    // Start periodic working memory persistence (Requirement 48c.11)
+    this.startWorkingMemoryPersistence();
   }
 
   // -----------------------------------------------------------------------
@@ -345,35 +398,89 @@ export class DefaultAgentRuntime implements AgentRuntime {
       consecutiveErrors: 0,
     });
 
-    // 7. Load agent memory context from Zikaron
+    // 7. Load agent memory context from Zikaron and restore working memory state
+    let restoredHash: string | undefined;
     try {
-      await this.zikaronService.loadAgentContext(agentId);
+      const loadedContext = await this.zikaronService.loadAgentContext(agentId);
+      if (loadedContext.workingMemory) {
+        // Restore working memory state from persisted context
+        const wm = loadedContext.workingMemory;
+        const restoredState: WorkingMemoryState = {
+          agentId,
+          sessionId: agentId,
+          lastPersistedAt: wm.createdAt,
+          activeGoals: wm.activeGoals ?? [],
+          pendingTasks: (wm.taskContext?.pendingTasks as Array<{ id: string; description: string; status: string }>) ?? [],
+          currentContext: wm.taskContext ?? {},
+          conversationCount: (wm.taskContext?.conversationCount as number) ?? 0,
+          lastInteractionAt: wm.createdAt,
+          topicsDiscussed: (wm.taskContext?.topicsDiscussed as string[]) ?? [],
+          recentDecisions: (wm.taskContext?.recentDecisions as Array<{ decision: string; reasoning: string; outcome?: string; timestamp: Date }>) ?? [],
+          persistenceHash: (wm.taskContext?.persistenceHash as string) ?? '',
+          sessionContinuity: {
+            lastActiveTimestamp: wm.createdAt,
+            lastPersistedHash: (wm.taskContext?.persistenceHash as string) ?? '',
+            sessionTransitions: (wm.taskContext?.sessionTransitions as Array<{ from: string; to: string; timestamp: Date; reason: string }>) ?? [],
+          },
+        };
+
+        // Verify integrity: compute hash of loaded state and compare
+        restoredHash = this.computeWorkingMemoryHash(restoredState);
+        const storedHash = restoredState.persistenceHash;
+        if (storedHash && restoredHash !== storedHash) {
+          // Hash mismatch — log warning but continue with loaded state
+          console.warn(`[deploy] Working memory hash mismatch for agent ${agentId}: expected ${storedHash}, got ${restoredHash}`);
+        }
+
+        // Record session transition
+        restoredState.sessionContinuity.sessionTransitions.push({
+          from: 'terminated',
+          to: 'ready',
+          timestamp: now,
+          reason: 'deploy',
+        });
+        restoredState.sessionContinuity.lastActiveTimestamp = now;
+
+        this.registry.get(agentId)!.workingMemoryState = restoredState;
+      }
     } catch {
       // Memory load failure is non-fatal during deploy
     }
 
-    // 8. Store initial working memory
-    try {
-      await this.zikaronService.storeWorking(agentId, {
-        id: randomUUID(),
-        tenantId: 'system',
-        layer: 'working',
-        content: `Agent ${program.name} deployed`,
-        embedding: [],
-        sourceAgentId: agentId,
-        tags: ['deploy'],
-        createdAt: now,
+    // 8. Initialize working memory state if not restored
+    const registryEntry = this.registry.get(agentId)!;
+    if (!registryEntry.workingMemoryState) {
+      const initialState: WorkingMemoryState = {
         agentId,
         sessionId: agentId,
-        taskContext: { programId: program.id, version: program.version },
-        conversationHistory: [],
+        lastPersistedAt: now,
         activeGoals: [],
-      });
+        pendingTasks: [],
+        currentContext: { programId: program.id, version: program.version },
+        conversationCount: 0,
+        lastInteractionAt: now,
+        topicsDiscussed: [],
+        recentDecisions: [],
+        persistenceHash: '',
+        sessionContinuity: {
+          lastActiveTimestamp: now,
+          lastPersistedHash: '',
+          sessionTransitions: [{ from: 'none', to: 'ready', timestamp: now, reason: 'initial_deploy' }],
+        },
+      };
+      initialState.persistenceHash = this.computeWorkingMemoryHash(initialState);
+      initialState.sessionContinuity.lastPersistedHash = initialState.persistenceHash;
+      registryEntry.workingMemoryState = initialState;
+    }
+
+    // 9. Store initial working memory to Zikaron
+    try {
+      await this.persistWorkingMemory(agentId);
     } catch {
       // Working memory store failure is non-fatal during deploy
     }
 
-    // 9. Publish deployment event
+    // 10. Publish deployment event
     await this.eventBusService.publish({
       source: 'seraphim.agent-runtime',
       type: 'agent.deployed',
@@ -390,7 +497,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
       },
     });
 
-    // 10. Log to XO Audit
+    // 11. Log to XO Audit
     await this.xoAuditService.recordAction({
       tenantId: 'system',
       actingAgentId: 'agent-runtime',
@@ -584,27 +691,43 @@ export class DefaultAgentRuntime implements AgentRuntime {
           relatedEntities: [{ entityId: task.id, entityType: 'task', role: 'target' }],
         };
         await this.zikaronService.storeEpisodic(episodicEntry);
+
+        // Publish knowledge sharing event for cross-agent learning (Requirement 48e.20)
+        await this.publishKnowledgeShared(
+          agentId,
+          episodicEntry.id,
+          'procedural',
+          ['task_completion', task.type, entry.program.pillar],
+          `${entry.program.name} completed ${task.type}: ${task.description}`,
+        );
       } catch {
         // Memory store failure is non-fatal
       }
 
-      // 8. Persist working memory
+      // 8. Persist working memory with updated context on task completion
       try {
-        await this.zikaronService.storeWorking(agentId, {
-          id: randomUUID(),
-          tenantId: 'system',
-          layer: 'working',
-          content: `Completed task: ${task.description}`,
-          embedding: [],
-          sourceAgentId: agentId,
-          tags: ['working', task.type],
-          createdAt: new Date(),
-          agentId,
-          sessionId: agentId,
-          taskContext: { lastTaskId: task.id, lastTaskType: task.type },
-          conversationHistory: [],
-          activeGoals: [],
-        });
+        const wmState = entry.workingMemoryState;
+        if (wmState) {
+          // Update working memory with task completion context
+          wmState.currentContext = {
+            ...wmState.currentContext,
+            lastTaskId: task.id,
+            lastTaskType: task.type,
+            lastTaskSuccess: true,
+          };
+          wmState.topicsDiscussed = [
+            ...wmState.topicsDiscussed.slice(-19), // Keep last 20 topics
+            task.type,
+          ];
+          wmState.recentDecisions = [
+            ...wmState.recentDecisions.slice(-9), // Keep last 10 decisions
+            { decision: `Completed task: ${task.description}`, reasoning: `Task ${task.type} executed successfully`, timestamp: new Date() },
+          ];
+          wmState.lastInteractionAt = new Date();
+          wmState.conversationCount += 1;
+          wmState.sessionContinuity.lastActiveTimestamp = new Date();
+        }
+        await this.persistWorkingMemory(agentId);
       } catch {
         // Working memory persist failure is non-fatal
       }
@@ -787,10 +910,460 @@ export class DefaultAgentRuntime implements AgentRuntime {
   // Chat task execution — real LLM call
   // -----------------------------------------------------------------------
 
+  /** Maximum number of recent conversation exchanges to load from Zikaron. */
+  private static readonly MAX_CONVERSATION_HISTORY = 20;
+
+  /** Approximate token budget for conversation history (chars / 4 ≈ tokens). */
+  private static readonly CONTEXT_WINDOW_BUDGET_CHARS = 24_000; // ~6000 tokens
+
+  /**
+   * Load conversation history from Zikaron for an agent-user pair.
+   * Returns alternating user/assistant messages formatted for the LLM.
+   *
+   * Strategy:
+   * 1. Query Zikaron for the last 20 conversation exchanges tagged with this agent + user
+   * 2. If total character count exceeds context window budget, fall back to vector search
+   *    for the most semantically relevant past conversations
+   *
+   * Validates: Requirements 48b.6, 48b.7, 48b.8
+   */
+  private async loadConversationHistory(
+    agentId: string,
+    userId: string,
+    currentMessage: string,
+  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+    try {
+      // Query for recent conversation exchanges tagged with this agent-user pair
+      const recentResults = await this.zikaronService.query({
+        tenantId: 'system',
+        text: `conversation ${agentId} ${userId}`,
+        layers: ['episodic'],
+        agentId,
+        limit: DefaultAgentRuntime.MAX_CONVERSATION_HISTORY,
+      });
+
+      // Filter results to only include conversation entries for this agent-user pair
+      const conversationResults = recentResults.filter((r) => {
+        const meta = r.metadata as Record<string, unknown> | undefined;
+        const tags = (meta?.tags as string[]) ?? [];
+        return tags.includes('conversation') && tags.includes(agentId) && tags.includes(userId);
+      });
+
+      // Parse conversation entries into messages
+      let messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: Date }> = [];
+
+      for (const result of conversationResults) {
+        const meta = result.metadata as Record<string, unknown> | undefined;
+        const userMsg = (meta?.userMessage as string) ?? '';
+        const assistantMsg = (meta?.assistantResponse as string) ?? '';
+
+        if (userMsg) {
+          messages.push({ role: 'user', content: userMsg, timestamp: result.timestamp });
+        }
+        if (assistantMsg) {
+          messages.push({ role: 'assistant', content: assistantMsg, timestamp: result.timestamp });
+        }
+      }
+
+      // Sort by timestamp (oldest first for chronological order)
+      messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      // Check if total size exceeds context window budget
+      const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+
+      if (totalChars > DefaultAgentRuntime.CONTEXT_WINDOW_BUDGET_CHARS) {
+        // Context window exceeded — use vector search for most semantically relevant conversations
+        const relevantResults = await this.zikaronService.query({
+          tenantId: 'system',
+          text: currentMessage,
+          layers: ['episodic'],
+          agentId,
+          limit: 10,
+        });
+
+        const relevantConversations = relevantResults.filter((r) => {
+          const meta = r.metadata as Record<string, unknown> | undefined;
+          const tags = (meta?.tags as string[]) ?? [];
+          return tags.includes('conversation') && tags.includes(agentId) && tags.includes(userId);
+        });
+
+        // Rebuild messages from semantically relevant results
+        messages = [];
+        for (const result of relevantConversations) {
+          const meta = result.metadata as Record<string, unknown> | undefined;
+          const userMsg = (meta?.userMessage as string) ?? '';
+          const assistantMsg = (meta?.assistantResponse as string) ?? '';
+
+          if (userMsg) {
+            messages.push({ role: 'user', content: userMsg, timestamp: result.timestamp });
+          }
+          if (assistantMsg) {
+            messages.push({ role: 'assistant', content: assistantMsg, timestamp: result.timestamp });
+          }
+        }
+
+        // Sort by timestamp for coherent ordering
+        messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      }
+
+      // Return without the timestamp field (LLM only needs role + content)
+      return messages.map(({ role, content }) => ({ role, content }));
+    } catch (err) {
+      // Conversation history loading failure is non-fatal — proceed without history
+      console.error(`[executeChatTask] Failed to load conversation history: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Store a conversation exchange (user message + agent response) in Zikaron episodic memory.
+   * Returns the episodic entry ID for use in knowledge sharing events.
+   *
+   * Validates: Requirements 48b.5, 48b.9
+   */
+  private async storeConversationExchange(
+    agentId: string,
+    userId: string,
+    userMessage: string,
+    assistantResponse: string,
+    source: string,
+  ): Promise<string | undefined> {
+    try {
+      const entryId = randomUUID();
+      const episodicEntry: EpisodicEntry = {
+        id: entryId,
+        tenantId: 'system',
+        layer: 'episodic',
+        content: `User: ${userMessage}\nAssistant: ${assistantResponse}`,
+        embedding: [],
+        sourceAgentId: agentId,
+        tags: ['conversation', source, agentId, userId],
+        createdAt: new Date(),
+        eventType: 'conversation',
+        participants: [agentId, userId],
+        outcome: 'success',
+        relatedEntities: [
+          { entityId: agentId, entityType: 'agent', role: 'responder' },
+          { entityId: userId, entityType: 'user', role: 'initiator' },
+        ],
+      };
+
+      // Store metadata for structured retrieval
+      (episodicEntry as EpisodicEntry & { metadata?: Record<string, unknown> }).metadata = {
+        userMessage,
+        assistantResponse,
+        conversationData: JSON.stringify({ userMessage, agentResponse: assistantResponse }),
+        sessionId: 'current',
+        source,
+        tags: episodicEntry.tags,
+      };
+
+      await this.zikaronService.storeEpisodic(episodicEntry);
+      return entryId;
+    } catch (err) {
+      // Conversation storage failure is non-fatal — log and continue
+      console.error(`[executeChatTask] Failed to store conversation: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Memory-backed decision support
+  // -----------------------------------------------------------------------
+
+  /** Maximum number of procedural patterns to include in system prompt. */
+  private static readonly MAX_PROCEDURAL_PATTERNS = 5;
+
+  /**
+   * Query Zikaron procedural memory for patterns relevant to the current task.
+   * Returns top 5 patterns by success rate as string summaries.
+   * These are passed to `buildSystemPrompt()` as the `proceduralPatterns` parameter.
+   *
+   * Non-fatal: if the query fails, returns an empty array and proceeds without patterns.
+   *
+   * Validates: Requirement 48d.14
+   */
+  private async loadProceduralContext(agentId: string, taskDescription: string): Promise<string[]> {
+    try {
+      const results = await this.zikaronService.query({
+        text: taskDescription,
+        layers: ['procedural'],
+        agentId,
+        tenantId: 'system',
+        limit: 5,
+      });
+      return results.map(r => r.content);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Load procedural patterns from Zikaron relevant to the current context.
+   * Returns the top patterns (by success rate) formatted as strings for the system prompt.
+   *
+   * Non-fatal: if the query fails, returns an empty array and proceeds without patterns.
+   *
+   * Validates: Requirement 48d.14
+   */
+  private async loadProceduralPatterns(agentId: string, context: string): Promise<string[]> {
+    try {
+      const results = await this.zikaronService.query({
+        tenantId: 'system',
+        text: context,
+        layers: ['procedural'],
+        agentId,
+        limit: DefaultAgentRuntime.MAX_PROCEDURAL_PATTERNS * 2, // Fetch extra to filter/sort
+      });
+
+      if (results.length === 0) {
+        return [];
+      }
+
+      // Sort by success rate (stored in metadata) descending, take top 5
+      const sorted = results
+        .map((r) => {
+          const meta = r.metadata as Record<string, unknown> | undefined;
+          const successRate = (meta?.successRate as number) ?? 0;
+          const executionCount = (meta?.executionCount as number) ?? 0;
+          const workflowPattern = (meta?.workflowPattern as string) ?? r.content;
+          return { content: r.content, workflowPattern, successRate, executionCount };
+        })
+        .sort((a, b) => b.successRate - a.successRate)
+        .slice(0, DefaultAgentRuntime.MAX_PROCEDURAL_PATTERNS);
+
+      // Format patterns as strings for the system prompt
+      return sorted.map((p) => {
+        const ratePercent = Math.round(p.successRate * 100);
+        return `[${ratePercent}% success, ${p.executionCount} executions] ${p.workflowPattern}`;
+      });
+    } catch (err) {
+      // Procedural memory query failure is non-fatal — proceed without patterns
+      console.error(`[loadProceduralPatterns] Failed to load patterns: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Store a decision in Zikaron episodic memory after an agent response.
+   * Includes the user's question, agent's response, context (procedural patterns consulted),
+   * and a placeholder for outcome tracking.
+   *
+   * Validates: Requirements 48d.15, 48d.17
+   */
+  private async storeDecision(
+    agentId: string,
+    userId: string,
+    userMessage: string,
+    assistantResponse: string,
+    proceduralPatternsConsulted: string[],
+  ): Promise<string | undefined> {
+    try {
+      const decisionId = randomUUID();
+
+      const episodicEntry: EpisodicEntry = {
+        id: decisionId,
+        tenantId: 'system',
+        layer: 'episodic',
+        content: `Decision: User asked "${userMessage}" — Agent responded with reasoning.`,
+        embedding: [],
+        sourceAgentId: agentId,
+        tags: ['decision', agentId, userId],
+        createdAt: new Date(),
+        eventType: 'decision',
+        participants: [agentId, userId],
+        outcome: 'success',
+        relatedEntities: [
+          { entityId: agentId, entityType: 'agent', role: 'decision_maker' },
+          { entityId: userId, entityType: 'user', role: 'requester' },
+        ],
+      };
+
+      // Attach structured metadata for future retrieval and outcome tracking
+      (episodicEntry as EpisodicEntry & { metadata?: Record<string, unknown> }).metadata = {
+        decisionId,
+        userMessage,
+        assistantResponse,
+        proceduralPatternsConsulted,
+        outcomeStatus: 'pending', // Placeholder — updated when outcome is known
+        tags: episodicEntry.tags,
+      };
+
+      await this.zikaronService.storeEpisodic(episodicEntry);
+      return decisionId;
+    } catch (err) {
+      // Decision storage failure is non-fatal — log and continue
+      console.error(`[storeDecision] Failed to store decision: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Record the outcome of a previously stored decision.
+   * Updates the procedural memory success rate for the decision pattern.
+   *
+   * When an outcome is known (success/failure), this method:
+   * 1. Stores the outcome as a new episodic entry linked to the original decision
+   * 2. Updates or creates a procedural memory entry tracking the decision pattern's success rate
+   *
+   * Validates: Requirement 48d.16
+   */
+  async recordDecisionOutcome(
+    agentId: string,
+    decisionId: string,
+    outcome: 'success' | 'failure' | 'partial',
+    details?: string,
+  ): Promise<void> {
+    // 1. Store outcome as episodic entry linked to the original decision
+    try {
+      const outcomeEntry: EpisodicEntry = {
+        id: randomUUID(),
+        tenantId: 'system',
+        layer: 'episodic',
+        content: `Decision outcome: ${outcome}${details ? ` — ${details}` : ''}`,
+        embedding: [],
+        sourceAgentId: agentId,
+        tags: ['decision_outcome', agentId, decisionId],
+        createdAt: new Date(),
+        eventType: 'decision_outcome',
+        participants: [agentId],
+        outcome,
+        relatedEntities: [
+          { entityId: decisionId, entityType: 'decision', role: 'source_decision' },
+          { entityId: agentId, entityType: 'agent', role: 'decision_maker' },
+        ],
+      };
+
+      (outcomeEntry as EpisodicEntry & { metadata?: Record<string, unknown> }).metadata = {
+        decisionId,
+        outcome,
+        details,
+        tags: outcomeEntry.tags,
+      };
+
+      await this.zikaronService.storeEpisodic(outcomeEntry);
+    } catch (err) {
+      console.error(`[recordDecisionOutcome] Failed to store outcome: ${(err as Error).message}`);
+    }
+
+    // 2. Update procedural memory with the decision pattern success rate
+    try {
+      // Query for existing procedural pattern for this agent's decision type
+      const existingPatterns = await this.zikaronService.query({
+        tenantId: 'system',
+        text: `decision pattern ${agentId}`,
+        layers: ['procedural'],
+        agentId,
+        limit: 1,
+      });
+
+      const existingMeta = existingPatterns.length > 0
+        ? existingPatterns[0].metadata as Record<string, unknown> | undefined
+        : undefined;
+
+      const currentCount = (existingMeta?.executionCount as number) ?? 0;
+      const currentSuccessRate = (existingMeta?.successRate as number) ?? 0;
+
+      // Compute new success rate as running average
+      const newCount = currentCount + 1;
+      const successIncrement = outcome === 'success' ? 1 : outcome === 'partial' ? 0.5 : 0;
+      const newSuccessRate = (currentSuccessRate * currentCount + successIncrement) / newCount;
+
+      const proceduralEntry: ProceduralEntry = {
+        id: randomUUID(),
+        tenantId: 'system',
+        layer: 'procedural',
+        content: `Decision pattern for agent ${agentId}: ${details || 'general decision-making'}`,
+        embedding: [],
+        sourceAgentId: agentId,
+        tags: ['decision_pattern', agentId],
+        createdAt: new Date(),
+        workflowPattern: `decision-pattern-${agentId}`,
+        successRate: newSuccessRate,
+        executionCount: newCount,
+        prerequisites: [],
+        steps: [
+          {
+            order: 1,
+            action: 'query_context',
+            description: 'Query procedural memory for similar past decisions',
+            expectedOutcome: 'Relevant patterns loaded',
+          },
+          {
+            order: 2,
+            action: 'make_decision',
+            description: 'Generate response considering past patterns',
+            expectedOutcome: 'Decision aligned with successful patterns',
+          },
+          {
+            order: 3,
+            action: 'record_outcome',
+            description: 'Track decision outcome for future learning',
+            expectedOutcome: 'Success rate updated',
+          },
+        ],
+      };
+
+      await this.zikaronService.storeProcedural(proceduralEntry);
+    } catch (err) {
+      console.error(`[recordDecisionOutcome] Failed to update procedural memory: ${(err as Error).message}`);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Inter-agent knowledge sharing via Event Bus
+  // -----------------------------------------------------------------------
+
+  /**
+   * Publish a knowledge sharing event to the Event Bus for cross-agent learning.
+   * Other agents can subscribe to these events to incorporate shared knowledge.
+   *
+   * Non-fatal: if publishing fails, the error is silently swallowed.
+   *
+   * Validates: Requirement 48e.20
+   */
+  private async publishKnowledgeShared(
+    agentId: string,
+    memoryEntryId: string,
+    layer: 'semantic' | 'procedural',
+    relevanceTags: string[],
+    summary: string,
+  ): Promise<void> {
+    try {
+      await this.eventBusService.publish({
+        source: 'seraphim.agent-runtime',
+        type: 'memory.knowledge_shared',
+        detail: {
+          sourceAgentId: agentId,
+          memoryEntryId,
+          layer,
+          relevanceTags,
+          summary,
+        },
+        metadata: {
+          tenantId: 'system',
+          correlationId: memoryEntryId,
+          timestamp: new Date(),
+        },
+      });
+    } catch { /* non-fatal */ }
+  }
+
   /**
    * Execute a chat task by calling the LLM API directly.
    * Uses Anthropic (Claude) if ANTHROPIC_API_KEY is set, otherwise OpenAI.
    * Falls back to a descriptive stub if no API keys are available.
+   *
+   * Conversation persistence:
+   * - Before calling the LLM, loads last 20 conversation exchanges from Zikaron
+   * - After getting the response, stores the exchange in Zikaron episodic memory
+   *
+   * Decision support:
+   * - Before calling the LLM, queries Zikaron procedural memory for relevant patterns
+   * - Passes top 5 patterns (by success rate) to buildSystemPrompt as institutional knowledge
+   * - After getting the response, stores the decision in episodic memory with `decision` tag
+   *
+   * Validates: Requirements 48b.5, 48b.6, 48b.7, 48b.8, 48b.9, 48d.14, 48d.15, 48d.16, 48d.17
    */
   private async executeChatTask(
     task: Task,
@@ -799,7 +1372,27 @@ export class DefaultAgentRuntime implements AgentRuntime {
     startTime: number,
   ): Promise<TaskResult> {
     const userMessage = task.params.input as string;
-    const systemPrompt = entry.program.systemPrompt || `You are ${entry.program.name}, an AI agent in the SeraphimOS platform.`;
+    const userId = (task.params.userId as string) || 'default-user';
+    const source = (task.params.source as string) || 'dashboard';
+    const agentId = entry.instance.id;
+
+    // Load procedural patterns from Zikaron before making decisions (Requirement 48d.14)
+    const proceduralPatterns = await this.loadProceduralPatterns(agentId, userMessage);
+
+    // Build system prompt with procedural patterns as institutional knowledge
+    const systemPrompt = buildSystemPrompt(entry.program, proceduralPatterns);
+
+    // Load conversation history from Zikaron (Requirement 48b.6, 48b.7, 48b.8)
+    const conversationHistory = await this.loadConversationHistory(agentId, userId, userMessage);
+
+    // Build the messages array: conversation history + current user message
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      ...conversationHistory,
+      { role: 'user', content: userMessage },
+    ];
+
+    // Determine max_tokens based on input size (Shaar Guardian analysis needs more output space)
+    const maxTokens = userMessage.length > 2000 ? 4096 : 1024;
 
     // Try Anthropic first
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -809,14 +1402,14 @@ export class DefaultAgentRuntime implements AgentRuntime {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': anthropicKey,
+            'x-api-key': anthropicKey.trim(),
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
             model: 'claude-sonnet-4-20250514',
-            max_tokens: 1024,
+            max_tokens: maxTokens,
             system: systemPrompt,
-            messages: [{ role: 'user', content: userMessage }],
+            messages,
           }),
         });
 
@@ -825,6 +1418,34 @@ export class DefaultAgentRuntime implements AgentRuntime {
           const content = data.content?.[0]?.text || 'No response generated.';
           const inputTokens = data.usage?.input_tokens || 0;
           const outputTokens = data.usage?.output_tokens || 0;
+
+          // Store conversation exchange in Zikaron (Requirement 48b.5, 48b.9)
+          const episodicEntryId = await this.storeConversationExchange(agentId, userId, userMessage, content, source);
+
+          // Store decision in episodic memory (Requirement 48d.15)
+          await this.storeDecision(agentId, userId, userMessage, content, proceduralPatterns);
+
+          // Publish knowledge sharing event for cross-agent learning
+          try {
+            await this.eventBusService.publish({
+              source: 'seraphim.agent-runtime',
+              type: 'memory.knowledge_shared',
+              detail: {
+                sourceAgentId: agentId,
+                memoryEntryId: episodicEntryId,
+                layer: 'episodic',
+                relevanceTags: ['conversation', entry.program.pillar, task.type],
+                summary: `${entry.program.name} conversation: ${userMessage.substring(0, 100)}`,
+              },
+              metadata: {
+                tenantId: 'system',
+                correlationId: task.id,
+                timestamp: new Date(),
+              },
+            });
+          } catch {
+            // Knowledge sharing failure is non-fatal
+          }
 
           return {
             taskId: task.id,
@@ -838,9 +1459,12 @@ export class DefaultAgentRuntime implements AgentRuntime {
             durationMs: Date.now() - startTime,
           };
         }
-        // If Anthropic fails, fall through to OpenAI
-      } catch {
-        // Anthropic call failed, try OpenAI
+
+        // Anthropic returned an error — log it and try OpenAI
+        const errBody = await response.text();
+        console.error(`[executeChatTask] Anthropic API error ${response.status}: ${errBody}`);
+      } catch (e) {
+        console.error(`[executeChatTask] Anthropic fetch error: ${(e as Error).message}`);
       }
     }
 
@@ -852,15 +1476,15 @@ export class DefaultAgentRuntime implements AgentRuntime {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiKey}`,
+            'Authorization': `Bearer ${openaiKey.trim()}`,
           },
           body: JSON.stringify({
             model: 'gpt-4o',
             messages: [
               { role: 'system', content: systemPrompt },
-              { role: 'user', content: userMessage },
+              ...messages,
             ],
-            max_tokens: 1024,
+            max_tokens: maxTokens,
           }),
         });
 
@@ -869,6 +1493,34 @@ export class DefaultAgentRuntime implements AgentRuntime {
           const content = data.choices?.[0]?.message?.content || 'No response generated.';
           const inputTokens = data.usage?.prompt_tokens || 0;
           const outputTokens = data.usage?.completion_tokens || 0;
+
+          // Store conversation exchange in Zikaron (Requirement 48b.5, 48b.9)
+          const episodicEntryId = await this.storeConversationExchange(agentId, userId, userMessage, content, source);
+
+          // Store decision in episodic memory (Requirement 48d.15)
+          await this.storeDecision(agentId, userId, userMessage, content, proceduralPatterns);
+
+          // Publish knowledge sharing event for cross-agent learning
+          try {
+            await this.eventBusService.publish({
+              source: 'seraphim.agent-runtime',
+              type: 'memory.knowledge_shared',
+              detail: {
+                sourceAgentId: agentId,
+                memoryEntryId: episodicEntryId,
+                layer: 'episodic',
+                relevanceTags: ['conversation', entry.program.pillar, task.type],
+                summary: `${entry.program.name} conversation: ${userMessage.substring(0, 100)}`,
+              },
+              metadata: {
+                tenantId: 'system',
+                correlationId: task.id,
+                timestamp: new Date(),
+              },
+            });
+          } catch {
+            // Knowledge sharing failure is non-fatal
+          }
 
           return {
             taskId: task.id,
@@ -882,17 +1534,51 @@ export class DefaultAgentRuntime implements AgentRuntime {
             durationMs: Date.now() - startTime,
           };
         }
-      } catch {
-        // OpenAI call failed
+
+        // OpenAI returned an error
+        const errBody = await response.text();
+        console.error(`[executeChatTask] OpenAI API error ${response.status}: ${errBody}`);
+      } catch (e) {
+        console.error(`[executeChatTask] OpenAI fetch error: ${(e as Error).message}`);
       }
     }
 
-    // No API keys or both failed — return informative stub
+    // No API keys or both failed — return informative stub but still store the exchange
+    const stubResponse = `[${entry.program.name}] I received your message: "${userMessage}". However, no LLM API keys are configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment to enable real responses.`;
+
+    // Store conversation exchange even for stub responses (Requirement 48b.5, 48b.9)
+    const episodicEntryId = await this.storeConversationExchange(agentId, userId, userMessage, stubResponse, source);
+
+    // Store decision in episodic memory (Requirement 48d.15)
+    await this.storeDecision(agentId, userId, userMessage, stubResponse, proceduralPatterns);
+
+    // Publish knowledge sharing event for cross-agent learning
+    try {
+      await this.eventBusService.publish({
+        source: 'seraphim.agent-runtime',
+        type: 'memory.knowledge_shared',
+        detail: {
+          sourceAgentId: agentId,
+          memoryEntryId: episodicEntryId,
+          layer: 'episodic',
+          relevanceTags: ['conversation', entry.program.pillar, task.type],
+          summary: `${entry.program.name} conversation: ${userMessage.substring(0, 100)}`,
+        },
+        metadata: {
+          tenantId: 'system',
+          correlationId: task.id,
+          timestamp: new Date(),
+        },
+      });
+    } catch {
+      // Knowledge sharing failure is non-fatal
+    }
+
     return {
       taskId: task.id,
       success: true,
       output: {
-        response: `[${entry.program.name}] I received your message: "${userMessage}". However, no LLM API keys are configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY in the environment to enable real responses.`,
+        response: stubResponse,
         model: modelSelection.model,
         provider: modelSelection.provider,
       },
@@ -1344,6 +2030,133 @@ export class DefaultAgentRuntime implements AgentRuntime {
       clearInterval(this.heartbeatCheckInterval);
       this.heartbeatCheckInterval = null;
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Working Memory Persistence
+  // -----------------------------------------------------------------------
+
+  /**
+   * Start the periodic working memory persistence timer (60-second interval).
+   *
+   * Validates: Requirement 48c.11
+   */
+  startWorkingMemoryPersistence(): void {
+    if (this.workingMemoryPersistInterval) return;
+
+    this.workingMemoryPersistInterval = setInterval(() => {
+      void this.persistAllWorkingMemory();
+    }, WORKING_MEMORY_PERSIST_INTERVAL_MS);
+  }
+
+  /**
+   * Stop the periodic working memory persistence timer.
+   */
+  stopWorkingMemoryPersistence(): void {
+    if (this.workingMemoryPersistInterval) {
+      clearInterval(this.workingMemoryPersistInterval);
+      this.workingMemoryPersistInterval = null;
+    }
+  }
+
+  /**
+   * Persist working memory for all active agents.
+   * Called by the 60-second interval timer.
+   *
+   * Validates: Requirement 48c.11
+   */
+  private async persistAllWorkingMemory(): Promise<void> {
+    for (const [agentId, entry] of this.registry) {
+      // Skip terminated agents
+      if (entry.instance.state === 'terminated') continue;
+
+      try {
+        await this.persistWorkingMemory(agentId);
+      } catch {
+        // Persistence failure for individual agents is non-fatal
+        console.error(`[persistAllWorkingMemory] Failed to persist working memory for agent ${agentId}`);
+      }
+    }
+  }
+
+  /**
+   * Persist working memory for a single agent to Zikaron.
+   * Computes SHA-256 hash for integrity verification and updates session_continuity.
+   *
+   * Validates: Requirements 48c.11, 48c.12, 48c.13
+   */
+  private async persistWorkingMemory(agentId: string): Promise<void> {
+    const entry = this.registry.get(agentId);
+    if (!entry || !entry.workingMemoryState) return;
+
+    const wmState = entry.workingMemoryState;
+    const now = new Date();
+
+    // Update persistence metadata
+    wmState.lastPersistedAt = now;
+    wmState.persistenceHash = this.computeWorkingMemoryHash(wmState);
+    wmState.sessionContinuity.lastActiveTimestamp = now;
+    wmState.sessionContinuity.lastPersistedHash = wmState.persistenceHash;
+
+    // Serialize and store to Zikaron
+    await this.zikaronService.storeWorking(agentId, {
+      id: randomUUID(),
+      tenantId: 'system',
+      layer: 'working',
+      content: `Working memory for agent ${agentId}`,
+      embedding: [],
+      sourceAgentId: agentId,
+      tags: ['working', 'persistence', 'session_continuity'],
+      createdAt: now,
+      agentId,
+      sessionId: wmState.sessionId,
+      taskContext: {
+        activeGoals: wmState.activeGoals,
+        pendingTasks: wmState.pendingTasks,
+        currentContext: wmState.currentContext,
+        conversationCount: wmState.conversationCount,
+        lastInteractionAt: wmState.lastInteractionAt.toISOString(),
+        topicsDiscussed: wmState.topicsDiscussed,
+        recentDecisions: wmState.recentDecisions,
+        persistenceHash: wmState.persistenceHash,
+        sessionTransitions: wmState.sessionContinuity.sessionTransitions,
+        sessionContinuity: {
+          lastActiveTimestamp: wmState.sessionContinuity.lastActiveTimestamp.toISOString(),
+          lastPersistedHash: wmState.sessionContinuity.lastPersistedHash,
+          sessionTransitions: wmState.sessionContinuity.sessionTransitions,
+        },
+      },
+      conversationHistory: [],
+      activeGoals: wmState.activeGoals,
+    });
+  }
+
+  /**
+   * Compute SHA-256 hash of the working memory state for integrity verification.
+   *
+   * Validates: Requirement 48c.12
+   */
+  private computeWorkingMemoryHash(state: WorkingMemoryState): string {
+    const serializable = {
+      agentId: state.agentId,
+      sessionId: state.sessionId,
+      activeGoals: state.activeGoals,
+      pendingTasks: state.pendingTasks,
+      currentContext: state.currentContext,
+      conversationCount: state.conversationCount,
+      topicsDiscussed: state.topicsDiscussed,
+      recentDecisions: state.recentDecisions,
+    };
+    const serialized = JSON.stringify(serializable);
+    return createHash('sha256').update(serialized).digest('hex');
+  }
+
+  /**
+   * Get the current working memory state for an agent (for testing/inspection).
+   */
+  getWorkingMemoryState(agentId: string): WorkingMemoryState | undefined {
+    const entry = this.registry.get(agentId);
+    return entry?.workingMemoryState;
   }
 
   // -----------------------------------------------------------------------

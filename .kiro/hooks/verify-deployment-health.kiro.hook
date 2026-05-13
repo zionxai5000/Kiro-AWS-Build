@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Post-Deploy Health Check",
+  "description": "After any deployment-related file is edited (deploy scripts, Dockerfile, production server, CDK stacks), automatically verify the backend is healthy by checking the ALB health endpoint and ECS target group. Alerts if the backend goes down.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "scripts/deploy*.ps1",
+      "scripts/deploy*.sh",
+      "Dockerfile",
+      "packages/services/src/shaar/production-server.ts",
+      "packages/infra/src/stacks/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A deployment-related file was just modified. Before proceeding with any deployment:\n\n1. NEVER deploy without first testing locally: `node packages/services/dist/shaar/production-server.js` — confirm it starts and responds to /health within 5 seconds.\n2. NEVER do rapid successive force-deployments to ECS — wait for each deployment to stabilize (target healthy) before deploying again.\n3. After ANY ECS deployment, verify:\n   - `aws elbv2 describe-target-health` shows the target as \"healthy\"\n   - The task's private IP matches the registered target IP\n   - If they don't match, deregister the stale IP and register the correct one\n4. If the backend goes down (502), check CloudWatch logs at `/seraphim/agent-runtime` FIRST before attempting fixes.\n5. The bootstrap has timeouts (15s for DB, 10s for PgPersistence) — if these fire, the server still works in-memory mode.\n\nCRITICAL: Do NOT attempt to fix a broken deployment by deploying again immediately. Diagnose first."
+  }
+}

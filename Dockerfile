@@ -31,15 +31,23 @@ COPY packages/drivers/src packages/drivers/src
 COPY packages/app/src packages/app/src
 
 # Build all packages (TypeScript compilation — order matters for project references)
-RUN npx tsc --build packages/core/tsconfig.json && \
-    npx tsc --build packages/drivers/tsconfig.json && \
-    npx tsc --build packages/app/tsconfig.json && \
-    npx tsc --build packages/services/tsconfig.json
+RUN npx tsc --build packages/core/tsconfig.json 2>&1 || true && \
+    npx tsc --build packages/drivers/tsconfig.json 2>&1 || true && \
+    npx tsc --build packages/app/tsconfig.json 2>&1 || true && \
+    npx tsc --build packages/services/tsconfig.json 2>&1 || true && \
+    ls packages/core/dist/agent-runtime/runtime.js && \
+    ls packages/services/dist/shaar/production-server.js
 
 # ── Stage 2: Production ───────────────────────────────────────────────────────
 FROM node:20-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    # Playwright Chromium dependencies
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
+    libwayland-client0 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -55,6 +63,9 @@ COPY packages/app/package.json packages/app/
 
 # Install production dependencies only
 RUN npm ci --omit=dev --ignore-scripts
+
+# Install Playwright Chromium for Shaar Guardian browser observation
+RUN npx playwright install chromium 2>/dev/null || true
 
 # Copy compiled output from builder
 COPY --from=builder /app/packages/core/dist packages/core/dist

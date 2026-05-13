@@ -21,7 +21,8 @@ export type WebSocketEventType =
   | 'cost.updated'
   | 'alert.triggered'
   | 'workflow.progress'
-  | 'system.health';
+  | 'system.health'
+  | 'spec.document.updated';
 
 export interface WebSocketMessage {
   type: WebSocketEventType;
@@ -98,7 +99,7 @@ export class ShaarWebSocketHandler {
       connectionId,
       tenantId,
       userId,
-      subscribedEvents: ['agent.state.changed', 'cost.updated', 'alert.triggered', 'workflow.progress', 'system.health'],
+      subscribedEvents: ['agent.state.changed', 'cost.updated', 'alert.triggered', 'workflow.progress', 'system.health', 'spec.document.updated'],
       connectedAt: new Date().toISOString(),
       authenticated: false,
     };

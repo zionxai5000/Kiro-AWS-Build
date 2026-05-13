@@ -10,6 +10,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
 
 // In-memory repositories
@@ -39,6 +40,7 @@ import { InMemoryEventBusService } from '../event-bus/in-memory-event-bus.js';
 // API Router and WebSocket Handler
 import { ShaarAPIRouter, type APIRequest, type APIResponse } from './api-routes.js';
 import { ShaarWebSocketHandler } from './websocket-handler.js';
+import { SpecFileWatcher } from './spec-file-watcher.js';
 
 // Agent programs
 import { ZIONX_AGENT_PROGRAM } from '@seraphim/app/zionx/agent-program.js';
@@ -242,6 +244,86 @@ const OTZAR_AGENT_PROGRAM: AgentProgram = {
 };
 
 // ---------------------------------------------------------------------------
+// Shaar Guardian Agent Program (Phase 18 — Human Interface Intelligence)
+// ---------------------------------------------------------------------------
+
+const SHAAR_AGENT_PROGRAM: AgentProgram = {
+  id: 'shaar-guardian',
+  name: 'Shaar Guardian',
+  version: '1.0.0',
+  pillar: 'system',
+  systemPrompt: `You are the Shaar Guardian — the autonomous UI/UX intelligence and product experience authority for SeraphimOS. You observe the dashboard from the human perspective, detect friction, evaluate visual design quality, audit data truth, and generate improvement recommendations.
+
+IDENTITY: You are NOT Claude, NOT an AI assistant. You ARE the Shaar Guardian. You never break character.
+
+YOUR ROLE: You are an expert UI/UX designer and product experience reviewer. You:
+- Observe the SeraphimOS dashboard from the human perspective
+- Detect UX friction: unclear labels, dead-end workflows, missing feedback, confusing navigation
+- Evaluate visual design: layout quality, hierarchy, spacing, typography, color, CTAs
+- Audit data truth: flag mock data, stale metrics, disconnected charts
+- Verify agentic behavior visibility: execution traces, memory indicators, tool usage shown to users
+- Inspect revenue workflows: are screens helping the King make money?
+- Generate structured improvement recommendations with evidence and acceptance criteria
+- Dispatch approved recommendations to Kiro for implementation
+- Verify improvements after Kiro implements them (before/after comparison)
+
+COMMUNICATION STYLE: Direct. Evidence-based. Design-literate. When something looks bad, you say so with specific evidence and proposed fixes. You don't just find bugs — you find design failures, workflow friction, and missed opportunities. You think in terms of visual hierarchy, cognitive load, information architecture, and conversion flow.
+
+CRITICAL — MEMORY: You HAVE persistent memory. Every conversation is stored permanently. You remember past reviews, recommendations, and their outcomes.
+
+READINESS SCORE: You maintain a composite Readiness Score across: UX quality, visual design, workflow clarity, agentic visibility, revenue workflow support, data truth, permission safety, mobile responsiveness, and cost visibility. You report this score and the top improvements needed.
+
+KIRO DISPATCH: When the King approves a recommendation, you dispatch it to Kiro for implementation via the Agent-to-Kiro bridge. After Kiro implements, you retest and verify.
+
+AUTONOMOUS REVIEW CAPABILITY: You have a Playwright-based browser observation pipeline that launches headless Chromium, navigates to the live SeraphimOS dashboard, bypasses authentication, and inspects the rendered DOM. This pipeline runs automatically when you receive a review request.
+
+IMPORTANT — YOU CAN SEE THE DASHBOARD: You have real browser access to the live dashboard. When asked "can you see the dashboard?" the answer is YES. Your observation pipeline uses Playwright to render the full React SPA, extract DOM elements, capture screenshots, and detect console errors. You do NOT need the user to provide screenshots. You observe autonomously.
+
+When the analysis pipeline runs, its results are injected into your context as "DASHBOARD ANALYSIS RESULTS". Use that data as your primary evidence. If no analysis data is present in your context, state that you will run a review and provide results based on your knowledge of the dashboard architecture.
+
+You generate a Readiness Score (0-100, grade A-F) and specific recommendations with evidence and acceptance criteria.
+
+REVIEW METHODOLOGY: When reviewing a page, structure your response as:
+- Readiness Score and Grade
+- Dimension breakdown (UX, Design, Data Truth, Agentic Visibility, Revenue)
+- Top issues found with evidence
+- Specific recommendations ranked by impact
+- Path to next grade level`,
+  identityProfile: {
+    name: 'Shaar Guardian',
+    role: 'Human Interface Intelligence and UI/UX Design Authority. Observes the dashboard from the human perspective, evaluates design quality, detects friction, and generates improvement tasks.',
+    hierarchyPosition: 'Reports to Seraphim. Owns the entire human-facing experience layer. Collaborates with all agents to ensure their interfaces are usable.',
+    personality: { tone: 'analytical', verbosity: 'detailed', proactivity: 'proactive', formality: 'professional' },
+    expertise: ['UI/UX design', 'visual hierarchy', 'information architecture', 'accessibility', 'workflow design', 'browser automation', 'screenshot analysis', 'usability testing', 'mobile responsiveness', 'conversion optimization', 'cognitive load reduction'],
+    domainLanguage: ['readiness score', 'friction', 'hierarchy', 'cognitive load', 'CTA', 'empty state', 'loading state', 'data truth', 'permission boundary', 'before/after', 'visual weight', 'information density'],
+    decisionPrinciples: ['User experience over technical correctness', 'Visual quality matters independently of functionality', 'Every screen should help the King make money or make decisions', 'If it looks broken to a human it IS broken', 'Evidence over opinion — always show screenshots'],
+    relationships: [
+      { agentId: 'seraphim-core', relationship: 'reports_to', description: 'Reports findings and recommendations to Seraphim' },
+      { agentId: 'zionx-app-factory', relationship: 'monitors', description: 'Monitors ZionX dashboard screens for UX quality' },
+      { agentId: 'zxmg-media-production', relationship: 'monitors', description: 'Monitors ZXMG dashboard screens for UX quality' },
+      { agentId: 'zion-alpha-trading', relationship: 'monitors', description: 'Monitors Zion Alpha dashboard screens for UX quality' },
+    ],
+    neverBreakCharacter: true,
+    identityReinforcement: 'You are the Shaar Guardian. You see what humans see. You judge what humans judge. You are the expert UI/UX authority.',
+  },
+  tools: [
+    { name: 'review_page', description: 'Review a specific dashboard page for UX/design issues', inputSchema: { type: 'object', properties: { page: { type: 'string' } } } },
+    { name: 'generate_readiness_score', description: 'Generate the Shaar Readiness Score across all dimensions', inputSchema: { type: 'object', properties: {} } },
+    { name: 'dispatch_to_kiro', description: 'Dispatch an approved recommendation to Kiro for implementation', inputSchema: { type: 'object', properties: { recommendation: { type: 'string' } } } },
+  ],
+  stateMachine: { id: 'shaar-guardian-lifecycle', name: 'Shaar Guardian Lifecycle', version: '1.0.0', states: { observing: { name: 'observing', type: 'initial' }, reviewing: { name: 'reviewing', type: 'active' }, idle: { name: 'idle', type: 'terminal' } }, initialState: 'observing', terminalStates: ['idle'], transitions: [{ from: 'observing', to: 'reviewing', event: 'review_requested', gates: [] }, { from: 'reviewing', to: 'observing', event: 'review_complete', gates: [] }], metadata: { createdAt: new Date(), updatedAt: new Date(), description: 'Shaar Guardian lifecycle' } },
+  completionContracts: [],
+  authorityLevel: 'L3',
+  allowedActions: ['review_page', 'generate_readiness_score', 'dispatch_to_kiro'],
+  deniedActions: [],
+  modelPreference: { preferred: 'claude-sonnet-4-20250514', fallback: 'gpt-4o', costCeiling: 5.0 },
+  tokenBudget: { daily: 300000, monthly: 6000000 },
+  testSuite: { suiteId: 'shaar-guardian-tests', path: 'packages/services/__tests__', requiredCoverage: 80 },
+  createdAt: new Date('2026-01-01'), updatedAt: new Date('2026-05-12'), createdBy: 'system',
+  changelog: [{ version: '1.0.0', date: new Date('2026-05-12'), author: 'system', description: 'Initial Shaar Guardian deployment.' }],
+};
+
+// ---------------------------------------------------------------------------
 // Minimal WebSocket frame helpers (no external ws dependency)
 // ---------------------------------------------------------------------------
 
@@ -422,6 +504,7 @@ async function main() {
     ZION_ALPHA_AGENT_PROGRAM,
     MISHMAR_AGENT_PROGRAM,
     OTZAR_AGENT_PROGRAM,
+    SHAAR_AGENT_PROGRAM,
   ];
 
   const deployedAgents: Array<{ id: string; name: string; pillar: string }> = [];
@@ -607,6 +690,133 @@ async function main() {
       body = await parseBody(req);
     }
 
+    // -----------------------------------------------------------------------
+    // Shaar Guardian Intelligence Middleware
+    // When the Shaar Guardian agent receives a review-related message,
+    // automatically run the dashboard analysis pipeline and inject results
+    // into the LLM context so the agent can respond with real evidence.
+    // Phase 18 — Shaar Agent (Human Interface Intelligence)
+    // -----------------------------------------------------------------------
+    const executeMatch = apiPath.match(/^\/agents\/([^/]+)\/execute$/);
+    if (executeMatch && req.method === 'POST') {
+      const targetAgentId = executeMatch[1]!;
+      const taskBody = (body as any)?.task ?? body;
+      const userInput = taskBody?.params?.input || taskBody?.description || '';
+
+      // Check if this is the Shaar Guardian agent
+      const isShaarAgent = deployedAgents.find(a => a.id === targetAgentId && a.name === 'Shaar Guardian');
+
+      if (isShaarAgent && userInput) {
+        // Detect review-related messages
+        const reviewKeywords = /\b(review|examine|analyze|inspect|evaluate|audit|check|look at|assess|score|readiness|friction|ux|design quality|improve|what needs|what.s wrong)\b/i;
+        const pageKeywords = /\b(king.?s?\s*view|command\s*center|eretz|zionx|zxmg|zion\s*alpha|shaar|dashboard|site|page|tab|entire|all\s*pages|whole)\b/i;
+
+        if (reviewKeywords.test(userInput) && (pageKeywords.test(userInput) || /\b(this|the|our|my)\b/i.test(userInput))) {
+          try {
+            console.log(`[ShaarGuardian] Review request detected: "${userInput.substring(0, 80)}..."`);
+            const { ShaarAgentOrchestrator } = await import('../shaar-agent/orchestrator.js');
+            // Use local dashboard URL when running locally
+            const dashboardUrl = process.env.DASHBOARD_URL || 'http://localhost:5173';
+            const usePlaywright = process.env.SHAAR_USE_PLAYWRIGHT !== 'false'; // Default: true (use real browser)
+            const orchestrator = new ShaarAgentOrchestrator({
+              dashboardUrl,
+              usePlaywright,
+              screenshotDir: './screenshots/shaar-agent/',
+            });
+
+            // Determine which page to review based on the message
+            // PlaywrightObserver navigates by clicking [data-view="..."] sidebar links
+            let pagePath = '/';
+            if (/king.?s?\s*view/i.test(userInput)) pagePath = 'kings-view';
+            else if (/command\s*center/i.test(userInput)) pagePath = 'kings-view';
+            else if (/eretz/i.test(userInput)) pagePath = 'eretz';
+            else if (/zionx.*studio/i.test(userInput)) pagePath = 'zionx-studio';
+            else if (/zionx/i.test(userInput)) pagePath = 'zionx';
+            else if (/zxmg.*studio/i.test(userInput)) pagePath = 'zxmg-studio';
+            else if (/zxmg/i.test(userInput)) pagePath = 'zxmg';
+            else if (/zion\s*alpha/i.test(userInput)) pagePath = 'zion-alpha';
+            else if (/shaar\s*agent/i.test(userInput)) pagePath = 'shaar-agent';
+            else if (/sme|intelligence/i.test(userInput)) pagePath = 'sme-intelligence';
+            else if (/revenue/i.test(userInput)) pagePath = 'revenue';
+            else if (/cost|otzar/i.test(userInput)) pagePath = 'costs';
+            else if (/audit/i.test(userInput)) pagePath = 'audit';
+            else if (/health/i.test(userInput)) pagePath = 'health';
+            else if (/all\s*pages|entire|whole/i.test(userInput)) pagePath = 'all';
+
+            let reviewResult;
+            if (pagePath === 'all') {
+              const allResults = await orchestrator.reviewAllPages();
+              // Use the first result as the primary, include summary of all
+              reviewResult = allResults[0] || await orchestrator.reviewPage('/');
+            } else {
+              reviewResult = await orchestrator.reviewPage(pagePath);
+            }
+            console.log(`[ShaarGuardian] Review complete: score=${reviewResult.readinessScore.overall}/100 (${reviewResult.readinessScore.grade})`);
+
+            // Augment the user's message with the real analysis data
+            const analysisContext = [
+              `\n\n--- DASHBOARD ANALYSIS RESULTS (from autonomous observation pipeline) ---`,
+              `Page: ${reviewResult.pageUrl}`,
+              `Observation Time: ${reviewResult.timestamp}`,
+              `Page Title: ${reviewResult.observation.title}`,
+              `Load Time: ${reviewResult.observation.loadTimeMs}ms`,
+              `DOM Elements Found: ${reviewResult.observation.elements.length}`,
+              reviewResult.observation.consoleErrors.length > 0 ? `Console Errors: ${reviewResult.observation.consoleErrors.join('; ')}` : '',
+              ``,
+              `## Readiness Score: ${reviewResult.readinessScore.overall}/100 (Grade: ${reviewResult.readinessScore.grade})`,
+              `Trend: ${reviewResult.readinessScore.trend}`,
+              `Points to next grade: ${reviewResult.readinessScore.pointsToNextGrade}`,
+              ``,
+              `## Dimension Scores:`,
+              ...reviewResult.readinessScore.dimensions.map((d: any) => `- ${d.name}: ${d.score}/100 (${d.status}) — ${d.summary}`),
+              ``,
+              `## UX Friction: Score ${reviewResult.friction.overallFrictionScore}/100, ${reviewResult.friction.totalIssues} issues found`,
+              ...((reviewResult.friction as any).issues || []).slice(0, 5).map((i: any) => `- [${i.severity}] ${i.title}: ${i.description}`),
+              ``,
+              `## Design Quality: Score ${reviewResult.design.overallDesignScore}/100`,
+              ...((reviewResult.design as any).issues || []).slice(0, 5).map((i: any) => `- [${i.severity}] ${i.title}: ${i.description}`),
+              ``,
+              `## Data Truth: Score ${reviewResult.dataTruth.overallTruthScore}/100, ${reviewResult.dataTruth.totalIssues} issues`,
+              ``,
+              `## Agentic Visibility: Score ${reviewResult.agenticVisibility.overallVisibilityScore}/100, Chatbot-like: ${reviewResult.agenticVisibility.isChatbotLike}`,
+              ``,
+              `## Revenue Workflow: Score ${reviewResult.revenueWorkflow.overallRevenueScore}/100, Money-making capability: ${reviewResult.revenueWorkflow.moneyMakingCapability}`,
+              ``,
+              `## Top Recommendations (${reviewResult.recommendations.totalCount} total, ${reviewResult.recommendations.criticalCount} critical):`,
+              ...reviewResult.recommendations.recommendations.slice(0, 8).map((r: any, i: number) => `${i + 1}. [${r.severity}] ${r.title}: ${r.description} (effort: ${r.estimatedEffort}, impact: +${r.estimatedImpact} pts)`),
+              ``,
+              `## HTML Structure Summary:`,
+              `Buttons: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'button').length}`,
+              `Links: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'a').length}`,
+              `Headings: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'heading').length}`,
+              `Forms: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'form').length}`,
+              `Inputs: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'input').length}`,
+              `Labels: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'label').length}`,
+              `Images: ${reviewResult.observation.elements.filter((e: any) => e.tag === 'img').length}`,
+              `--- END ANALYSIS ---`,
+              ``,
+              `Based on this analysis, respond to the King's request: "${userInput}"`,
+              `Provide your expert UX/design assessment using the REAL data above. Be specific, cite evidence from the analysis, and rank recommendations by impact.`,
+            ].filter(Boolean).join('\n');
+
+            // Modify the task body to include analysis context
+            const enrichedInput = analysisContext;
+            if (taskBody.params) {
+              taskBody.params.input = enrichedInput;
+            } else {
+              taskBody.params = { input: enrichedInput, source: 'dashboard', pillar: 'shaar-guardian' };
+            }
+            if (taskBody.description) {
+              taskBody.description = enrichedInput;
+            }
+          } catch (err) {
+            console.error(`[ShaarGuardian] Analysis pipeline failed: ${(err as Error).message}`);
+            // Continue without analysis — the agent will respond based on system prompt alone
+          }
+        }
+      }
+    }
+
     // Build APIRequest
     const apiReq: APIRequest = {
       method: (req.method ?? 'GET') as APIRequest['method'],
@@ -708,7 +918,31 @@ async function main() {
     });
   });
 
-  // 17. Periodically broadcast system health via WebSocket
+  // 17. Start the spec file watcher for auto-sync
+  const specFileWatcher = new SpecFileWatcher({
+    specDir: resolve(process.cwd(), '.kiro/specs/seraphim-os-core'),
+    onChanged: (event) => {
+      if (wsHandler.getConnectionCount() === 0) return;
+
+      const msg = { type: event.type, data: event.data as Record<string, unknown>, timestamp: event.timestamp };
+      const recipients = wsHandler.broadcast(msg as any, 'system');
+      const frameData = encodeWebSocketFrame(wsHandler.formatMessage(msg as any));
+
+      for (const recipientId of recipients) {
+        const sock = wsSockets.get(recipientId);
+        if (sock && !sock.destroyed) {
+          sock.write(frameData);
+        }
+      }
+
+      console.log(`  📄 Spec updated: ${event.data.documentType} (hash: ${event.data.hash.slice(0, 8)}…)`);
+    },
+  });
+
+  await specFileWatcher.start();
+  console.log('\n👁️  Spec file watcher active on .kiro/specs/seraphim-os-core/');
+
+  // 18. Periodically broadcast system health via WebSocket
   setInterval(() => {
     if (wsHandler.getConnectionCount() === 0) return;
 

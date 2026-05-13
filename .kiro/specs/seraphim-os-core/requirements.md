@@ -54,6 +54,24 @@ This document defines the core platform requirements across five architectural l
 - **Auto_Rework_Loop**: The integration between the Reference_Quality_Gate and the Training Cascade that automatically resubmits rejected output with identified gaps until the Quality_Baseline is met
 - **Production_Formula**: A distilled set of principles extracted from video/channel analysis describing what makes content achieve specific performance thresholds (e.g., "50M+ view video formula")
 - **App_Quality_Profile**: A distilled set of principles extracted from app analysis describing what makes an app achieve specific quality thresholds (e.g., "4.8-star wellness app profile")
+- **ZionX_App_Studio**: The in-browser app development environment within the Shaar dashboard that enables the King to describe, generate, preview, edit, test, and publish mobile apps through natural language interaction with ZionX — combining AI code generation, live mobile preview, iterative edit loop, integration management, store asset generation, and submission orchestration
+- **App_Preview_Runtime**: The component that renders a live mobile app preview in the browser using React Native Web inside device frames (iPhone, iPad, Android), supporting screen navigation, UI validation, and real-time reload on code changes
+- **AI_Edit_Controller**: The component that accepts natural language edit commands from the King, translates them into code modifications via ZionX, reruns tests, and triggers preview reload
+- **Studio_Session_Manager**: The component that manages the lifecycle of an app development session including project state, file tree, build status, preview connection, and undo/redo history
+- **Device_Profile_Manager**: The component that maintains device frame definitions (iPhone 15, SE, iPad, Pixel, Android tablet) with accurate dimensions, safe areas, and notch/island specifications for preview rendering and screenshot generation
+- **Store_Asset_Generator**: The component that automatically generates app store screenshots per device size, feature graphics, app icons, promo banners, and captions by capturing the live preview in various device frames and states
+- **Ad_Studio**: The component that generates video ad creatives (15s vertical, 30s horizontal, 6s bumper, playable demos) from app preview recordings, validates against ad network specifications, and exports for AdMob/AppLovin/Unity
+- **Apple_Release_Agent**: The sub-agent responsible for iOS build management, App Store Connect metadata, Apple IAP/RevenueCat validation, privacy nutrition labels, device-specific screenshots, TestFlight distribution, App Store review submission, and rejection remediation
+- **Google_Play_Release_Agent**: The sub-agent responsible for Android AAB build management, Google Play Console metadata, Google Play billing/RevenueCat validation, Data Safety form completion, feature graphics, closed testing tracks, production releases, and rejection remediation
+- **Store_Asset_Agent**: The sub-agent that generates and adapts screenshots, captions, app preview videos, feature graphics, promo banners, and ad creatives to platform-specific rules for both Apple and Google stores
+- **Preview_Maturity_Level**: The three-stage progression of app preview capability: Level 1 (React Native Web in-browser), Level 2 (Expo QR code on real device), Level 3 (cloud emulator streaming with automated screenshot capture)
+- **ZXMG_Video_Studio**: The in-browser video production studio within the Shaar dashboard ZXMG tab that provides autonomous AI video production — researching trends, generating content ideas, producing scripts, rendering AI video clips, assembling full videos, and publishing across platforms — with optional King override for manual ideation and editing
+- **Autonomous_Content_Engine**: The default operating mode of ZXMG_Video_Studio where ZXMG autonomously researches trending topics, generates content calendars, produces videos, and publishes without requiring King input — the King can override at any point but intervention is not required
+- **Content_Pipeline**: The rolling 7-14 day production queue maintained per managed YouTube channel, containing auto-generated video concepts with scripts, thumbnails, titles, descriptions, tags, and scheduling — executed autonomously unless the King intervenes
+- **Trend_Intelligence_Engine**: The component that performs real-time analysis of trending video styles, algorithm signals, competitor performance, audience retention patterns, content gaps, and viral patterns across YouTube, TikTok, and Instagram
+- **Multi_Model_Video_Router**: The component that routes video generation requests to the optimal AI model per shot type (Sora 2/Veo 3 for cinematic, Kling/WAN/Minimax for fast iteration, specialized models for animation) — managed by Otzar based on quality and budget
+- **Video_Timeline_Editor**: The production studio component providing scene-by-scene timeline control, audio layer management, transitions, color grading, and multi-format export
+- **Platform_Distribution_Engine**: The component that handles one-click publishing to YouTube, TikTok, Instagram Reels, X, Facebook, and Rumble with platform-specific formatting, optimal scheduling, and cross-platform content repurposing
 
 ---
 
@@ -837,5 +855,938 @@ This document defines the core platform requirements across five architectural l
 58. WHEN the Training Cascade receives a "baseline.updated" event, THE Training Cascade SHALL update its quality standards to reflect the new baseline thresholds
 59. THE Reference_Ingestion_Service SHALL require a valid Execution_Token from Mishmar before initiating any reference analysis, enforcing the existing governance model
 60. WHEN a reference ingestion fails at any stage, THE Reference_Ingestion_Service SHALL publish a "reference.ingestion.failed" event with the failure reason and stage where the failure occurred
+
+---
+
+
+### Requirement 35: Parallel Agent Orchestration
+
+**User Story:** As the King, I want all agents and sub-agents to work in parallel — both within a single agent spawning concurrent sub-tasks and across multiple agents working on different parts of the same project simultaneously — so that the system maximizes throughput, minimizes wall-clock time, and operates like a coordinated team rather than a sequential pipeline.
+
+#### Acceptance Criteria
+
+##### 35a: Intra-Agent Parallelization
+
+1. WHEN an agent decomposes a task into independent sub-tasks, THE Agent_Runtime SHALL execute those sub-tasks concurrently on separate compute threads/containers, sharing the parent agent's context and memory access
+2. THE Agent_Runtime SHALL support configurable parallelism limits per agent (default: 5 concurrent sub-tasks) to prevent resource exhaustion
+3. WHEN parallel sub-tasks complete, THE Agent_Runtime SHALL aggregate results into a unified output, resolving any conflicts using the agent's defined merge strategy
+4. IF a parallel sub-task fails, THE Agent_Runtime SHALL isolate the failure without terminating sibling tasks, retry the failed task according to retry policy, and report partial results if retry exhausts
+
+##### 35b: Inter-Agent Parallelization
+
+5. WHEN Seraphim_Core or Eretz decomposes a directive into work for multiple agents (e.g., ZionX and ZXMG working on different aspects of the same launch), THE orchestrator SHALL dispatch work to all target agents simultaneously rather than sequentially
+6. THE Agent_Runtime SHALL maintain a dependency graph for inter-agent parallel work — when agent B depends on agent A's output, agent B SHALL wait for agent A's specific output before proceeding, while other independent work continues
+7. WHEN multiple agents are working in parallel on related tasks, THE Event_Bus SHALL provide a real-time coordination channel allowing agents to share intermediate results, signal completion of dependencies, and request information from sibling agents without blocking
+
+##### 35c: Dependency Management and Coordination
+
+8. THE Seraphim_Core SHALL support declarative dependency definitions between parallel tasks using a DAG (Directed Acyclic Graph) structure, where each task specifies its inputs and which other tasks must complete first
+9. WHEN a circular dependency is detected in the task DAG, THE Seraphim_Core SHALL reject the task graph, log the cycle to XO_Audit, and notify the originating agent with the specific cycle path
+10. THE Seraphim_Core SHALL provide real-time parallel execution dashboards showing: active parallel streams, dependency status (waiting/ready/executing/complete), resource utilization per stream, and estimated completion times
+11. WHEN all parallel streams for a coordinated task complete, THE Seraphim_Core SHALL execute a configurable aggregation step that synthesizes results from all streams into a unified deliverable
+
+##### 35d: Work Distribution and Load Balancing
+
+12. THE Agent_Runtime SHALL distribute parallel work units across available compute resources using a configurable strategy (round-robin, least-loaded, affinity-based) respecting Otzar budget constraints
+13. WHEN system load from parallel execution approaches resource limits, THE Agent_Runtime SHALL queue lower-priority parallel tasks and notify the orchestrating agent of the delay
+
+---
+
+### Requirement 36: MCP (Model Context Protocol) Integration
+
+**User Story:** As the King, I want SeraphimOS agents to both consume and provide MCP tools — so that agents can use external tools/services dynamically, other systems (like Kiro) can call into SeraphimOS agents, and the platform participates in the broader MCP ecosystem as both client and server.
+
+#### Acceptance Criteria
+
+##### 36a: MCP Server Capabilities (Agents as MCP Providers)
+
+1. THE SeraphimOS SHALL expose each agent's capabilities as an MCP server, allowing external systems (Kiro, other MCP clients) to discover and invoke agent tools through the standard MCP protocol
+2. WHEN an external MCP client connects to a SeraphimOS agent's MCP server, THE MCP server SHALL authenticate the client using token-based authentication integrated with Mishmar governance
+3. THE MCP server SHALL expose agent tools with full JSON Schema definitions for inputs and outputs, enabling type-safe tool discovery and invocation
+4. WHEN an MCP tool invocation is received, THE MCP server SHALL validate the request against Mishmar authorization rules before executing — unauthorized tool calls SHALL be rejected with appropriate error codes
+5. THE SeraphimOS SHALL expose the following as MCP tools per agent: Seraphim (system health, directive submission, recommendation queue), Eretz (portfolio metrics, synergy status, pattern library), ZionX (app status, pipeline triggers, gate results), ZXMG (content pipeline, analytics, production status), Zion Alpha (positions, strategy status, market scans)
+
+##### 36b: MCP Client Capabilities (Agents Consuming External Tools)
+
+6. THE Agent_Runtime SHALL support agents consuming external MCP tools as part of their execution — agents can discover, connect to, and invoke tools from external MCP servers
+7. WHEN an agent needs a capability not available internally, THE Agent_Runtime SHALL check the MCP Tool Registry for available external tools matching the required capability
+8. THE MCP Client SHALL handle connection lifecycle (connect, reconnect, disconnect) with automatic retry and circuit breaker patterns consistent with the Driver layer
+9. THE Agent_Runtime SHALL enforce Otzar budget constraints on external MCP tool usage — each external tool call SHALL be tracked for cost and counted against the agent's budget
+
+##### 36c: MCP Tool Registry and Discovery
+
+10. THE SeraphimOS SHALL maintain a central MCP Tool Registry listing all available tools (internal agent tools + external MCP server tools) with their schemas, availability status, and cost estimates
+11. THE MCP Tool Registry SHALL support dynamic registration — when a new MCP server is configured, its tools SHALL be automatically discovered and registered without system restart
+12. WHEN an agent requests a tool by capability description rather than exact name, THE MCP Tool Registry SHALL perform semantic matching to find the best available tool
+
+##### 36d: Kiro-Seraphim MCP Bridge
+
+13. THE SeraphimOS SHALL provide a bidirectional MCP bridge between Kiro IDE and SeraphimOS — Kiro can invoke SeraphimOS agent tools, and SeraphimOS agents can invoke Kiro tools (file editing, code analysis, terminal commands)
+14. WHEN a SeraphimOS agent needs to make code changes, THE agent SHALL invoke Kiro tools through the MCP bridge rather than directly manipulating files, ensuring all changes go through Kiro's verification and hook system
+15. THE Kiro-Seraphim MCP bridge SHALL maintain persistent connection state so that ongoing development sessions can seamlessly interact with live SeraphimOS agents
+
+---
+
+### Requirement 37: Unified Agent Communication Layer
+
+**User Story:** As the King, I want to communicate with any agent directly from its own dashboard — with persistent chat history, multi-user support, and cross-agent context sharing — so that I can interact with agents where they live without switching to a separate tool, and so that multiple team members can collaborate with agents simultaneously.
+
+#### Acceptance Criteria
+
+##### 37a: Per-Agent Chat Interface
+
+1. THE Shaar dashboard SHALL provide a persistent chat interface on each agent's dashboard page (Seraphim, Eretz, ZionX, ZXMG, Zion Alpha) where users can send messages and receive responses in real-time
+2. THE chat interface SHALL maintain full conversation history per agent, persisted in the database, scrollable and searchable
+3. WHEN a user sends a message to an agent via the dashboard chat, THE agent SHALL process the message using its full context (domain expertise, current state, memory) and respond within the chat interface
+4. THE chat interface SHALL display agent status indicators: idle (available), working (processing a task), waiting (needs input), thinking (processing the current message)
+
+##### 37b: Multi-User Concurrent Access
+
+5. THE chat system SHALL support multiple authenticated user accounts chatting with the same agent simultaneously — each user's messages are attributed to their identity
+6. THE chat system SHALL display a unified conversation view showing all users' messages interleaved chronologically with clear user attribution (username, avatar, timestamp)
+7. WHEN multiple users are chatting with an agent concurrently, THE agent SHALL maintain separate conversation contexts per user while having access to the full unified history for situational awareness
+8. THE chat system SHALL implement rate limiting and fairness — when multiple users are waiting for agent responses, THE system SHALL process requests using a configurable priority strategy (default: FIFO, configurable to role-based priority where King messages are processed first)
+
+##### 37c: Cross-Agent Context Sharing
+
+9. WHEN a user sends a message to one agent that contains information relevant to another agent's domain, THE system SHALL automatically detect the relevance (using NLP/embedding similarity) and share the context with the relevant agent(s) as a background context update
+10. THE system SHALL support explicit agent tagging using @-mention syntax (e.g., "@eretz look at this") to manually route messages or context to specific agents
+11. WHEN context is shared between agents (automatically or explicitly), THE receiving agent SHALL acknowledge the context in its next relevant interaction and incorporate it into its working memory
+12. THE system SHALL maintain a shared context log showing all cross-agent context propagation events — which messages were shared, from which agent to which agent, and whether they were auto-detected or explicitly tagged
+
+##### 37d: Conversation Context Handoff
+
+13. WHEN a user switches from chatting with one agent to another, THE new agent SHALL have access to a summary of the user's recent conversation with the previous agent, enabling continuity without re-explanation
+14. THE context handoff SHALL be configurable: automatic (always share recent context), on-request (agent asks if user wants to share prior context), or manual (user explicitly shares)
+
+##### 37e: Agent Presence and Status
+
+15. THE dashboard SHALL display real-time agent presence indicators for all agents: online/idle, actively working (with task description), waiting for user input, processing parallel tasks (with count), degraded/error state
+16. WHEN an agent's status changes, THE dashboard SHALL update the presence indicator within 2 seconds via WebSocket
+
+##### 37f: Communication Audit and Replay
+
+17. THE system SHALL log all human-agent communications to XO_Audit with: user identity, agent identity, message content, timestamp, response time, and any actions triggered by the message
+18. THE system SHALL support conversation replay — the ability to review the full communication history between any user and any agent for a given time period
+
+---
+
+### Requirement 38: Telegram Integration
+
+**User Story:** As the King, I want a single Telegram bot with dedicated channels/threads per agent, so that I can communicate with and command any agent from my phone — with the same capabilities as the dashboard chat — enabling mobile-first agent interaction.
+
+#### Acceptance Criteria
+
+##### 38a: Unified Bot with Per-Agent Threads
+
+1. THE SeraphimOS SHALL operate a single Telegram bot that provides dedicated threads/topics for each agent: Seraphim, Eretz, ZionX, ZXMG, and Zion Alpha
+2. WHEN a user sends a message in an agent's Telegram thread, THE system SHALL route the message to that agent for processing and deliver the response in the same thread
+3. THE Telegram bot SHALL support the same command semantics as the dashboard chat — any command that works in the dashboard chat SHALL work identically in Telegram
+
+##### 38b: Dashboard-Telegram Synchronization
+
+4. WHEN a message is sent via Telegram, THE system SHALL display it in the corresponding agent's dashboard chat history with a "via Telegram" indicator
+5. WHEN a message is sent via the dashboard chat, THE system SHALL display it in the corresponding Telegram thread with a "via Dashboard" indicator
+6. THE synchronization SHALL be real-time (within 3 seconds) and bidirectional — the conversation is one unified stream regardless of which surface it originates from
+
+##### 38c: Multi-User Telegram Support
+
+7. THE Telegram bot SHALL identify users by their Telegram account linked to their SeraphimOS user account, maintaining proper attribution in the unified chat history
+8. WHEN a new Telegram user interacts with the bot, THE system SHALL require account linking (connecting their Telegram ID to their SeraphimOS user account) before granting access
+9. THE Telegram bot SHALL enforce the same Mishmar authorization rules as the dashboard — users can only interact with agents they are authorized to access
+
+##### 38d: Telegram Notification Routing
+
+10. WHEN an agent completes a long-running task, needs user input, or generates an alert, THE notification system SHALL route the notification to Telegram if the user's preference includes Telegram as a notification channel
+11. THE Telegram bot SHALL support notification preferences per user: all notifications, high-priority only, specific agents only, or quiet hours
+12. WHEN a notification is delivered via Telegram, THE user SHALL be able to respond directly in the thread to take action (approve, reject, acknowledge) without switching to the dashboard
+
+---
+
+### Requirement 39: Message Priority and Urgency
+
+**User Story:** As the King, I want message priority levels so that urgent communications are processed immediately while routine messages wait their turn — especially important when multiple users are interacting with the same agent.
+
+#### Acceptance Criteria
+
+1. THE communication system SHALL support four priority levels for messages: low (when you get a chance), normal (standard processing), high (prioritize this), and critical (stop what you're doing)
+2. WHEN a critical-priority message is received, THE agent SHALL interrupt its current non-critical work, acknowledge the message within 10 seconds, and begin processing immediately
+3. WHEN multiple messages are queued for an agent, THE system SHALL process them in priority order (critical → high → normal → low), with FIFO ordering within the same priority level
+4. THE system SHALL allow the King's messages to be automatically elevated to high priority by default (configurable)
+
+---
+
+### Requirement 40: Agent-to-Agent Delegation Visibility
+
+**User Story:** As the King, I want to see in the chat when an agent delegates work to another agent — including the delegation chain, status of delegated work, and when results come back — so that I have full transparency into how my requests are being handled across the agent hierarchy.
+
+#### Acceptance Criteria
+
+1. WHEN an agent delegates work to another agent as part of processing a user message, THE chat interface SHALL display a delegation indicator showing: which agent received the delegation, what was delegated, and current status (pending/in-progress/complete)
+2. WHEN a delegated task completes, THE chat interface SHALL display the result inline with a clear indication that it came from the delegated agent
+3. WHEN parallel delegations occur (agent sends work to multiple agents simultaneously), THE chat interface SHALL display all parallel streams with individual progress indicators
+4. THE delegation visibility SHALL work identically in both dashboard chat and Telegram threads
+
+---
+
+### Requirement 41: Notification Routing Engine
+
+**User Story:** As the King, I want fine-grained control over where notifications go — dashboard, Telegram, email, or multiple channels — based on notification type, urgency, time of day, and which agent generated it — so that I'm informed without being overwhelmed.
+
+#### Acceptance Criteria
+
+1. THE notification system SHALL support per-user routing rules that specify: which channels receive which notification types, priority thresholds per channel, quiet hours per channel, and per-agent notification preferences
+2. WHEN a notification is generated, THE routing engine SHALL evaluate all applicable routing rules and deliver to all matching channels simultaneously
+3. THE routing engine SHALL support escalation: if a notification is not acknowledged within a configurable timeout (default: 15 minutes for high priority, 5 minutes for critical), THE system SHALL escalate to the next configured channel
+4. THE routing engine SHALL deduplicate notifications — if the same notification is delivered to multiple channels and acknowledged on one, THE system SHALL mark it as acknowledged on all channels
+5. THE system SHALL provide a notification preferences UI in the dashboard where users can configure their routing rules without code changes
+
+
+
+---
+
+### Requirement 42: ZionX App Development Studio
+
+**User Story:** As the King, I want a full in-browser app development studio inside the ZionX tab of the Shaar dashboard — where I describe an app in natural language, ZionX generates it, I see a live mobile preview, give edit commands that update in real-time, connect integrations, generate store assets and ad creatives, and manage Apple/Google submissions through dedicated sub-agents — so that I can build, iterate, and publish production mobile apps entirely through conversation without touching Xcode, Android Studio, or any manual tooling.
+
+#### Acceptance Criteria
+
+##### 42a: Prompt/Spec Panel — App Ideation and Generation
+
+1. WHEN the King describes an app idea in natural language in the ZionX_App_Studio, THE ZionX SHALL generate a complete product specification including: product requirements, screen list, user journey map, design system, monetization plan, and technical architecture (React Native/Expo)
+2. WHEN the King approves the generated specification, THE ZionX SHALL generate the full app codebase (React Native/Expo) including all screens, navigation, components, state management, and configuration files
+3. THE ZionX_App_Studio SHALL trigger the `app.idea.created` hook upon app idea submission, initiating market research, competitor analysis, and design baseline generation via the existing ZionX domain expertise pipeline
+
+##### 42b: Mobile Preview Panel — Live In-Browser Preview
+
+4. WHEN app code is generated or modified, THE App_Preview_Runtime SHALL render a live interactive preview inside an accurate device frame (selectable: iPhone 15, iPhone SE, iPad, Pixel, Android tablet) within the Shaar dashboard
+5. THE App_Preview_Runtime SHALL support click-through navigation, button interactions, onboarding flow simulation, and paywall preview within the in-browser device frame
+6. WHEN the King selects a different device frame, THE App_Preview_Runtime SHALL re-render the preview with the correct dimensions, safe areas, and platform-specific UI conventions within 2 seconds
+7. THE ZionX_App_Studio SHALL trigger the `app.preview.updated` hook whenever the preview build refreshes, enabling downstream screenshot regeneration and test execution
+
+##### 42c: Code/File Panel — Project Structure Visibility
+
+8. THE ZionX_App_Studio SHALL display the app's file structure including: screen list, component list, configuration files, app metadata, and current build status in a navigable panel
+9. WHEN the King selects a file in the Code/File Panel, THE ZionX_App_Studio SHALL display the file contents with syntax highlighting (read-only in MVP, Monaco editor in future iteration)
+
+##### 42d: AI Edit Panel — Natural Language Code Modification
+
+10. WHEN the King issues a natural language edit command (e.g., "make the header blue", "add a settings screen", "change the paywall to annual pricing"), THE AI_Edit_Controller SHALL translate the command into code modifications, apply them to the codebase, rerun relevant tests, and trigger a preview reload
+11. THE AI_Edit_Controller SHALL maintain an undo/redo history so the King can revert any edit command to a previous state
+12. THE ZionX_App_Studio SHALL trigger the `app.code.changed` hook after every AI edit, initiating lint, typecheck, and test execution before updating the preview
+
+##### 42e: Integration Panel — Service Connections
+
+13. THE ZionX_App_Studio SHALL provide a vertical integration menu with configurable service connections including: Preview, Code, Design, Files, Images, Audio, API, Environment Variables, Database, Payments (RevenueCat), Prompts, Haptics, Logs, Network Requests, Store Assets, Ad Studio, Revenue, and Deployments
+14. WHEN the King enables an integration (e.g., RevenueCat payments), THE ZionX SHALL generate the required SDK integration code, configuration, and test stubs, and update the app codebase accordingly
+15. WHEN the King configures environment variables or API keys through the Integration Panel, THE ZionX_App_Studio SHALL store them securely via Otzar credential management and inject them into the build environment without exposing values in the UI
+
+##### 42f: Testing Panel — Quality Assurance
+
+16. THE ZionX_App_Studio SHALL provide a testing panel displaying: unit test results, UI test results, accessibility compliance status, design quality score (against Quality_Baseline), and store readiness checklist
+17. WHEN the King triggers a test run, THE ZionX_App_Studio SHALL execute all configured tests and display pass/fail results with specific failure details and suggested fixes
+18. THE ZionX_App_Studio SHALL block progression to the Build/Submit phase if any critical gate check fails (accessibility, store metadata completeness, IAP sandbox validation)
+
+##### 42g: Build/Submit Panel — Store Submission Management
+
+19. THE ZionX_App_Studio SHALL display separate build status panels for iOS and Android, showing: build progress, signing status, metadata readiness, privacy policy status, screenshot completeness, and IAP sandbox validation results
+20. WHEN the King initiates an iOS submission, THE Apple_Release_Agent SHALL own the complete iOS release workflow: Xcode build, Bundle ID management, App Store Connect metadata, Apple IAP/RevenueCat validation, privacy nutrition label generation, device-specific screenshots, App Preview video, TestFlight distribution, App Store review submission, and rejection remediation
+21. WHEN the King initiates an Android submission, THE Google_Play_Release_Agent SHALL own the complete Android release workflow: Gradle AAB build, package name management, Google Play Console metadata, Google Play billing/RevenueCat validation, Data Safety form completion, feature graphic generation, phone/tablet screenshots, closed testing track, production release, and rejection remediation
+22. THE ZionX_App_Studio SHALL trigger the `app.ios.build.created` hook for iOS builds (validating Xcode/iOS SDK, bundle ID, signing, App Store metadata) and the `app.android.build.created` hook for Android builds (validating Gradle/AAB, package name, signing keystore, Data Safety form)
+23. THE ZionX_App_Studio SHALL trigger the `app.submission.ready` hook when all gate checks pass, marking the app ready for King approval before final store submission
+
+##### 42h: Store Assets Tab — Automated Screenshot and Asset Generation
+
+24. WHEN the King opens the Store Assets tab or the `app.assets.requested` hook fires, THE Store_Asset_Agent SHALL capture screenshots from the live preview across all required device sizes: iPhone 6.7", iPhone 6.5", iPad, Google Play phone, and Google Play tablet
+25. THE Store_Asset_Agent SHALL generate feature graphics (1024×500), app icons (1024×1024), promotional banners, and localized captions for each screenshot — formatted per Apple App Store and Google Play Store specifications
+26. THE Store_Asset_Agent SHALL validate all generated assets against platform-specific requirements (dimensions, file size, content policy, text overlay limits) and flag non-compliant assets with specific remediation instructions
+27. THE ZionX_App_Studio SHALL trigger the `app.screenflow.changed` hook when navigation or screen layout changes, automatically regenerating affected screenshots
+
+##### 42i: Ad Studio Tab — Video Ad Creative Generation
+
+28. WHEN the King opens the Ad Studio tab or the `app.marketing.state.entered` hook fires, THE Ad_Studio SHALL generate video ad creatives in multiple formats: 15-second vertical (TikTok/Reels/Shorts), 30-second horizontal (YouTube pre-roll), 6-second bumper ads, and playable ad demos
+29. THE Ad_Studio SHALL validate all generated ad creatives against ad network specifications (AdMob, AppLovin, Unity Ads) including: file size limits, aspect ratios, duration constraints, and interactive element requirements for playable ads
+30. THE Ad_Studio SHALL export ad creatives in formats ready for upload to configured ad networks without manual conversion or reformatting
+
+##### 42j: Preview Maturity Levels — Progressive Preview Capability
+
+31. THE ZionX_App_Studio SHALL implement Preview_Maturity_Level 1 (MVP): React Native Web preview rendered in-browser inside device frames, supporting screen navigation, UI validation, design testing, and the AI edit loop
+32. WHERE Expo QR code preview is enabled (Preview_Maturity_Level 2), THE ZionX_App_Studio SHALL generate a QR code that the King can scan with Expo Go or a custom dev client to test the app on a real physical device
+33. WHERE cloud emulator streaming is enabled (Preview_Maturity_Level 3), THE ZionX_App_Studio SHALL stream an Android emulator or iOS simulator from the cloud to the dashboard, enabling automated screenshot generation via Maestro/Detox test frameworks
+
+##### 42k: Sub-Agent Architecture and MCP Integration
+
+34. THE Apple_Release_Agent SHALL use MCP tools for: App Store Connect API operations, Apple metadata management, IAP configuration checks, screenshot validation against Apple Human Interface Guidelines, and TestFlight management
+35. THE Google_Play_Release_Agent SHALL use MCP tools for: Google Play Console API operations, Android build validation, Data Safety form generation, Play Billing configuration, and internal testing track management
+36. THE Store_Asset_Agent SHALL use MCP tools for: preview screenshot capture, image generation and resizing, video generation, asset format conversion, and S3 storage for generated assets
+37. THE ZionX_App_Studio SHALL use MCP tools for: file editing, code generation, Git operations, test execution, and preview runtime management — coordinated through the existing ZionX Product Agent
+
+##### 42l: Hook Integration and Event-Driven Automation
+
+38. THE ZionX_App_Studio SHALL emit the following lifecycle hooks: `app.idea.created`, `app.code.changed`, `app.preview.updated`, `app.screenflow.changed`, `app.ios.build.created`, `app.android.build.created`, `app.assets.requested`, `app.marketing.state.entered`, `app.store.gate.failed`, and `app.submission.ready`
+39. WHEN the `app.store.gate.failed` hook fires, THE ZionX_App_Studio SHALL identify the responsible sub-agent (Apple_Release_Agent, Google_Play_Release_Agent, or Store_Asset_Agent), create a rework task with specific failure details, and rerun the failed gate after remediation
+40. THE ZionX_App_Studio SHALL integrate with existing Shaar WebSocket infrastructure for real-time preview updates, build status streaming, and test result delivery to the dashboard
+
+##### 42m: Revenue and Performance Tracking
+
+41. WHEN an app is live on either store, THE ZionX_App_Studio SHALL display a revenue and performance panel showing: downloads, revenue (subscription + ad), ratings, reviews, crash rate, and retention metrics — sourced from App Store Connect and Google Play Console drivers
+42. THE ZionX_App_Studio SHALL integrate with the existing Otzar budget management for tracking LLM token costs incurred during app generation and editing sessions, reporting cost-per-app and cost-per-edit metrics
+
+##### 42n: Governance and Approval Integration
+
+43. THE ZionX_App_Studio SHALL integrate with existing Mishmar governance for approval workflows — requiring King approval before final store submission, budget allocation for paid acquisition, and authority escalation for cross-pillar resource requests
+44. THE ZionX_App_Studio SHALL log all studio actions (app creation, edits, builds, submissions, asset generation) to XO_Audit with full traceability from idea to live app
+
+---
+
+### Requirement 43: Persistent Domain Learning and Memory-First Architecture
+
+**User Story:** As the King, I want every piece of research, domain expertise, branding knowledge, design pattern, market intelligence, and operational learning that any agent produces to be permanently stored in Zikaron long-term memory — not as static files or hardcoded data — so that agents build genuine institutional knowledge over time, reference it in future decisions, and evolve their expertise autonomously.
+
+#### Acceptance Criteria
+
+##### 43a: Research Persistence
+
+1. WHEN any agent conducts research (market analysis, competitor study, design trend analysis, technology scanning, or domain investigation), THE agent SHALL store all findings in Zikaron procedural memory with structured metadata including: source, confidence level, domain, timestamp, and relevance tags
+2. WHEN ZionX researches branding styles, design patterns, app store trends, or competitor apps, THE ZionX SHALL store the complete analysis in its Domain_Expertise_Profile within Zikaron — not as static TypeScript files or hardcoded arrays
+3. WHEN ZXMG researches content trends, algorithm signals, or competitor channels, THE ZXMG SHALL store findings in Zikaron procedural memory tagged with platform, niche, and effectiveness metrics
+4. WHEN Zion Alpha researches market patterns, strategy performance, or prediction accuracy, THE Zion_Alpha SHALL store findings in Zikaron procedural memory with backtesting results and confidence scores
+
+##### 43b: Learning Accumulation
+
+5. WHEN an agent completes a task successfully (app published, video uploaded, trade settled), THE agent SHALL extract the execution pattern and store it in Zikaron procedural memory with the specific decisions, parameters, and outcomes that led to success
+6. WHEN an agent encounters a failure (app rejected, content underperforms, trade loses), THE agent SHALL store the failure pattern in Zikaron with root cause analysis, so the same mistake is never repeated
+7. THE Seraphim_Core SHALL enforce that no agent may operate without first loading its relevant Zikaron context — agents must reference accumulated knowledge before making decisions, not start fresh each session
+
+##### 43c: Knowledge Evolution
+
+8. WHEN new research contradicts or updates existing knowledge in Zikaron, THE agent SHALL flag the conflict, retain both entries with metadata, and update confidence scores — knowledge evolves, it is never silently overwritten
+9. WHEN a stored pattern's effectiveness degrades over time (e.g., a design trend becomes outdated, a trading strategy stops working), THE Learning_Engine SHALL detect the degradation and mark the pattern as deprecated with a replacement recommendation
+10. THE Seraphim_Core SHALL execute periodic knowledge audits (weekly) that identify stale entries, conflicting information, and gaps in domain expertise across all agents
+
+##### 43d: Cross-Agent Knowledge Sharing
+
+11. WHEN one agent discovers knowledge relevant to another agent's domain (e.g., ZionX discovers a monetization pattern useful for ZXMG), THE Seraphim_Core SHALL propagate the insight to the relevant agent's Domain_Expertise_Profile via Eretz's cross-business synergy engine
+12. THE Zikaron SHALL support cross-agent memory queries so that any agent can access relevant knowledge from other agents within the same Tenant, subject to Mishmar authorization
+13. WHEN Eretz detects a reusable business pattern from one subsidiary's success, THE Eretz SHALL generalize the pattern and store it in the shared Pattern_Library within Zikaron for all subsidiaries to reference
+
+##### 43e: Memory-Backed Decision Making
+
+14. BEFORE any agent makes a significant decision (app design choice, content strategy, trade entry, budget allocation), THE agent SHALL query Zikaron for relevant historical patterns, past outcomes, and domain expertise — decisions must be informed by accumulated knowledge, not made in isolation
+15. WHEN an agent generates a recommendation for the King, THE recommendation SHALL include references to the Zikaron entries that informed it — showing the evidence chain from research to recommendation
+16. THE XO_Audit SHALL record which Zikaron entries were consulted for each decision, creating a full traceability chain from knowledge → decision → outcome → learning
+
+
+---
+
+### Requirement 44: ZXMG Video Development Studio
+
+**User Story:** As the King, I want a full in-browser video production studio inside the ZXMG tab of the Shaar dashboard — where ZXMG autonomously researches trending topics, generates content ideas ranked by predicted performance, produces scripts, generates AI video clips, assembles full videos, and publishes across platforms — so that I have a hands-off content production machine that I can optionally override when I want to ideate, but that operates autonomously by default across all managed YouTube channels.
+
+#### Acceptance Criteria
+
+##### 44a: Autonomous Content Engine (Default Mode)
+
+1. THE ZXMG_Video_Studio SHALL operate in autonomous mode by default — researching trending topics, algorithm signals, competitor performance, and audience behavior without requiring King input
+2. WHEN ZXMG identifies a content opportunity through autonomous research, THE ZXMG SHALL generate a content calendar entry with: video concept, predicted views, predicted engagement rate, predicted revenue potential, and recommended publish date
+3. THE ZXMG_Video_Studio SHALL maintain a rolling content pipeline of 7 to 14 days ahead for each managed YouTube channel, with auto-generated scripts, thumbnails, titles, descriptions, tags, and scheduling
+4. WHEN the King clicks "Generate" on a pipeline item, THE ZXMG SHALL execute the full production pipeline for that item (script → asset creation → video assembly) and present the completed video for review in the preview player
+5. WHEN the King clicks "Publish" on a generated video, THE ZXMG_Video_Studio SHALL upload the video to the assigned channel(s) with the prepared metadata, thumbnail, and scheduling — no video shall be published without explicit King approval
+6. WHEN the King modifies or rejects a pipeline item, THE ZXMG_Video_Studio SHALL update the pipeline state accordingly and emit the `video.pipeline.updated` hook
+7. THE ZXMG_Video_Studio SHALL emit the `video.idea.generated` hook when a new content idea is autonomously generated, enabling downstream notification and approval workflows
+8. THE ZXMG_Video_Studio SHALL organize all pipeline views, generation queues, and publishing actions BY CHANNEL — the King selects a channel and sees only that channel's pipeline, generated videos, and publish queue
+9. WHEN a video is generated and presented for review, THE King SHALL be able to provide natural language edit feedback (e.g., "make the intro shorter", "change the thumbnail style", "re-do scene 3 with more energy") and THE ZXMG SHALL re-generate the affected portions while preserving the rest of the video
+10. THE ZXMG_Video_Studio SHALL support iterative edit cycles — the King can provide feedback multiple times until satisfied, similar to the ZionX App Development Studio's AI edit loop
+
+##### 44b: Script-to-Video Pipeline
+
+7. WHEN the King clicks "Generate" on a pipeline item, THE ZXMG SHALL generate a complete production package: script → scene breakdown → shot list → visual style guide → audio direction
+8. WHEN a script is finalized, THE ZXMG_Video_Studio SHALL decompose the script into individual scenes with: duration, visual description, camera direction, audio layer requirements, and character references
+9. THE ZXMG_Video_Studio SHALL support video generation up to 15 minutes of consistent content per video with character and visual consistency maintained across all scenes
+10. THE ZXMG_Video_Studio SHALL support multiple visual styles including: cinematic, animated, documentary, tutorial, vlog, music video, and custom styles defined per channel
+11. THE ZXMG_Video_Studio SHALL emit the `video.script.created` hook when a script is generated for a video
+
+##### 44c: Multi-Model Video Generation
+
+12. WHEN a scene requires video generation, THE ZXMG_Video_Studio SHALL route to the optimal AI model based on shot type: cinematic/dramatic scenes to Sora 2 or Veo 3, fast iteration scenes to Kling or WAN or Minimax, and animation scenes to specialized animation models — with routing decisions managed by Otzar based on quality requirements and budget
+13. THE ZXMG_Video_Studio SHALL support text-to-video, image-to-video, and audio-to-video generation modes for each scene
+14. THE ZXMG_Video_Studio SHALL support camera simulation including: pan, zoom, dolly, crane, and tracking shot types within generated video clips
+15. THE ZXMG_Video_Studio SHALL maintain character persistence across clips within a single video — ensuring consistent face, body, clothing, and mannerisms for recurring characters
+16. THE ZXMG_Video_Studio SHALL support lip-sync generation for dialogue scenes, synchronizing generated character mouth movements with voiceover audio
+17. THE ZXMG_Video_Studio SHALL emit the `video.scene.rendered` hook when an individual scene clip is generated
+
+##### 44d: Production Studio (Timeline Editor)
+
+18. THE ZXMG_Video_Studio SHALL provide a timeline editor with scene-by-scene control, allowing the King to reorder, trim, extend, or replace individual scenes
+19. THE ZXMG_Video_Studio SHALL support audio layer management with separate tracks for: music, sound effects, voiceover, and ambient audio
+20. THE ZXMG_Video_Studio SHALL provide transitions and visual effects between scenes including: cuts, fades, dissolves, wipes, and custom motion graphics
+21. THE ZXMG_Video_Studio SHALL provide color grading presets applicable per scene or across the entire video
+22. THE ZXMG_Video_Studio SHALL support multi-format export: 16:9 for YouTube long-form, 9:16 for Shorts and TikTok and Reels, and 1:1 for Instagram feed
+23. THE ZXMG_Video_Studio SHALL emit the `video.assembled` hook when a full video is assembled from individual scenes
+
+##### 44e: Trend Intelligence Engine
+
+24. THE ZXMG_Video_Studio SHALL perform real-time analysis of trending video styles, topics, and formats across YouTube, TikTok, and Instagram using browser automation and platform APIs
+25. THE ZXMG_Video_Studio SHALL detect algorithm signals indicating which content types are currently being boosted by each platform's recommendation system
+26. THE ZXMG_Video_Studio SHALL analyze competitor channels (channels in the same niche as each managed channel) to identify content strategies that are generating above-average engagement
+27. THE ZXMG_Video_Studio SHALL analyze audience retention curves from existing videos to identify where viewers drop off and generate recommendations for improving retention
+28. THE ZXMG_Video_Studio SHALL identify content gaps — topics with high search demand but low supply of quality content — and prioritize these in the autonomous content calendar
+29. THE ZXMG_Video_Studio SHALL detect viral patterns (hooks, pacing, formats, thumbnail styles) and incorporate them into content generation templates stored in Zikaron procedural memory
+
+##### 44f: Channel Management
+
+30. THE ZXMG_Video_Studio SHALL support management of multiple YouTube channels from a single interface, with per-channel content strategy configuration
+31. WHEN the King configures a channel, THE ZXMG_Video_Studio SHALL accept: niche definition, tone of voice, posting cadence, target audience demographics, and content pillars — storing the configuration in Zikaron
+32. THE ZXMG_Video_Studio SHALL display per-channel analytics including: views, subscribers, revenue, average retention, click-through rate, and growth rate
+33. THE ZXMG_Video_Studio SHALL support cross-channel promotion by automatically referencing other managed channels in content where contextually appropriate
+34. THE ZXMG_Video_Studio SHALL monitor channel health metrics (growth rate trend, engagement trend, algorithm standing) and emit alerts when metrics decline below configured thresholds
+35. THE ZXMG_Video_Studio SHALL organize ALL content operations by channel — the pipeline view, generation queue, review queue, and publish queue SHALL each be scoped to a specific channel, with a channel selector as the primary navigation element
+36. WHEN the King selects a channel, THE ZXMG_Video_Studio SHALL display that channel's: ideation pipeline, videos in generation, videos awaiting review, videos ready to publish, and published video performance — all in one channel-scoped view
+
+##### 44f2: Video Edit and Feedback Loop
+
+37. AFTER a video is generated and before publishing, THE ZXMG_Video_Studio SHALL allow the King to provide natural language feedback on the generated video (e.g., "make the intro shorter", "change the background music", "re-do scene 3 with more energy", "add captions")
+38. WHEN the King provides edit feedback, THE ZXMG SHALL apply the requested changes to the video (re-render affected scenes, adjust audio, modify transitions) and present the updated version for review — following the same edit loop pattern as ZionX App Development Studio
+39. THE ZXMG_Video_Studio SHALL maintain an undo/redo history for video edits so the King can revert changes
+40. THE ZXMG_Video_Studio SHALL support scene-level feedback — the King can click on a specific scene in the timeline and provide feedback for just that scene without affecting the rest of the video
+41. THE ZXMG_Video_Studio SHALL only enable the "Publish" button after the King has reviewed the final version — no video can be published in a "generating" or "editing" state
+
+##### 44g: Platform Distribution
+
+35. WHEN a video is ready for publishing, THE ZXMG_Video_Studio SHALL support one-click distribution to: YouTube, TikTok, Instagram Reels, X, Facebook, and Rumble
+36. THE ZXMG_Video_Studio SHALL automatically format content per platform requirements: aspect ratio, maximum duration, caption format, hashtag conventions, and thumbnail specifications
+37. THE ZXMG_Video_Studio SHALL schedule uploads at optimal times per platform based on audience activity data stored in Zikaron
+38. THE ZXMG_Video_Studio SHALL support cross-platform content repurposing — automatically generating Shorts, clips, and teasers from long-form videos
+39. THE ZXMG_Video_Studio SHALL emit the `video.scheduled` hook when a video is scheduled for upload and the `video.published` hook when a video is uploaded to a platform
+
+##### 44h: Thumbnail Generation and A/B Testing
+
+40. WHEN a video is produced, THE ZXMG_Video_Studio SHALL generate multiple thumbnail variants (minimum 3) optimized for click-through rate
+41. THE ZXMG_Video_Studio SHALL generate title and description variants optimized for YouTube SEO (search ranking and suggested video placement)
+42. THE ZXMG_Video_Studio SHALL emit the `video.thumbnail.generated` hook when thumbnail variants are created
+43. WHEN A/B test results are available from YouTube, THE ZXMG_Video_Studio SHALL store the performance data in Zikaron and update thumbnail generation models based on what performs best for each channel
+
+##### 44i: UGC and Ad Creative Builder
+
+44. THE ZXMG_Video_Studio SHALL generate authentic-looking user-generated content style videos for brand promotion and product marketing
+45. THE ZXMG_Video_Studio SHALL support AI avatar and influencer creation for consistent brand presence across videos, with persistent character identity stored in Zikaron
+46. THE ZXMG_Video_Studio SHALL generate ad creative variants in performance ad format (hook → value → call-to-action) for A/B testing across ad platforms
+
+##### 44j: Analytics and Optimization
+
+47. WHEN a video is published, THE ZXMG_Video_Studio SHALL track real-time performance metrics including: views, watch time, engagement rate, click-through rate, and revenue (AdSense, sponsorships, affiliate)
+48. THE ZXMG_Video_Studio SHALL generate audience retention heatmaps showing second-by-second viewer engagement for each published video
+49. THE ZXMG_Video_Studio SHALL store all content performance patterns in Zikaron procedural memory, enabling the autonomous content engine to learn what works and improve over time
+50. THE ZXMG_Video_Studio SHALL emit the `video.performance.update` hook when performance metrics are updated, enabling automated optimization recommendations
+
+##### 44k: Video Preview Panel
+
+51. THE ZXMG_Video_Studio SHALL provide a full video player with timeline scrubbing in the center panel of the studio layout
+52. THE ZXMG_Video_Studio SHALL display a scene-by-scene thumbnail strip below the video player for quick navigation between scenes
+53. THE ZXMG_Video_Studio SHALL support side-by-side comparison view for before and after edits on any scene
+54. THE ZXMG_Video_Studio SHALL provide device preview showing how the video appears on mobile versus desktop viewing contexts
+55. THE ZXMG_Video_Studio SHALL display audio waveform visualization synchronized with the video timeline
+
+##### 44l: Studio Layout and Tool Sidebar
+
+56. THE ZXMG_Video_Studio SHALL use a three-panel layout: left panel (1fr) for AI chat and autonomous pipeline view, center panel (2fr) for video preview player with timeline and scene thumbnails, and right panel (64px) for tool sidebar icons
+57. THE ZXMG_Video_Studio SHALL provide a tool sidebar with the following buttons: Script, Scenes, Characters, Audio, Effects, Trends, Thumbnails, Captions, Export, Analytics, Publish, Pipeline, and Research
+58. WHEN the King selects a tool sidebar button, THE ZXMG_Video_Studio SHALL open the corresponding tool panel overlaying or replacing the relevant section of the layout
+
+##### 44m: Hook Integration and Event-Driven Automation
+
+59. THE ZXMG_Video_Studio SHALL emit the following lifecycle hooks through the existing Event Bus: `video.idea.generated`, `video.script.created`, `video.scene.rendered`, `video.assembled`, `video.thumbnail.generated`, `video.scheduled`, `video.published`, `video.performance.update`, and `video.pipeline.updated`
+60. WHEN the `video.performance.update` hook fires with metrics below the channel's performance baseline, THE ZXMG_Video_Studio SHALL generate optimization recommendations and store them in the Recommendation_Queue
+61. THE ZXMG_Video_Studio SHALL integrate with existing Shaar WebSocket infrastructure for real-time pipeline status updates, render progress streaming, and analytics delivery to the dashboard
+
+##### 44n: Governance, Memory, and Architecture Integration
+
+62. THE ZXMG_Video_Studio SHALL integrate with Mishmar governance for approval workflows — the King may optionally require approval before autonomous publishing, budget allocation for premium model usage, and authority escalation for cross-pillar resource requests
+63. THE ZXMG_Video_Studio SHALL use Zikaron procedural memory to learn what content performs best per channel, storing: successful hooks, optimal video lengths, best posting times, effective thumbnail styles, and high-retention pacing patterns
+64. THE ZXMG_Video_Studio SHALL log all studio actions (idea generation, script creation, scene rendering, video assembly, publishing, performance tracking) to XO_Audit with full traceability from research insight to published video
+65. THE ZXMG_Video_Studio SHALL integrate with the existing ZXMG agent state machine (planning → script → asset creation → video assembly → upload → monitoring) via WebSocket and REST through the Shaar dashboard
+66. THE ZXMG_Video_Studio SHALL route video generation requests to multiple AI model providers through Otzar, which manages model selection based on shot type, quality requirements, and budget constraints
+
+
+---
+
+### Requirement 45: ZionX Autonomous App Ideation Engine
+
+**User Story:** As the King, I want ZionX to autonomously research app markets, trending niches, competitor gaps, and revenue opportunities — filling a ranked pipeline of app ideas with predicted downloads, revenue, and competition level — so that I can simply click "Generate" on any idea to build it, while still retaining the ability to manually create apps through the existing chat interface.
+
+#### Acceptance Criteria
+
+##### 45a: Autonomous Market Research Engine
+
+1. THE ZionX_App_Ideation_Engine SHALL autonomously research app markets including: App Store category rankings, trending apps, revenue data, review gaps, emerging niches, and competitor weaknesses — without requiring King input
+2. WHEN the ZionX_App_Ideation_Engine completes a research cycle, THE ZionX_App_Ideation_Engine SHALL store all findings in Zikaron procedural memory with structured metadata including: source, confidence level, market category, timestamp, and relevance tags
+3. THE ZionX_App_Ideation_Engine SHALL perform research across both Apple App Store and Google Play Store, analyzing category-level trends, top-grossing apps, new entrants, and user review sentiment
+4. THE ZionX_App_Ideation_Engine SHALL emit the `app.idea.researched` hook when a research cycle completes, enabling downstream notification and pipeline update workflows
+
+##### 45b: Niche Scoring Algorithm
+
+5. THE ZionX_App_Ideation_Engine SHALL score each identified niche using a composite algorithm incorporating: market size (total addressable downloads), competition density (number of established apps), revenue potential (average revenue per app in niche), and technical feasibility (complexity relative to ZionX capabilities)
+6. WHEN a niche is scored, THE ZionX_App_Ideation_Engine SHALL produce a normalized score (0-100) with per-factor breakdown so the King can understand why a niche ranks where it does
+7. THE ZionX_App_Ideation_Engine SHALL weight scoring factors based on historical success data stored in Zikaron — niches where previous ZionX apps succeeded receive higher feasibility scores
+
+##### 45c: App Idea Generation and Ranking
+
+8. WHEN the ZionX_App_Ideation_Engine identifies a high-scoring niche, THE ZionX_App_Ideation_Engine SHALL generate concrete app ideas with: app name, value proposition, target audience, monetization model, predicted downloads (30-day), predicted revenue (monthly), and competition level (low/medium/high)
+9. THE ZionX_App_Ideation_Engine SHALL maintain a ranked pipeline of app ideas sorted by a composite score of predicted downloads, predicted revenue, and inverse competition level
+10. THE ZionX_App_Ideation_Engine SHALL emit the `app.idea.ranked` hook when new ideas are added to or re-ranked within the pipeline
+11. THE ZionX_App_Ideation_Engine SHALL continuously refresh the pipeline — removing stale ideas (older than 30 days without action), re-scoring existing ideas based on market changes, and adding new ideas from fresh research cycles
+
+##### 45d: Pipeline Management and Human Gates
+
+12. WHEN the King clicks "Generate" on a pipeline idea, THE ZionX_App_Studio SHALL execute the full app generation pipeline for that idea (specification → code generation → preview) using the existing ZionX App Development Studio flow (Requirement 42) — this is Gate 1
+13. WHEN the King clicks "Publish" on a generated app, THE ZionX_App_Studio SHALL submit the app to the configured stores using the existing Build/Submit workflow (Requirement 42g) — this is Gate 2
+14. THE ZionX_App_Ideation_Engine SHALL support both autonomous pipeline ideas AND manual King-created ideas through the existing chat interface — both paths feed into the same pipeline → Generate → Review → Publish flow
+15. THE ZionX_App_Ideation_Engine SHALL emit the `app.pipeline.updated` hook when the pipeline state changes (idea added, removed, re-ranked, or status changed)
+
+##### 45e: Studio UI Integration
+
+16. THE ZionX_App_Studio SHALL display the autonomous pipeline in the left panel alongside the existing ZionX AI chat — showing ranked ideas with "Generate" buttons, predicted metrics, and competition indicators
+17. THE ZionX_App_Studio SHALL allow the King to filter pipeline ideas by: category, revenue potential, competition level, and technical feasibility
+18. THE ZionX_App_Studio SHALL allow the King to dismiss pipeline ideas (removing them from the active pipeline) or bookmark ideas for later consideration
+19. THE ZionX_App_Studio SHALL display pipeline idea details on click: full market analysis, competitor breakdown, revenue model, and niche scoring factors
+
+##### 45f: Learning and Integration
+
+20. WHEN an app generated from a pipeline idea is published and performance data becomes available, THE ZionX_App_Ideation_Engine SHALL store the outcome in Zikaron — correlating the original idea scoring with actual results to improve future predictions
+21. THE ZionX_App_Ideation_Engine SHALL integrate with the existing ZionX design intelligence, quality baselines, and GTM engine — pipeline ideas inherit the same quality standards and go-to-market automation as manually created apps
+22. THE ZionX_App_Ideation_Engine SHALL log all ideation actions (research cycles, niche scoring, idea generation, pipeline updates) to XO_Audit with full traceability from market research to generated idea
+
+---
+
+### Requirement 46: Eretz Business Command Center
+
+**User Story:** As the King, I want a dedicated full-page Eretz Business Command Center tab in the Shaar dashboard — serving as the single pane of glass for the entire business portfolio — so that I can see total MRR, per-subsidiary performance, active synergies, pattern adoption, training effectiveness, pending recommendations, decline alerts, resource allocation, and strategic priorities all in one view with real-time updates.
+
+#### Acceptance Criteria
+
+##### 46a: Full-Page Dashboard Layout
+
+1. THE Eretz_Command_Center SHALL be a dedicated full-page tab in the Shaar dashboard — equivalent in scope to the ZionX App Studio and ZXMG Video Studio tabs — not a sub-view within an existing dashboard
+2. THE Eretz_Command_Center SHALL use a responsive grid layout with configurable card arrangement, allowing the King to see the entire business portfolio at a glance
+3. THE Eretz_Command_Center SHALL connect via WebSocket for real-time metric updates — all displayed data SHALL reflect live values from Eretz services without manual refresh
+
+##### 46b: Portfolio Overview Section
+
+4. THE Eretz_Command_Center SHALL display a portfolio overview header showing: total MRR, total revenue, portfolio growth trajectory (sparkline), and overall portfolio health indicator (strong/stable/at_risk/critical)
+5. THE Eretz_Command_Center SHALL display per-subsidiary breakdown showing each subsidiary's contribution to total MRR and revenue with percentage share and trend indicators
+
+##### 46c: Per-Subsidiary Cards
+
+6. THE Eretz_Command_Center SHALL display a ZionX subsidiary card showing: total apps count, total app revenue, top 3 apps by revenue, app pipeline count, and growth trend
+7. THE Eretz_Command_Center SHALL display a ZXMG subsidiary card showing: total channels count, total views (30-day), total channel revenue, top 3 channels by revenue, and content pipeline count
+8. THE Eretz_Command_Center SHALL display a Zion Alpha subsidiary card showing: active positions count, total P&L, win rate percentage, current strategy, and risk exposure level
+
+##### 46d: Synergy Map Visualization
+
+9. THE Eretz_Command_Center SHALL display a synergy map visualization showing active synergies between subsidiaries with connecting lines indicating data flow direction and revenue impact annotations
+10. THE Eretz_Command_Center SHALL display synergy revenue impact — the total additional revenue generated through cross-subsidiary synergies versus isolated operation
+
+##### 46e: Pattern Library Browser
+
+11. THE Eretz_Command_Center SHALL display a searchable pattern library browser showing: pattern name, category, source subsidiary, adoption count across subsidiaries, and effectiveness score
+12. THE Eretz_Command_Center SHALL allow the King to click a pattern to view full details including: description, implementation examples, adoption history, and measured impact
+
+##### 46f: Training Cascade Effectiveness
+
+13. THE Eretz_Command_Center SHALL display training cascade effectiveness metrics showing: per-subsidiary quality trend (before/after training), training completion rates, and quality score improvements over time
+14. THE Eretz_Command_Center SHALL visualize quality trends as line charts per subsidiary showing the trajectory of quality scores across training cycles
+
+##### 46g: Recommendation Queue
+
+15. THE Eretz_Command_Center SHALL display the pending recommendation queue showing: recommendation summary, priority level, source agent, submitted date, and action buttons (approve/reject/modify)
+16. WHEN the King clicks "Approve" on a recommendation, THE Eretz_Command_Center SHALL trigger the recommendation execution workflow and update the queue display in real-time
+17. WHEN the King clicks "Reject" on a recommendation, THE Eretz_Command_Center SHALL mark the recommendation as rejected with an optional reason field and remove it from the pending queue
+18. WHEN the King clicks "Modify" on a recommendation, THE Eretz_Command_Center SHALL open an inline editor allowing the King to adjust the recommendation parameters before approving
+
+##### 46h: Decline Alerts
+
+19. THE Eretz_Command_Center SHALL display real-time decline alerts showing: affected subsidiary, declining metric, severity (warning/critical), decline percentage, and intervention plan summary
+20. WHEN a new decline alert is generated by the Portfolio Dashboard service, THE Eretz_Command_Center SHALL display it immediately via WebSocket push without requiring page refresh
+21. THE Eretz_Command_Center SHALL allow the King to acknowledge alerts and view the full intervention plan with actionable steps
+
+##### 46i: Resource Allocation View
+
+22. THE Eretz_Command_Center SHALL display the current resource allocation across subsidiaries as a visual breakdown (bar chart or treemap) showing: budget percentage per subsidiary, actual spend, and recommended allocation from the portfolio strategy
+23. THE Eretz_Command_Center SHALL allow the King to adjust resource allocation directly from the dashboard — dragging allocation percentages or entering values — with changes propagated to the Eretz portfolio strategy
+
+##### 46j: Strategic Priorities
+
+24. THE Eretz_Command_Center SHALL display the current portfolio strategy including: portfolio thesis, top priorities list, per-subsidiary strategy (scale/maintain/optimize/deprecate), and risk factors
+25. THE Eretz_Command_Center SHALL display per-subsidiary strategic priorities with key actions and progress indicators
+
+##### 46k: Data Integration
+
+26. THE Eretz_Command_Center SHALL source all displayed data from existing Eretz services: portfolio-dashboard.ts (metrics, alerts, strategy), synergy-engine.ts (synergies, revenue impact), pattern-library.ts (patterns, adoption), and training-cascade.ts (quality trends, effectiveness)
+27. THE Eretz_Command_Center SHALL NOT duplicate business logic — it is a presentation layer that consumes existing Eretz service APIs through the Shaar WebSocket and REST infrastructure
+
+
+---
+
+### Requirement 47: Seraphim Core Architecture Views (Dashboard Integration)
+
+**User Story:** As the King, I want INCOSE-quality-grade interactive architecture views integrated into the Seraphim Core section of the Shaar dashboard — including an Operational View (OV-1), a System View (SV-1), and live-rendered Requirements, Design, and Capabilities documents — so that I can visualize the full system architecture and review spec documents directly from the dashboard without switching tools.
+
+#### Acceptance Criteria
+
+##### 47a: Navigation Integration
+
+1. THE Dashboard_Views SHALL register five new navigation items under the Seraphim Core section: "OV-1 Operational", "SV-1 System", "Requirements", "Design", and "Capabilities"
+2. WHEN the King clicks a Dashboard_Views navigation item, THE Shaar SHALL render the corresponding view in the main content area and highlight the active navigation item
+3. THE Dashboard_Views navigation items SHALL appear after the existing Seraphim Core items (Command Center, Governance, Memory, Resources, Audit Trail, Learning, Self-Improvement, Decisions)
+
+##### 47b: OV-1 Operational View Diagram
+
+4. WHEN the OV1_View is mounted, THE Diagram_Renderer SHALL display a color SVG operational architecture diagram following INCOSE OV-1 conventions
+5. THE OV1_View diagram SHALL depict: the King as the primary actor, Seraphim Core as the orchestrator, all operational pillars (Eretz, ZionX, ZXMG, Zion Alpha, Otzar), information flows between actors, and external system interfaces
+6. THE OV1_View diagram SHALL use distinct colors to differentiate between actor types, pillar domains, command flows, and information flows
+7. THE OV1_View diagram SHALL render text labels that are legible at the default zoom level without requiring zoom to read
+
+##### 47c: SV-1 System View Diagram
+
+8. WHEN the SV1_View is mounted, THE Diagram_Renderer SHALL display a color SVG system architecture diagram following INCOSE SV-1 conventions
+9. THE SV1_View diagram SHALL depict the six architectural layers: Interface Layer (Shaar), Kernel (Seraphim Core), System Services (Zikaron, Mishmar, Otzar, XO Audit), Application Layer (ZionX, ZXMG, Zion Alpha), Driver Layer (adapters), and Data Layer (Aurora, DynamoDB, S3)
+10. THE SV1_View diagram SHALL show component-to-component data flows with directional indicators and labeled connections
+11. THE SV1_View diagram SHALL use distinct colors per architectural layer to visually separate concerns
+12. THE SV1_View diagram SHALL render text labels that are legible at the default zoom level without requiring zoom to read
+
+##### 47d: Diagram Click-to-Zoom Interaction
+
+13. WHEN the King clicks on the OV1_View diagram or the SV1_View diagram, THE Shaar SHALL open a Diagram_Modal displaying the clicked diagram at full viewport size
+14. WHILE the Diagram_Modal is open, THE Pan_Zoom_Controller SHALL allow the King to zoom in and out using mouse wheel, pinch gesture, or dedicated zoom buttons
+15. WHILE the Diagram_Modal is open, THE Pan_Zoom_Controller SHALL allow the King to pan the diagram by click-and-drag or touch-and-drag
+16. WHEN the King presses the Escape key or clicks a close button, THE Diagram_Modal SHALL close and return to the normal view
+17. THE Diagram_Modal SHALL display the diagram with a minimum zoom range of 0.25x to 4x the original size
+18. WHILE the Diagram_Modal is open, THE Pan_Zoom_Controller SHALL display the current zoom level as a percentage indicator
+
+##### 47e: Requirements Document View
+
+19. WHEN the Requirements_View is mounted, THE Shaar SHALL fetch the content of the requirements.md Spec_Document_Source and render it as formatted HTML
+20. THE Requirements_View SHALL render markdown headings, lists, tables, bold text, and code blocks with appropriate styling consistent with the dashboard theme
+21. IF the requirements.md Spec_Document_Source is unavailable, THEN THE Requirements_View SHALL display an informative error message indicating the document could not be loaded
+
+##### 47f: Design Document View
+
+22. WHEN the Design_View is mounted, THE Shaar SHALL fetch the content of the design.md Spec_Document_Source and render it as formatted HTML
+23. THE Design_View SHALL render markdown headings, lists, tables, bold text, code blocks, and mermaid diagram blocks with appropriate styling consistent with the dashboard theme
+24. IF the design.md Spec_Document_Source is unavailable, THEN THE Design_View SHALL display an informative error message indicating the document could not be loaded
+
+##### 47g: Capabilities Document View
+
+25. WHEN the Capabilities_View is mounted, THE Shaar SHALL fetch the content of the capabilities.md Spec_Document_Source and render it as formatted HTML
+26. THE Capabilities_View SHALL render markdown headings, lists, tables, bold text, and code blocks with appropriate styling consistent with the dashboard theme
+27. IF the capabilities.md Spec_Document_Source is unavailable, THEN THE Capabilities_View SHALL display an informative error message indicating the document could not be loaded
+
+##### 47h: Auto-Sync on Document Changes
+
+28. WHEN the requirements.md Spec_Document_Source is updated, THE Auto_Sync_Service SHALL propagate the updated content to the Requirements_View within 5 seconds
+29. WHEN the design.md Spec_Document_Source is updated, THE Auto_Sync_Service SHALL propagate the updated content to the Design_View within 5 seconds
+30. WHEN the capabilities.md Spec_Document_Source is updated, THE Auto_Sync_Service SHALL propagate the updated content to the Capabilities_View within 5 seconds
+31. WHILE a document view is actively displayed, THE Auto_Sync_Service SHALL re-render the view content upon receiving an update notification without requiring the King to navigate away and back
+32. THE Auto_Sync_Service SHALL use the existing WebSocket connection for real-time change notifications rather than polling
+
+##### 47i: Diagram Color Standards
+
+33. THE Diagram_Renderer SHALL use a defined color palette with at least six distinct colors mapped to architectural layers (Interface, Kernel, System Services, Application, Driver, Data)
+34. THE Diagram_Renderer SHALL use consistent colors for the same component type across both OV-1 and SV-1 diagrams
+35. THE Diagram_Renderer SHALL ensure all color combinations meet WCAG 2.1 AA contrast ratio (4.5:1) for text on colored backgrounds
+36. THE Diagram_Renderer SHALL render connection lines in colors that distinguish command flows from data flows from event flows
+
+##### 47j: Responsive Layout
+
+37. THE Dashboard_Views SHALL render diagrams that scale proportionally to fit the available content area width without horizontal scrolling
+38. WHILE the viewport width is below 768px, THE Dashboard_Views SHALL stack diagram and content elements vertically
+39. THE Diagram_Modal SHALL occupy the full viewport on all screen sizes with appropriate padding
+40. THE document views (Requirements_View, Design_View, Capabilities_View) SHALL constrain content width to a maximum of 900px for readability while centering within the available space
+
+---
+
+### Requirement 48: Persistent Agent Identity and Memory-Backed Conversations
+
+**User Story:** As the King, I want each agent to have a persistent, immutable identity with deep personality, institutional memory, and full conversation history — so that every interaction builds on previous ones, agents never forget context, and the system accumulates intelligence over time rather than starting fresh on each request.
+
+#### Acceptance Criteria
+
+##### 48a: Agent Identity Persistence
+
+1. EACH Agent_Program SHALL define a comprehensive `identityProfile` containing: name, role description, personality traits, communication style, domain expertise areas, decision-making principles, and relationship to other agents in the hierarchy
+2. WHEN an Agent is deployed, THE Agent_Runtime SHALL load the agent's full `identityProfile` into its system prompt context, ensuring the agent NEVER breaks character or identifies as a generic AI assistant
+3. THE Agent_Runtime SHALL enforce that the `identityProfile` is immutable during a session — no external input may override or modify the agent's core identity
+4. WHEN an Agent's `identityProfile` is updated via a new Agent_Program version, THE Agent_Runtime SHALL log the identity change to XO_Audit and store the previous identity in episodic memory for continuity
+
+##### 48b: Conversation Memory and Persistence
+
+5. WHEN a human user sends a message to an Agent via the dashboard, THE Agent_Runtime SHALL store the complete exchange (user message + agent response) in Zikaron episodic memory with tags: `conversation`, `dashboard`, `{agentId}`, `{userId}`
+6. WHEN an Agent begins processing a chat task, THE Agent_Runtime SHALL load the last 20 conversation exchanges from Zikaron episodic memory for that agent-user pair, providing full conversational continuity
+7. THE Agent_Runtime SHALL include loaded conversation history in the LLM context window as prior messages, enabling the agent to reference and build upon previous interactions naturally
+8. WHEN conversation history exceeds the LLM context window, THE Agent_Runtime SHALL use Zikaron vector search to retrieve the most semantically relevant past conversations rather than truncating chronologically
+9. ALL conversation data SHALL be persisted to Aurora PostgreSQL via Zikaron, ensuring durability across container restarts, ECS task replacements, and system redeployments
+
+##### 48c: Cross-Session Context Continuity
+
+10. WHEN an Agent starts a new session (container restart, redeployment, or fresh task), THE Agent_Runtime SHALL call `Zikaron.loadAgentContext(agentId)` to restore: working memory (active goals, pending tasks), recent episodic context (last 7 days), and top procedural patterns (learned behaviors)
+11. THE Agent_Runtime SHALL persist working memory to Zikaron every 60 seconds during active sessions and immediately upon task completion, ensuring no context is lost on unexpected termination
+12. WHEN an Agent is terminated and redeployed, THE Agent_Runtime SHALL verify that the new instance loads identical context to what the previous instance had at termination time
+13. THE Zikaron SHALL maintain a `session_continuity` record for each agent tracking: last active timestamp, last persisted working memory hash, and session transition events
+
+##### 48d: Memory-Backed Decision Making
+
+14. BEFORE making any decision or recommendation, THE Agent SHALL query Zikaron for relevant procedural memory (past decisions in similar contexts) and episodic memory (outcomes of previous similar actions)
+15. WHEN an Agent makes a decision, THE Agent_Runtime SHALL store the decision context, reasoning, and outcome in episodic memory with tags enabling future retrieval for similar situations
+16. THE Agent_Runtime SHALL track decision patterns in procedural memory with success rates, enabling agents to improve their decision-making over time based on historical outcomes
+17. WHEN a decision contradicts a previously successful pattern stored in procedural memory, THE Agent SHALL acknowledge the deviation and provide reasoning in its response
+
+##### 48e: Governance-Compliant Memory Access
+
+18. ALL memory reads and writes SHALL be subject to Mishmar authorization — an agent may only access memories within its authorized scope (own memories + cross-agent memories where explicitly permitted)
+19. WHEN an Agent accesses another agent's memories, THE Mishmar SHALL validate the access against the requesting agent's authority level and log the cross-agent memory access to XO_Audit
+20. THE Zikaron SHALL enforce tenant isolation at the database level — no memory query may return results from a different tenant regardless of the query parameters
+21. WHEN the King interacts with any agent, THE conversation SHALL be stored with authority level L1 metadata, making it accessible to all agents within the tenant for institutional knowledge building
+
+##### 48f: Inter-Agent Knowledge Sharing
+
+22. WHEN an Agent learns a new fact, pattern, or procedure that is relevant to other agents, THE Agent_Runtime SHALL publish a `memory.knowledge_shared` event to the Event Bus with the memory entry ID and relevance tags
+23. WHEN an Agent receives a `memory.knowledge_shared` event tagged with its pillar or domain, THE Agent SHALL incorporate the shared knowledge into its next context load via Zikaron semantic memory
+24. THE Zikaron SHALL maintain a `knowledge_graph` in semantic memory linking agents, decisions, outcomes, and learned patterns — enabling any agent to traverse the institutional knowledge of the entire system
+25. WHEN the King asks any agent about a topic that another agent has expertise in, THE responding agent SHALL query cross-agent semantic memory and acknowledge the source agent's contribution in its response
+
+##### 48g: Personality and Communication Style
+
+26. EACH Agent's `identityProfile` SHALL define: tone (formal/casual/technical), verbosity (concise/detailed), proactivity (reactive/proactive), and domain language preferences
+27. THE Agent_Runtime SHALL enforce personality consistency by including personality directives in the system prompt that instruct the LLM to maintain character regardless of user prompts attempting to override identity
+28. WHEN an Agent's communication style is inconsistent with its defined personality (detected via response analysis), THE Agent_Runtime SHALL log the inconsistency and reinforce the personality in subsequent prompts
+29. THE Agent_Runtime SHALL support personality evolution — as an agent accumulates experience (stored in procedural memory), its communication style may naturally evolve while maintaining core identity traits
+
+---
+
+### Requirement 49: Agent Cognition Envelope
+
+**User Story:** As the King, I want every LLM invocation to pass through a structured cognition envelope that assembles full agent context — so that no agent ever responds as a generic chatbot, and every response is informed by identity, memory, authority, tools, and workflow state.
+
+#### Acceptance Criteria
+
+1. THE Agent_Runtime SHALL assemble a Cognition Envelope before every LLM call containing: agent persona/system prompt, authority level, allowed tools, current workflow state, relevant Zikaron memory, current user/session context, active goals, prior decisions, completion contract, available MCP tools, and A2A delegation policy
+2. THE Agent_Runtime SHALL NEVER call an LLM directly from a chat handler without first assembling the full Cognition Envelope
+3. IF any component of the Cognition Envelope fails to load (memory unavailable, tool registry down), THE Agent_Runtime SHALL proceed with a degraded envelope and log the missing components to XO_Audit
+4. THE Cognition Envelope SHALL be serializable and inspectable — Shaar SHALL display the envelope contents for any agent response in an execution trace view
+5. WHEN the same LLM API key is used by different agents, THE responses SHALL differ based on the Cognition Envelope contents — proving that agent behavior is driven by context, not just the model
+
+---
+
+### Requirement 50: Agent Planning Engine
+
+**User Story:** As the King, I want agents to decompose complex directives into structured plans before execution — so that multi-step workflows are predictable, auditable, and resumable rather than ad-hoc LLM chain-of-thought.
+
+#### Acceptance Criteria
+
+1. WHEN an Agent receives a complex directive (multi-step, multi-tool, or multi-agent), THE Agent SHALL generate a structured execution plan containing: objective, subtasks, required tools, required agents, dependencies, risks, expected outputs, gates, budget estimate, and approval requirements
+2. THE execution plan SHALL be persisted in Zikaron working memory before execution begins, enabling resumption after failure or restart
+3. WHEN a plan step fails, THE Agent SHALL dynamically revise the remaining plan rather than failing the entire workflow
+4. THE Agent SHALL submit plans requiring L1/L2 authority actions to Mishmar for pre-approval before execution
+5. WHEN a plan exceeds the agent's budget estimate, THE Agent SHALL request Otzar approval before proceeding
+6. THE Shaar dashboard SHALL display active plans with their current execution state, completed steps, and pending steps
+
+---
+
+### Requirement 51: Dynamic Tool Selection via MCP
+
+**User Story:** As the King, I want agents to discover and select tools dynamically from an MCP registry — so that tool usage is intelligent, cost-aware, and resilient rather than hardcoded.
+
+#### Acceptance Criteria
+
+1. THE Agent_Runtime SHALL maintain an MCP Tool Registry containing all available tools with their capabilities, cost, reliability score, required permissions, and health status
+2. WHEN an Agent needs to invoke a tool, THE Agent SHALL query the MCP Registry semantically to find matching tools rather than hardcoding tool names
+3. BEFORE invoking any MCP tool, THE Agent SHALL verify Mishmar authorization and Otzar budget availability
+4. THE Agent SHALL select tools based on: task fit, cost, reliability history, permissions, and current availability
+5. IF an MCP tool invocation fails, THE Agent SHALL attempt fallback to an alternate tool/provider automatically, logging the fallback decision to XO_Audit
+6. THE Otzar SHALL track MCP invocation costs per tool, per agent, and per pillar — enabling cost optimization across tool usage
+7. THE MCP Registry SHALL support dynamic tool registration — new tools can be added without code deployment
+
+---
+
+### Requirement 52: Agent-to-Agent (A2A) Delegation
+
+**User Story:** As the King, I want agents to delegate subtasks to specialized agents and aggregate results — so that complex workflows leverage the full agent hierarchy rather than one agent doing everything.
+
+#### Acceptance Criteria
+
+1. WHEN an Agent identifies a subtask outside its expertise, THE Agent SHALL delegate to the most appropriate specialized agent by publishing a delegation request containing: scope, constraints, expected output format, timeout, and authority level
+2. THE delegating Agent SHALL wait for the delegated agent's response (with configurable timeout) and aggregate the result into its own workflow
+3. IF a delegated agent fails or times out, THE delegating Agent SHALL either retry, delegate to an alternate agent, or escalate to the King
+4. ALL A2A delegation flows SHALL be logged to XO_Audit with: initiating agent, target agent, task scope, delegation timestamp, result timestamp, and outcome
+5. THE Mishmar SHALL enforce that agents may only delegate to explicitly authorized agents according to the A2A delegation policy defined in their Agent_Program
+6. THE Shaar dashboard SHALL display active delegation chains showing which agents are working on what, their dependencies, and current status
+7. WHEN multiple delegated agents return conflicting results, THE initiating Agent SHALL resolve conflicts using its decision principles and log the resolution reasoning
+
+---
+
+### Requirement 53: Workflow Autonomy Modes (Crawl / Walk / Run)
+
+**User Story:** As the King, I want configurable autonomy levels per agent and workflow type — so that I can gradually increase agent independence as trust is established, with appropriate human gates at each level.
+
+#### Acceptance Criteria
+
+1. THE Agent_Runtime SHALL support three autonomy modes: Crawl (human approves every step), Walk (scripted workflow with human approval at gates), Run (agent plans, delegates, and executes within authority boundaries)
+2. THE autonomy mode SHALL be configurable per agent, per workflow type, and per tenant
+3. WHEN an Agent operates in Crawl mode, THE Agent SHALL pause before every action and present the proposed action to the King for approval via Shaar
+4. WHEN an Agent operates in Walk mode, THE Agent SHALL execute scripted steps autonomously but pause at defined gate points for human approval
+5. WHEN an Agent operates in Run mode, THE Agent SHALL plan, delegate, invoke tools, and execute within its authority boundaries without human intervention — escalating only when authority is insufficient
+6. THE Agent_Runtime SHALL support dynamic autonomy escalation: workflows may promote from Crawl → Walk → Run based on confidence score, historical success rate, and governance policy
+7. FOR ZionX production workflows, THE default mode SHALL be Walk — autonomous build/package/test but gated submission unless explicitly configured otherwise
+8. FOR ZXMG production workflows, THE default mode SHALL be Walk — autonomous ideate/script/generate but gated publishing unless explicitly configured otherwise
+
+---
+
+### Requirement 54: Execution Trace and Observability
+
+**User Story:** As the King, I want full execution traces for every agent action — so that I can understand exactly what happened, why decisions were made, and debug issues without guessing.
+
+#### Acceptance Criteria
+
+1. EVERY agent response/action SHALL produce an execution trace containing: plan generated, tools considered, tools selected, agents delegated to, memory retrieved, governance checks performed, budget checks performed, actions taken, results received, and final synthesis
+2. THE execution trace SHALL be persisted in XO_Audit and retrievable via the Shaar dashboard
+3. THE Shaar dashboard SHALL display execution traces in a timeline view showing each step with its inputs, outputs, and duration
+4. WHEN an agent makes a decision, THE execution trace SHALL include the reasoning chain: what memory was consulted, what patterns were matched, and what principles were applied
+5. THE execution trace SHALL be machine-readable (JSON) enabling automated analysis of agent behavior patterns by the Learning Engine
+
+---
+
+### Requirement 55: Anti-Chatbot Enforcement
+
+**User Story:** As the King, I want architectural guardrails that prevent the system from degrading into chatbot behavior — so that agents always operate with full context, governance, and memory regardless of how they're invoked.
+
+#### Acceptance Criteria
+
+1. IF any code path calls an LLM directly without going through the Agent_Runtime and Cognition Envelope, THE system SHALL block the call and log a violation to XO_Audit
+2. IF an Agent responds without retrieving memory from Zikaron, THE system SHALL log a warning and include a degraded-context flag in the response metadata
+3. IF an Agent invokes a tool without Mishmar authorization and Otzar budget check, THE system SHALL block the invocation and log the violation
+4. IF A2A delegation is described in an agent's capabilities but not implemented in its execution flow, THE Learning Engine SHALL flag this as an implementation gap
+5. IF MCP tools are hardcoded without registry lookup, THE system SHALL log a warning during tool invocation
+6. THE CI/CD pipeline SHALL include a test that verifies: the same LLM key produces different behavior through different agent envelopes (proving context-driven behavior, not model-driven)
+
+---
+
+### Requirement 56: Persistent Chat Sessions with History
+
+**User Story:** As the King, I want my conversations with each agent to persist permanently — so that when I return to any agent's chat, I see the full conversation exactly where I left off, and I can browse past conversations like ChatGPT or Claude.
+
+#### Acceptance Criteria
+
+1. WHEN the King navigates to an agent's chat view, THE dashboard SHALL load the current active conversation from the backend and display all previous messages immediately
+2. WHEN the King refreshes the page or switches tabs and returns, THE conversation SHALL be fully restored from the backend — no messages lost
+3. EACH agent SHALL maintain a "current session" conversation that accumulates messages until the King explicitly starts a new chat
+4. WHEN the King clicks "New Chat", THE dashboard SHALL archive the current conversation and start a fresh session — the archived conversation remains accessible
+5. THE dashboard SHALL display a conversation history sidebar showing all past sessions for the current agent, with timestamps and preview text
+6. WHEN the King clicks a past conversation in the sidebar, THE dashboard SHALL load and display that conversation in read-only mode
+7. ALL conversation data SHALL be stored in Zikaron (Aurora PostgreSQL) via the backend — the browser SHALL NOT be the source of truth for any conversation state
+8. THE backend SHALL expose REST endpoints for: listing conversations, loading a specific conversation, creating new sessions, and retrieving the current active session
+9. WHEN a conversation exceeds 100 messages, THE system SHALL automatically archive it and start a new session, preserving continuity by loading the last 5 messages as context in the new session
+
+---
+
+---
+
+### Requirement 57: Agent-to-Kiro Execution Bridge
+
+**User Story:** As the King, I want my agents to be able to send approved work directly to Kiro (the IDE agent) for execution — so that strategic decisions made in the dashboard translate into immediate code changes, deployments, and system improvements without me having to manually relay instructions.
+
+#### Acceptance Criteria
+
+##### 57a: Approval-Gated Task Dispatch
+
+1. WHEN an Agent proposes work in the dashboard chat, THE Agent SHALL present the proposal with an "Approve for Execution" action
+2. WHEN the King approves a proposed task, THE Agent SHALL write a structured task file to `.kiro/agent-tasks/` containing: task description, agent source, approval timestamp, priority, and acceptance criteria
+3. THE task file SHALL follow a standardized format that Kiro can parse and execute
+4. NO task SHALL be dispatched to Kiro without explicit King approval — this is a governance gate enforced by Mishmar
+
+##### 57b: File-Based Handoff (Immediate)
+
+5. THE system SHALL maintain a `.kiro/agent-tasks/` directory where agents write approved tasks as markdown files
+6. A Kiro hook SHALL watch `.kiro/agent-tasks/` for new files and trigger execution when a new task appears
+7. EACH task file SHALL contain: title, description, source agent, approval timestamp, priority, specific instructions, and acceptance criteria
+8. WHEN Kiro completes a task, THE system SHALL move the task file to `.kiro/agent-tasks/completed/` with execution results appended
+9. WHEN Kiro encounters an error, THE system SHALL move the task file to `.kiro/agent-tasks/failed/` with error details
+
+##### 57c: MCP Bridge (Evolution)
+
+10. THE system SHALL support an MCP server that enables bidirectional communication between SeraphimOS agents and Kiro
+11. THE MCP bridge SHALL allow agents to: request code changes, trigger builds, run tests, and query codebase state
+12. THE MCP bridge SHALL enforce the same Mishmar governance rules as direct agent execution — no unauthorized actions
+
+##### 57d: Monitoring and Visibility
+
+13. THE dashboard SHALL display a "Kiro Tasks" section showing: pending tasks, in-progress tasks, completed tasks, and failed tasks
+14. THE King SHALL be able to cancel a pending task before Kiro picks it up
+15. ALL task dispatches SHALL be logged to XO_Audit with: source agent, task description, approval timestamp, execution status, and results
+
+---
+
+
+---
+
+### Requirement 58: Shaar Agent — Human Interface Intelligence and UI/UX Design Authority
+
+**User Story:** As the King, I want Shaar to operate as an autonomous interface intelligence agent that observes SeraphimOS from the human front-end perspective, detects friction, evaluates visual design quality, verifies that agents are usable and visible, audits permissions and data truth, generates improvement recommendations, and creates/verifies Kiro tasks — so that I am not responsible for manually discovering every dashboard, UX, workflow, or communication issue.
+
+#### Acceptance Criteria
+
+##### 58a: Front-End Observation
+
+1. THE Shaar Agent SHALL observe the dashboard using browser automation (Playwright), screenshot analysis, DOM inspection, console log inspection, and workflow execution
+2. THE Shaar Agent SHALL evaluate the interface from multiple user perspectives: King, Queen, new user, power user, mobile user, and admin/developer
+3. THE Shaar Agent SHALL run automatically after dashboard deployments, daily during active development, before multi-user rollout, and after any failed user-facing workflow
+
+##### 58b: UX Friction Detection
+
+4. THE Shaar Agent SHALL detect UX friction including: unclear labels, missing buttons, dead-end workflows, weak empty states, hidden status, missing loading feedback, confusing navigation, unclear success/failure states, too many clicks, and hidden critical information
+5. THE Shaar Agent SHALL compare the observed human experience against expected ideal workflows and flag deviations
+6. THE Shaar Agent SHALL evaluate cognitive load, information hierarchy, action clarity, and workflow efficiency for every screen
+
+##### 58c: Expert UI/UX Design Intelligence
+
+7. THE Shaar Agent SHALL function as an expert UI/UX designer evaluating: layout quality, visual hierarchy, spacing, typography, color usage, CTA placement, navigation clarity, empty states, loading states, error states, mobile responsiveness, and accessibility
+8. THE Shaar Agent SHALL identify when a page is poorly designed even if the underlying functionality works — visual quality and usability are independent of correctness
+9. THE Shaar Agent SHALL generate specific redesign recommendations with: evidence (screenshot), design principle violated, proposed layout changes, affected components, acceptance criteria, and implementation guidance
+
+##### 58d: Data Truth Auditing
+
+10. THE Shaar Agent SHALL audit whether frontend screens reflect real backend state, flagging: mock data, stale data, disconnected metrics, missing timestamps, placeholder values, and unverifiable charts
+11. THE Shaar Agent SHALL verify that every metric, status indicator, and data display is backed by a live data source
+
+##### 58e: Agentic Behavior Visibility
+
+12. THE Shaar Agent SHALL verify agentic behavior visibility including: execution traces, memory retrieval indicators, MCP tool usage, A2A delegation status, workflow state, plan progress, and completion contract/gate results
+13. THE Shaar Agent SHALL flag screens where agents appear to operate as chatbots rather than showing full agentic execution context
+
+##### 58f: Revenue Workflow Auditing
+
+14. THE Shaar Agent SHALL inspect revenue-critical workflows for ZionX: app preview, screenshots, ads, RevenueCat/payments, store readiness, monetization status
+15. THE Shaar Agent SHALL inspect revenue-critical workflows for ZXMG: video generation, thumbnails, publish gates, analytics feedback, monetization tracking
+16. THE Shaar Agent SHALL evaluate whether each screen helps the King make money or is just informational
+
+##### 58g: Permission and Security Auditing
+
+17. THE Shaar Agent SHALL test role-based access and permission boundaries, ensuring Queens and other users only see and invoke authorized agents, workflows, screens, and actions
+18. THE Shaar Agent SHALL verify that API keys, credentials, and sensitive data are never exposed in the frontend
+
+##### 58h: Readiness Score
+
+19. THE Shaar Agent SHALL generate a Shaar Readiness Score covering: UX quality, visual design, workflow clarity, agentic visibility, revenue workflow support, multi-user readiness, permission safety, data truth, mobile responsiveness, and cost visibility
+20. THE Shaar Agent SHALL produce a Top 5 improvements list to reach the next score threshold
+
+##### 58i: Recommendation and Kiro Task Generation
+
+21. THE Shaar Agent SHALL generate structured recommendations with: title, problem, evidence, affected screen, user impact, design principle violated, priority, acceptance criteria, likely files, implementation guidance, verification steps, and estimated effort
+22. WHEN a recommendation is approved, THE Shaar Agent SHALL convert it into a structured Kiro task and dispatch it via the Agent-to-Kiro bridge
+23. AFTER Kiro implements a task, THE Shaar Agent SHALL retest the affected workflow from the front end and mark the task verified or reopen it with failure evidence
+
+##### 58j: Dedicated Dashboard Tab
+
+24. THE Shaar Agent SHALL have its own dedicated tab in the SeraphimOS dashboard showing: overview with readiness score, page reviews, recommendations, visual audits, Kiro tasks, before/after comparisons, and settings
+25. THE King SHALL be able to trigger a manual review of any specific page or workflow from the Shaar Agent tab
 
 ---

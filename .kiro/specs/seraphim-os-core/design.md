@@ -3382,3 +3382,3693 @@ sequenceDiagram
     BS->>BS: version + tag
     BS->>EB: publish("baseline.updated")
     RIS->>EB: publish("reference.ingested")
+
+
+---
+
+## Phase 8 — Parallel Agent Orchestration, MCP Integration, and Unified Communication Layer
+
+### Parallel Agent Orchestration Architecture
+
+The parallelization system enables both intra-agent (sub-tasks within one agent) and inter-agent (multiple agents working simultaneously) parallel execution with dependency management and coordination.
+
+#### Parallel Execution Architecture
+
+```mermaid
+graph TB
+    subgraph "Orchestration Layer"
+        DAG["Dependency Graph Engine"]
+        Scheduler["Parallel Scheduler"]
+        Aggregator["Result Aggregator"]
+        LoadBalancer["Load Balancer"]
+    end
+
+    subgraph "Intra-Agent Parallelism"
+        Agent1["Agent (Parent)"]
+        SubTask1["Sub-Task 1"]
+        SubTask2["Sub-Task 2"]
+        SubTask3["Sub-Task 3"]
+    end
+
+    subgraph "Inter-Agent Parallelism"
+        AgentA["ZionX"]
+        AgentB["ZXMG"]
+        AgentC["Zion Alpha"]
+        CoordBus["Coordination Bus"]
+    end
+
+    subgraph "Compute Resources"
+        ECS1["ECS Task 1"]
+        ECS2["ECS Task 2"]
+        ECS3["ECS Task 3"]
+        ECS4["ECS Task 4"]
+    end
+
+    DAG --> Scheduler
+    Scheduler --> LoadBalancer
+    LoadBalancer --> ECS1
+    LoadBalancer --> ECS2
+    LoadBalancer --> ECS3
+    LoadBalancer --> ECS4
+
+    Agent1 --> SubTask1
+    Agent1 --> SubTask2
+    Agent1 --> SubTask3
+
+    AgentA --> CoordBus
+    AgentB --> CoordBus
+    AgentC --> CoordBus
+    CoordBus --> AgentA
+    CoordBus --> AgentB
+    CoordBus --> AgentC
+
+    SubTask1 --> Aggregator
+    SubTask2 --> Aggregator
+    SubTask3 --> Aggregator
+    AgentA --> Aggregator
+    AgentB --> Aggregator
+    AgentC --> Aggregator
+```
+
+#### Dependency Graph Engine Interface
+
+```typescript
+interface DependencyGraphEngine {
+  // Graph construction
+  createGraph(tasks: ParallelTask[]): Promise<TaskDAG>;
+  validateGraph(dag: TaskDAG): Promise<DAGValidationResult>;
+  
+  // Execution
+  schedule(dag: TaskDAG): Promise<ExecutionPlan>;
+  getReadyTasks(dag: TaskDAG): Promise<ParallelTask[]>;
+  markComplete(taskId: string, result: TaskResult): Promise<void>;
+  
+  // Monitoring
+  getStatus(dagId: string): Promise<DAGExecutionStatus>;
+  detectDeadlocks(dagId: string): Promise<DeadlockResult>;
+}
+
+interface ParallelTask {
+  id: string;
+  agentId: string;
+  task: Task;
+  dependencies: string[];  // task IDs this task depends on
+  priority: number;
+  estimatedDuration: number;
+  resourceRequirements: ResourceRequirements;
+}
+
+interface TaskDAG {
+  id: string;
+  tasks: Map<string, ParallelTask>;
+  edges: Array<{ from: string; to: string }>;
+  metadata: {
+    createdBy: string;
+    createdAt: Date;
+    estimatedTotalDuration: number;
+  };
+}
+
+interface DAGExecutionStatus {
+  dagId: string;
+  totalTasks: number;
+  completed: number;
+  inProgress: number;
+  waiting: number;
+  failed: number;
+  estimatedCompletion: Date;
+  activeStreams: ParallelStream[];
+}
+
+interface ParallelStream {
+  taskId: string;
+  agentId: string;
+  status: 'executing' | 'waiting_dependency' | 'completed' | 'failed';
+  startedAt: Date;
+  progress: number;  // 0-100
+  blockedBy?: string[];  // task IDs blocking this stream
+}
+```
+
+#### Inter-Agent Coordination Bus Interface
+
+```typescript
+interface CoordinationBus {
+  // Real-time messaging between parallel agents
+  sendToAgent(fromAgentId: string, toAgentId: string, message: CoordinationMessage): Promise<void>;
+  broadcast(fromAgentId: string, dagId: string, message: CoordinationMessage): Promise<void>;
+  
+  // Dependency signaling
+  signalCompletion(taskId: string, output: unknown): Promise<void>;
+  waitForDependency(taskId: string, dependencyId: string, timeout?: number): Promise<unknown>;
+  
+  // Intermediate result sharing
+  shareIntermediateResult(agentId: string, dagId: string, key: string, value: unknown): Promise<void>;
+  getIntermediateResult(dagId: string, key: string): Promise<unknown | null>;
+  
+  // Subscriptions
+  onMessage(agentId: string, handler: (msg: CoordinationMessage) => void): Promise<string>;
+}
+
+interface CoordinationMessage {
+  type: 'intermediate_result' | 'dependency_complete' | 'request_info' | 'status_update' | 'error';
+  fromAgent: string;
+  dagId: string;
+  payload: Record<string, unknown>;
+  timestamp: Date;
+}
+```
+
+#### Parallel Result Aggregator Interface
+
+```typescript
+interface ResultAggregator {
+  // Collect results from parallel streams
+  collectResult(dagId: string, taskId: string, result: TaskResult): Promise<void>;
+  
+  // Aggregate when all streams complete
+  aggregate(dagId: string, strategy: AggregationStrategy): Promise<AggregatedResult>;
+  
+  // Partial results
+  getPartialResults(dagId: string): Promise<Map<string, TaskResult>>;
+}
+
+type AggregationStrategy = 'merge' | 'concatenate' | 'vote' | 'custom';
+
+interface AggregatedResult {
+  dagId: string;
+  totalStreams: number;
+  successfulStreams: number;
+  failedStreams: number;
+  mergedOutput: unknown;
+  perStreamResults: Map<string, TaskResult>;
+  aggregatedAt: Date;
+}
+```
+
+---
+
+### MCP Integration Architecture
+
+SeraphimOS participates in the MCP ecosystem as both provider (exposing agent tools) and consumer (using external tools).
+
+#### MCP Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "External MCP Clients"
+        Kiro["Kiro IDE"]
+        ExtClient["Other MCP Clients"]
+    end
+
+    subgraph "SeraphimOS MCP Layer"
+        MCPGateway["MCP Gateway"]
+        ToolRegistry["MCP Tool Registry"]
+        AuthLayer["MCP Auth (Mishmar)"]
+    end
+
+    subgraph "Agent MCP Servers"
+        SeraphimMCP["Seraphim MCP Server"]
+        EretzMCP["Eretz MCP Server"]
+        ZionXMCP["ZionX MCP Server"]
+        ZXMGMCP["ZXMG MCP Server"]
+        ZionAlphaMCP["Zion Alpha MCP Server"]
+    end
+
+    subgraph "External MCP Servers"
+        ExtMCP1["External Tool Server 1"]
+        ExtMCP2["External Tool Server 2"]
+    end
+
+    subgraph "MCP Client Layer"
+        MCPClient["SeraphimOS MCP Client"]
+    end
+
+    Kiro --> MCPGateway
+    ExtClient --> MCPGateway
+    MCPGateway --> AuthLayer
+    AuthLayer --> ToolRegistry
+    ToolRegistry --> SeraphimMCP
+    ToolRegistry --> EretzMCP
+    ToolRegistry --> ZionXMCP
+    ToolRegistry --> ZXMGMCP
+    ToolRegistry --> ZionAlphaMCP
+
+    MCPClient --> ExtMCP1
+    MCPClient --> ExtMCP2
+    MCPClient --> Kiro
+```
+
+#### MCP Server Interface (Per-Agent)
+
+```typescript
+interface MCPServerHost {
+  // Server lifecycle
+  startServer(agentId: string, config: MCPServerConfig): Promise<MCPServer>;
+  stopServer(agentId: string): Promise<void>;
+  
+  // Tool registration
+  registerTool(agentId: string, tool: MCPToolDefinition): Promise<void>;
+  unregisterTool(agentId: string, toolName: string): Promise<void>;
+  
+  // Connection management
+  getConnections(agentId: string): Promise<MCPConnection[]>;
+  disconnectClient(connectionId: string): Promise<void>;
+}
+
+interface MCPToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: JSONSchema;
+  outputSchema: JSONSchema;
+  requiredAuthority: 'L1' | 'L2' | 'L3' | 'L4';
+  costEstimate?: number;  // estimated cost per invocation
+}
+
+interface MCPServerConfig {
+  agentId: string;
+  transport: 'stdio' | 'sse' | 'websocket';
+  port?: number;
+  authRequired: boolean;
+  rateLimits: {
+    requestsPerMinute: number;
+    requestsPerHour: number;
+  };
+}
+```
+
+#### MCP Client Interface
+
+```typescript
+interface MCPClientManager {
+  // Connection management
+  connect(serverUrl: string, config: MCPClientConfig): Promise<MCPConnection>;
+  disconnect(connectionId: string): Promise<void>;
+  reconnect(connectionId: string): Promise<void>;
+  
+  // Tool discovery
+  discoverTools(connectionId: string): Promise<MCPToolDefinition[]>;
+  findToolByCapability(description: string): Promise<MCPToolMatch[]>;
+  
+  // Tool invocation
+  invokeTool(connectionId: string, toolName: string, args: Record<string, unknown>): Promise<MCPToolResult>;
+  
+  // Health
+  getConnectionHealth(connectionId: string): Promise<MCPConnectionHealth>;
+}
+
+interface MCPToolRegistry {
+  // Registry management
+  registerInternalTools(agentId: string, tools: MCPToolDefinition[]): Promise<void>;
+  registerExternalServer(serverUrl: string, tools: MCPToolDefinition[]): Promise<void>;
+  
+  // Discovery
+  listAllTools(): Promise<MCPRegistryEntry[]>;
+  searchTools(query: string): Promise<MCPRegistryEntry[]>;
+  getToolSchema(toolId: string): Promise<MCPToolDefinition>;
+  
+  // Semantic matching
+  findByCapability(capabilityDescription: string): Promise<MCPToolMatch[]>;
+}
+
+interface MCPRegistryEntry {
+  toolId: string;
+  name: string;
+  description: string;
+  source: 'internal' | 'external';
+  agentId?: string;
+  serverUrl?: string;
+  inputSchema: JSONSchema;
+  outputSchema: JSONSchema;
+  availability: 'available' | 'degraded' | 'unavailable';
+  costEstimate: number;
+  lastHealthCheck: Date;
+}
+```
+
+#### Kiro-Seraphim MCP Bridge
+
+```typescript
+interface KiroSeraphimBridge {
+  // Kiro → Seraphim direction
+  handleKiroToolCall(toolName: string, args: Record<string, unknown>): Promise<unknown>;
+  exposeAgentTools(): MCPToolDefinition[];
+  
+  // Seraphim → Kiro direction
+  invokeKiroTool(tool: 'readFile' | 'writeFile' | 'runCommand' | 'search' | 'getDiagnostics', args: Record<string, unknown>): Promise<unknown>;
+  
+  // Connection
+  establishBridge(kiroSessionId: string): Promise<BridgeConnection>;
+  getBridgeStatus(): Promise<BridgeStatus>;
+}
+```
+
+---
+
+### Unified Agent Communication Layer Architecture
+
+The communication layer provides persistent, multi-user, cross-agent chat with Telegram integration.
+
+#### Communication Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "User Interfaces"
+        DashChat["Dashboard Chat UI"]
+        TelegramBot["Telegram Bot"]
+        API["REST/WebSocket API"]
+    end
+
+    subgraph "Communication Service"
+        MsgRouter["Message Router"]
+        ContextEngine["Context Sharing Engine"]
+        PresenceService["Presence Service"]
+        PriorityQueue["Priority Queue"]
+        NotifRouter["Notification Router"]
+    end
+
+    subgraph "Storage"
+        ChatDB["Chat History (Aurora)"]
+        ContextBus["Context Bus (EventBridge)"]
+        UserPrefs["User Preferences"]
+    end
+
+    subgraph "Agents"
+        Seraphim["Seraphim Agent"]
+        Eretz["Eretz Agent"]
+        ZionX["ZionX Agent"]
+        ZXMG["ZXMG Agent"]
+        ZionAlpha["Zion Alpha Agent"]
+    end
+
+    DashChat --> MsgRouter
+    TelegramBot --> MsgRouter
+    API --> MsgRouter
+
+    MsgRouter --> PriorityQueue
+    PriorityQueue --> Seraphim
+    PriorityQueue --> Eretz
+    PriorityQueue --> ZionX
+    PriorityQueue --> ZXMG
+    PriorityQueue --> ZionAlpha
+
+    MsgRouter --> ContextEngine
+    ContextEngine --> ContextBus
+    ContextBus --> Seraphim
+    ContextBus --> Eretz
+    ContextBus --> ZionX
+    ContextBus --> ZXMG
+    ContextBus --> ZionAlpha
+
+    MsgRouter --> ChatDB
+    PresenceService --> DashChat
+    PresenceService --> TelegramBot
+    NotifRouter --> DashChat
+    NotifRouter --> TelegramBot
+```
+
+#### Communication Service Interface
+
+```typescript
+interface AgentCommunicationService {
+  // Message handling
+  sendMessage(message: UserMessage): Promise<MessageResponse>;
+  getHistory(agentId: string, filter?: ChatFilter): Promise<ChatMessage[]>;
+  searchHistory(agentId: string, query: string): Promise<ChatMessage[]>;
+  
+  // Multi-user
+  getActiveUsers(agentId: string): Promise<ActiveUser[]>;
+  getUnifiedHistory(agentId: string): Promise<ChatMessage[]>;  // all users combined
+  
+  // Context sharing
+  shareContext(fromAgentId: string, toAgentId: string, context: SharedContext): Promise<void>;
+  tagAgent(messageId: string, targetAgentId: string): Promise<void>;
+  getSharedContextLog(agentId: string): Promise<ContextShareEvent[]>;
+  
+  // Presence
+  getAgentPresence(agentId: string): Promise<AgentPresence>;
+  subscribePresence(agentId: string, handler: (presence: AgentPresence) => void): Promise<string>;
+}
+
+interface UserMessage {
+  userId: string;
+  agentId: string;
+  content: string;
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  source: 'dashboard' | 'telegram' | 'api';
+  attachments?: Attachment[];
+  taggedAgents?: string[];  // @-mentioned agents
+  replyTo?: string;  // message ID being replied to
+}
+
+interface ChatMessage {
+  id: string;
+  agentId: string;
+  userId?: string;  // null for agent messages
+  sender: 'user' | 'agent';
+  senderName: string;
+  content: string;
+  timestamp: Date;
+  source: 'dashboard' | 'telegram' | 'api';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  metadata: {
+    responseTime?: number;  // ms for agent responses
+    delegations?: DelegationInfo[];
+    contextShared?: ContextShareEvent[];
+    actionsTriggered?: string[];
+  };
+}
+
+interface AgentPresence {
+  agentId: string;
+  status: 'idle' | 'working' | 'waiting_input' | 'thinking' | 'parallel_processing' | 'degraded';
+  currentTask?: string;
+  parallelTaskCount?: number;
+  lastActivity: Date;
+  queueDepth: number;  // messages waiting to be processed
+}
+
+interface DelegationInfo {
+  delegatedTo: string;  // agent ID
+  taskDescription: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  startedAt: Date;
+  completedAt?: Date;
+  result?: string;
+}
+```
+
+#### Context Sharing Engine Interface
+
+```typescript
+interface ContextSharingEngine {
+  // Auto-detection
+  analyzeRelevance(message: ChatMessage, agents: string[]): Promise<RelevanceResult[]>;
+  
+  // Propagation
+  propagateContext(message: ChatMessage, targetAgents: string[], reason: 'auto_detected' | 'explicit_tag'): Promise<void>;
+  
+  // Handoff
+  generateHandoffSummary(userId: string, fromAgentId: string, toAgentId: string): Promise<string>;
+  
+  // Configuration
+  setHandoffMode(userId: string, mode: 'automatic' | 'on_request' | 'manual'): Promise<void>;
+}
+
+interface RelevanceResult {
+  agentId: string;
+  relevanceScore: number;  // 0-1
+  reason: string;
+  suggestedAction: 'share_full' | 'share_summary' | 'no_action';
+}
+
+interface ContextShareEvent {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  messageId: string;
+  reason: 'auto_detected' | 'explicit_tag' | 'handoff';
+  relevanceScore: number;
+  sharedContent: string;
+  timestamp: Date;
+  acknowledged: boolean;
+}
+```
+
+#### Telegram Integration Interface
+
+```typescript
+interface TelegramIntegrationService {
+  // Bot management
+  initializeBot(config: TelegramBotConfig): Promise<void>;
+  getBot(): TelegramBot;
+  
+  // Thread management
+  createAgentThread(agentId: string): Promise<TelegramThread>;
+  getAgentThread(agentId: string): Promise<TelegramThread>;
+  
+  // Message handling
+  handleIncomingMessage(update: TelegramUpdate): Promise<void>;
+  sendToThread(agentId: string, message: string, options?: TelegramMessageOptions): Promise<void>;
+  
+  // Synchronization
+  syncToDashboard(telegramMessage: TelegramMessage): Promise<void>;
+  syncFromDashboard(dashboardMessage: ChatMessage): Promise<void>;
+  
+  // User management
+  linkAccount(telegramUserId: string, seraphimUserId: string): Promise<void>;
+  getLinkedAccount(telegramUserId: string): Promise<string | null>;
+  
+  // Notifications
+  deliverNotification(userId: string, notification: AgentNotification): Promise<void>;
+  setNotificationPreferences(userId: string, prefs: TelegramNotificationPrefs): Promise<void>;
+}
+
+interface TelegramBotConfig {
+  botToken: string;  // from Secrets Manager
+  groupChatId: string;  // the main group chat
+  agentThreadIds: Record<string, string>;  // agentId → threadId mapping
+  webhookUrl?: string;
+}
+
+interface TelegramNotificationPrefs {
+  enabled: boolean;
+  priorityThreshold: 'low' | 'normal' | 'high' | 'critical';
+  agentFilter?: string[];  // only these agents, or all if empty
+  quietHours?: { start: string; end: string; timezone: string };
+}
+```
+
+#### Notification Routing Engine Interface
+
+```typescript
+interface NotificationRoutingEngine {
+  // Rule management
+  setRules(userId: string, rules: NotificationRule[]): Promise<void>;
+  getRules(userId: string): Promise<NotificationRule[]>;
+  
+  // Routing
+  route(notification: AgentNotification): Promise<DeliveryResult[]>;
+  
+  // Escalation
+  checkEscalation(notificationId: string): Promise<boolean>;
+  escalate(notificationId: string): Promise<void>;
+  
+  // Acknowledgment
+  acknowledge(notificationId: string, channel: string): Promise<void>;
+  getUnacknowledged(userId: string): Promise<AgentNotification[]>;
+}
+
+interface NotificationRule {
+  id: string;
+  userId: string;
+  conditions: {
+    agentIds?: string[];
+    priorityMin?: 'low' | 'normal' | 'high' | 'critical';
+    notificationType?: string[];
+    timeWindow?: { start: string; end: string; timezone: string };
+  };
+  channels: ('dashboard' | 'telegram' | 'email' | 'imessage')[];
+  escalation?: {
+    timeout: number;  // seconds
+    escalateToChannel: string;
+  };
+}
+
+interface AgentNotification {
+  id: string;
+  agentId: string;
+  userId: string;
+  type: 'task_complete' | 'needs_input' | 'alert' | 'delegation_complete' | 'recommendation';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  title: string;
+  body: string;
+  actionable: boolean;
+  actions?: NotificationAction[];
+  timestamp: Date;
+}
+
+interface NotificationAction {
+  label: string;
+  type: 'approve' | 'reject' | 'acknowledge' | 'custom';
+  payload: Record<string, unknown>;
+}
+```
+
+#### Database Schema Additions
+
+```sql
+-- Chat Messages
+CREATE TABLE chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  agent_id VARCHAR(100) NOT NULL,
+  user_id UUID REFERENCES tenants(id),  -- null for agent messages
+  sender_type VARCHAR(10) NOT NULL CHECK (sender_type IN ('user', 'agent')),
+  sender_name VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  priority VARCHAR(10) DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'critical')),
+  source VARCHAR(20) NOT NULL CHECK (source IN ('dashboard', 'telegram', 'api')),
+  metadata JSONB DEFAULT '{}',
+  reply_to UUID REFERENCES chat_messages(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_chat_agent_time ON chat_messages(tenant_id, agent_id, created_at DESC);
+CREATE INDEX idx_chat_user_time ON chat_messages(tenant_id, user_id, created_at DESC);
+CREATE INDEX idx_chat_source ON chat_messages(source, created_at DESC);
+
+-- Context Share Events
+CREATE TABLE context_share_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  from_agent_id VARCHAR(100) NOT NULL,
+  to_agent_id VARCHAR(100) NOT NULL,
+  message_id UUID REFERENCES chat_messages(id),
+  reason VARCHAR(20) NOT NULL CHECK (reason IN ('auto_detected', 'explicit_tag', 'handoff')),
+  relevance_score DECIMAL(3, 2),
+  shared_content TEXT NOT NULL,
+  acknowledged BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_context_share_agent ON context_share_events(tenant_id, to_agent_id, created_at DESC);
+
+-- Notification Routing Rules
+CREATE TABLE notification_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  user_id UUID NOT NULL,
+  conditions JSONB NOT NULL,
+  channels TEXT[] NOT NULL,
+  escalation JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Notification Delivery Log
+CREATE TABLE notification_deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  notification_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  channel VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'delivered', 'acknowledged', 'escalated', 'failed')),
+  delivered_at TIMESTAMPTZ,
+  acknowledged_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_notif_delivery_user ON notification_deliveries(tenant_id, user_id, status);
+
+-- Telegram Account Links
+CREATE TABLE telegram_account_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  user_id UUID NOT NULL,
+  telegram_user_id BIGINT NOT NULL UNIQUE,
+  telegram_username VARCHAR(255),
+  linked_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- MCP Tool Registry
+CREATE TABLE mcp_tool_registry (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tool_name VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  source VARCHAR(20) NOT NULL CHECK (source IN ('internal', 'external')),
+  agent_id VARCHAR(100),
+  server_url VARCHAR(500),
+  input_schema JSONB NOT NULL,
+  output_schema JSONB NOT NULL,
+  required_authority VARCHAR(5),
+  cost_estimate DECIMAL(10, 6),
+  availability VARCHAR(20) DEFAULT 'available',
+  last_health_check TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_mcp_tools_source ON mcp_tool_registry(source, availability);
+CREATE INDEX idx_mcp_tools_agent ON mcp_tool_registry(agent_id);
+
+-- Parallel Execution DAGs
+CREATE TABLE parallel_execution_dags (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  created_by VARCHAR(100) NOT NULL,
+  tasks JSONB NOT NULL,
+  edges JSONB NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'executing', 'completed', 'failed', 'cancelled')),
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_dag_status ON parallel_execution_dags(tenant_id, status);
+```
+
+#### Message Priority Queue Flow
+
+```mermaid
+sequenceDiagram
+    participant U1 as User 1 (King)
+    participant U2 as User 2 (Queen)
+    participant MR as Message Router
+    participant PQ as Priority Queue
+    participant Agent as Agent
+
+    U1->>MR: Message (priority: high)
+    U2->>MR: Message (priority: normal)
+    MR->>PQ: Enqueue (high priority)
+    MR->>PQ: Enqueue (normal priority)
+    PQ->>Agent: Dequeue (high priority first)
+    Agent-->>U1: Response
+    PQ->>Agent: Dequeue (normal priority)
+    Agent-->>U2: Response
+```
+
+#### Cross-Agent Context Sharing Flow
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant ZionX as ZionX Agent
+    participant CE as Context Engine
+    participant ZXMG as ZXMG Agent
+    participant Eretz as Eretz Agent
+
+    User->>ZionX: "The new wellness app should have a calming blue theme"
+    ZionX->>ZionX: Process message
+    ZionX->>CE: analyzeRelevance(message, [ZXMG, Eretz, ZionAlpha])
+    CE-->>ZionX: ZXMG relevance: 0.7 (content about the app)
+    CE->>ZXMG: propagateContext(summary, reason: auto_detected)
+    ZXMG->>ZXMG: Store in working memory
+    ZionX-->>User: "Got it, I'll use a calming blue palette..."
+    
+    Note over User,Eretz: Later, user switches to ZXMG
+    User->>ZXMG: "Create a promo video for the new app"
+    ZXMG->>ZXMG: Already has context about blue theme from auto-propagation
+    ZXMG-->>User: "I'll create the promo with the calming blue theme..."
+```
+
+#### Telegram-Dashboard Synchronization Flow
+
+```mermaid
+sequenceDiagram
+    participant TG as Telegram
+    participant Bot as Telegram Bot
+    participant Sync as Sync Service
+    participant Chat as Chat Service
+    participant Dash as Dashboard
+
+    TG->>Bot: User message in ZionX thread
+    Bot->>Bot: Identify user (linked account)
+    Bot->>Sync: syncToDashboard(message)
+    Sync->>Chat: sendMessage(userId, agentId, content, source: telegram)
+    Chat->>Chat: Store in chat_messages
+    Chat->>Dash: WebSocket push (new message, source: telegram)
+    
+    Note over TG,Dash: Agent responds
+    Chat->>Sync: syncFromDashboard(response)
+    Sync->>Bot: sendToThread(agentId, response)
+    Bot->>TG: Reply in ZionX thread
+    Chat->>Dash: WebSocket push (agent response)
+```
+
+
+---
+
+## Phase 9 — ZionX App Development Studio Architecture
+
+### Overview
+
+The ZionX App Development Studio is a new dashboard tab within the Shaar interface that provides a complete in-browser mobile app development experience. The King describes an app in natural language, ZionX generates it, a live mobile preview renders in-browser, and the King iterates through conversational edit commands. The studio integrates store asset generation, ad creative production, and platform-specific submission workflows through dedicated sub-agents.
+
+This is NOT a standalone IDE — it's a Shaar dashboard view backed by the existing ZionX agent via WebSocket/REST. The AI edit loop goes through the existing ZionX agent chat interface (Requirement 37). The prompt panel IS the ZionX chat.
+
+### Key Architectural Decisions
+
+1. **Dashboard-first, not IDE-first** — The studio is a React frontend component within Shaar, not a separate application. It communicates with ZionX through the existing agent communication layer.
+2. **React Native Web for Level 1 preview** — The in-browser preview uses React Native Web to render the generated app inside device frames. No native compilation needed for preview.
+3. **Progressive preview maturity** — Three levels: L1 (React Native Web in-browser), L2 (Expo QR for real device), L3 (cloud emulator streaming). Each level is independently deployable.
+4. **Sub-agent delegation for platform work** — Apple Release Agent and Google Play Release Agent handle platform-specific concerns independently, communicating through the existing MCP and event bus infrastructure.
+5. **Existing infrastructure reuse** — WebSocket (Shaar), agent chat (Req 37), MCP tools (Phase 8), event hooks (Event Bus), credential management (Otzar), governance (Mishmar), audit (XO_Audit).
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "Shaar Dashboard — ZionX App Studio Tab"
+        PromptPanel["Prompt/Spec Panel<br/>(ZionX Chat Interface)"]
+        PreviewPanel["Mobile Preview Panel<br/>(React Native Web)"]
+        CodePanel["Code/File Panel<br/>(File Tree + Viewer)"]
+        IntegrationPanel["Integration Sidebar<br/>(Service Connections)"]
+        TestPanel["Testing Panel<br/>(Quality Gates)"]
+        BuildPanel["Build/Submit Panel<br/>(iOS + Android Status)"]
+        AssetsPanel["Store Assets Tab<br/>(Screenshots + Graphics)"]
+        AdPanel["Ad Studio Tab<br/>(Video Creatives)"]
+        RevenuePanel["Revenue Panel<br/>(Metrics + Recommendations)"]
+    end
+
+    subgraph "Backend Services"
+        StudioSession["Studio Session Manager"]
+        EditController["AI Edit Controller"]
+        PreviewRuntime["App Preview Runtime"]
+        DeviceProfiles["Device Profile Manager"]
+    end
+
+    subgraph "Sub-Agents (via MCP)"
+        AppleAgent["Apple Release Agent"]
+        GoogleAgent["Google Play Release Agent"]
+        AssetAgent["Store Asset Agent"]
+        AdStudio["Ad Studio Agent"]
+    end
+
+    subgraph "Existing Infrastructure"
+        ZionXAgent["ZionX Product Agent"]
+        EventBus["Event Bus (Hooks)"]
+        Otzar["Otzar (Budgets + Creds)"]
+        Mishmar["Mishmar (Governance)"]
+        XOAudit["XO Audit"]
+        Zikaron["Zikaron (Memory)"]
+        WebSocket["Shaar WebSocket"]
+    end
+
+    PromptPanel -->|"Natural language"| ZionXAgent
+    ZionXAgent -->|"Code generation"| StudioSession
+    StudioSession -->|"File changes"| PreviewRuntime
+    PreviewRuntime -->|"Rendered frames"| PreviewPanel
+    EditController -->|"Code mods"| StudioSession
+    StudioSession -->|"Build artifacts"| AppleAgent
+    StudioSession -->|"Build artifacts"| GoogleAgent
+    StudioSession -->|"Preview captures"| AssetAgent
+    StudioSession -->|"App recordings"| AdStudio
+    StudioSession -->|"Lifecycle events"| EventBus
+    ZionXAgent -->|"Token usage"| Otzar
+    BuildPanel -->|"Approval requests"| Mishmar
+    StudioSession -->|"All actions"| XOAudit
+```
+
+### Component Design
+
+#### 1. Studio Session Manager
+
+**Purpose:** Manages the lifecycle of an app development session — project state, file tree, build status, preview connection, and undo/redo history.
+
+```typescript
+interface StudioSession {
+  sessionId: string;
+  tenantId: string;
+  appId: string;
+  projectState: ProjectState;
+  fileTree: FileNode[];
+  buildStatus: BuildStatus;
+  previewConnection: PreviewConnection;
+  undoStack: EditCommand[];
+  redoStack: EditCommand[];
+  createdAt: Date;
+  lastActivityAt: Date;
+}
+
+interface ProjectState {
+  appName: string;
+  appDescription: string;
+  designSystem: DesignSystem;
+  screens: ScreenDefinition[];
+  navigation: NavigationConfig;
+  integrations: IntegrationConfig[];
+  monetization: MonetizationConfig;
+  metadata: AppMetadata;
+}
+
+interface FileNode {
+  path: string;
+  type: 'file' | 'directory';
+  language?: string;
+  size?: number;
+  children?: FileNode[];
+}
+
+interface BuildStatus {
+  ios: PlatformBuildStatus;
+  android: PlatformBuildStatus;
+}
+
+interface PlatformBuildStatus {
+  state: 'idle' | 'building' | 'success' | 'failed';
+  signingStatus: 'unsigned' | 'signed' | 'error';
+  metadataReady: boolean;
+  privacyPolicyPresent: boolean;
+  screenshotsComplete: boolean;
+  iapSandboxPassed: boolean;
+  lastBuildAt?: Date;
+  errorDetails?: string;
+}
+```
+
+#### 2. App Preview Runtime
+
+**Purpose:** Renders a live mobile app preview in the browser using React Native Web inside device frames.
+
+```typescript
+interface AppPreviewRuntime {
+  // Level 1: React Native Web
+  renderInBrowser(
+    appBundle: AppBundle,
+    deviceProfile: DeviceProfile
+  ): PreviewInstance;
+  
+  // Level 2: Expo QR
+  generateExpoQR(appBundle: AppBundle): QRCodeData;
+  
+  // Level 3: Cloud Emulator
+  streamEmulator(
+    appBundle: AppBundle,
+    platform: 'ios' | 'android',
+    deviceProfile: DeviceProfile
+  ): EmulatorStream;
+  
+  // Common
+  captureScreenshot(instance: PreviewInstance): Screenshot;
+  captureVideo(instance: PreviewInstance, duration: number): VideoRecording;
+  switchDevice(instance: PreviewInstance, device: DeviceProfile): void;
+  reload(instance: PreviewInstance): void;
+}
+
+interface DeviceProfile {
+  id: string;
+  name: string; // "iPhone 15", "iPhone SE", "iPad", "Pixel 8", "Android Tablet"
+  platform: 'ios' | 'android';
+  width: number;
+  height: number;
+  scale: number;
+  safeAreaInsets: { top: number; bottom: number; left: number; right: number };
+  hasNotch: boolean;
+  hasDynamicIsland: boolean;
+  statusBarHeight: number;
+}
+
+interface PreviewInstance {
+  instanceId: string;
+  deviceProfile: DeviceProfile;
+  currentScreen: string;
+  isInteractive: boolean;
+  lastReloadAt: Date;
+}
+```
+
+#### 3. AI Edit Controller
+
+**Purpose:** Accepts natural language edit commands, translates them into code modifications via ZionX, reruns tests, and triggers preview reload.
+
+```typescript
+interface AIEditController {
+  applyEdit(
+    sessionId: string,
+    command: string // Natural language edit command
+  ): Promise<EditResult>;
+  
+  undo(sessionId: string): Promise<EditResult>;
+  redo(sessionId: string): Promise<EditResult>;
+  
+  getHistory(sessionId: string): EditCommand[];
+}
+
+interface EditCommand {
+  id: string;
+  naturalLanguageCommand: string;
+  filesModified: FileChange[];
+  testResults: TestResult[];
+  previewReloaded: boolean;
+  timestamp: Date;
+  undone: boolean;
+}
+
+interface EditResult {
+  success: boolean;
+  filesModified: FileChange[];
+  testResults: TestResult[];
+  previewReloaded: boolean;
+  errors?: string[];
+}
+
+interface FileChange {
+  path: string;
+  operation: 'create' | 'modify' | 'delete';
+  diff?: string;
+}
+```
+
+#### 4. Store Asset Generator
+
+**Purpose:** Captures screenshots from the live preview across device sizes and generates all required store assets.
+
+```typescript
+interface StoreAssetGenerator {
+  generateScreenshots(
+    previewInstance: PreviewInstance,
+    screens: string[],
+    devices: DeviceProfile[]
+  ): Promise<ScreenshotSet>;
+  
+  generateAppIcon(designSystem: DesignSystem): Promise<AppIcon>;
+  
+  generateFeatureGraphic(
+    appMetadata: AppMetadata,
+    screenshots: Screenshot[]
+  ): Promise<FeatureGraphic>;
+  
+  generatePromoBanners(
+    appMetadata: AppMetadata,
+    screenshots: Screenshot[]
+  ): Promise<PromoBanner[]>;
+  
+  generateCaptions(
+    screenshots: Screenshot[],
+    locale: string
+  ): Promise<CaptionedScreenshot[]>;
+  
+  validateAssets(
+    assets: StoreAssets,
+    platform: 'apple' | 'google'
+  ): ValidationResult;
+}
+
+interface StoreAssets {
+  screenshots: {
+    iphone67: Screenshot[];
+    iphone65: Screenshot[];
+    ipad: Screenshot[];
+    googlePhone: Screenshot[];
+    googleTablet: Screenshot[];
+  };
+  appIcon: AppIcon;
+  featureGraphic: FeatureGraphic;
+  promoBanners: PromoBanner[];
+  captions: CaptionedScreenshot[];
+}
+
+interface ValidationResult {
+  valid: boolean;
+  issues: AssetIssue[];
+}
+
+interface AssetIssue {
+  asset: string;
+  issue: string;
+  remediation: string;
+  severity: 'error' | 'warning';
+}
+```
+
+#### 5. Ad Studio
+
+**Purpose:** Generates video ad creatives from app preview recordings and validates against ad network specifications.
+
+```typescript
+interface AdStudioService {
+  generateVerticalAd(
+    appRecording: VideoRecording,
+    duration: 15 // seconds
+  ): Promise<AdCreative>;
+  
+  generateHorizontalAd(
+    appRecording: VideoRecording,
+    duration: 30 // seconds
+  ): Promise<AdCreative>;
+  
+  generateBumperAd(
+    appRecording: VideoRecording,
+    duration: 6 // seconds
+  ): Promise<AdCreative>;
+  
+  generatePlayableAd(
+    appBundle: AppBundle,
+    interactiveElements: InteractiveElement[]
+  ): Promise<PlayableAdCreative>;
+  
+  validateForNetwork(
+    creative: AdCreative,
+    network: 'admob' | 'applovin' | 'unity'
+  ): AdValidationResult;
+  
+  exportForNetwork(
+    creative: AdCreative,
+    network: 'admob' | 'applovin' | 'unity'
+  ): ExportedAd;
+}
+
+interface AdCreative {
+  id: string;
+  type: 'vertical_15s' | 'horizontal_30s' | 'bumper_6s' | 'playable';
+  format: string; // mp4, html5, etc.
+  width: number;
+  height: number;
+  duration: number;
+  fileSize: number;
+  url: string;
+}
+
+interface AdValidationResult {
+  valid: boolean;
+  network: string;
+  issues: { rule: string; actual: string; required: string }[];
+}
+```
+
+#### 6. Apple Release Agent
+
+**Purpose:** Sub-agent owning the complete iOS release workflow from build to App Store submission.
+
+```typescript
+interface AppleReleaseAgent {
+  // Build
+  triggerXcodeBuild(session: StudioSession): Promise<IOSBuild>;
+  manageBundleId(appMetadata: AppMetadata): Promise<BundleIdResult>;
+  signBuild(build: IOSBuild, profile: ProvisioningProfile): Promise<SignedBuild>;
+  
+  // Metadata
+  prepareAppStoreMetadata(appMetadata: AppMetadata): Promise<AppStoreMetadata>;
+  generatePrivacyNutritionLabels(appAnalysis: AppAnalysis): Promise<PrivacyLabels>;
+  
+  // Validation
+  validateIAP(products: IAPProduct[]): Promise<IAPValidationResult>;
+  validateScreenshots(screenshots: Screenshot[]): Promise<HIGValidationResult>;
+  
+  // Distribution
+  uploadToTestFlight(build: SignedBuild): Promise<TestFlightResult>;
+  submitForReview(submission: AppStoreSubmission): Promise<ReviewSubmission>;
+  
+  // Rejection handling
+  parseRejection(rejection: ReviewRejection): Promise<RejectionAnalysis>;
+  generateRemediation(analysis: RejectionAnalysis): Promise<RemediationPlan>;
+}
+```
+
+#### 7. Google Play Release Agent
+
+**Purpose:** Sub-agent owning the complete Android release workflow from build to Play Store submission.
+
+```typescript
+interface GooglePlayReleaseAgent {
+  // Build
+  triggerGradleBuild(session: StudioSession): Promise<AndroidBuild>;
+  managePackageName(appMetadata: AppMetadata): Promise<PackageNameResult>;
+  signAAB(build: AndroidBuild, keystore: SigningKeystore): Promise<SignedAAB>;
+  
+  // Metadata
+  preparePlayStoreMetadata(appMetadata: AppMetadata): Promise<PlayStoreMetadata>;
+  generateDataSafetyForm(appAnalysis: AppAnalysis): Promise<DataSafetyForm>;
+  
+  // Validation
+  validatePlayBilling(products: BillingProduct[]): Promise<BillingValidationResult>;
+  
+  // Distribution
+  uploadToClosedTrack(build: SignedAAB, track: string): Promise<TrackResult>;
+  promoteToProduction(track: string): Promise<ProductionRelease>;
+  
+  // Rejection handling
+  parseRejection(rejection: PlayRejection): Promise<RejectionAnalysis>;
+  generateRemediation(analysis: RejectionAnalysis): Promise<RemediationPlan>;
+}
+```
+
+### Data Models
+
+#### Studio Session (PostgreSQL)
+
+```sql
+CREATE TABLE studio_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  app_id UUID NOT NULL,
+  project_state JSONB NOT NULL,
+  file_tree JSONB NOT NULL,
+  build_status JSONB NOT NULL DEFAULT '{"ios": {"state": "idle"}, "android": {"state": "idle"}}',
+  preview_maturity_level INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE INDEX idx_studio_sessions_tenant ON studio_sessions(tenant_id);
+CREATE INDEX idx_studio_sessions_app ON studio_sessions(app_id);
+```
+
+#### Edit History (PostgreSQL)
+
+```sql
+CREATE TABLE studio_edit_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID NOT NULL REFERENCES studio_sessions(id),
+  command_text TEXT NOT NULL,
+  files_modified JSONB NOT NULL,
+  test_results JSONB,
+  preview_reloaded BOOLEAN NOT NULL DEFAULT false,
+  undone BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_edit_history_session ON studio_edit_history(session_id, created_at);
+```
+
+#### Store Assets (PostgreSQL + S3)
+
+```sql
+CREATE TABLE studio_store_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID NOT NULL REFERENCES studio_sessions(id),
+  asset_type VARCHAR(50) NOT NULL, -- 'screenshot', 'icon', 'feature_graphic', 'promo_banner', 'caption'
+  platform VARCHAR(10) NOT NULL, -- 'apple', 'google', 'both'
+  device_profile VARCHAR(50), -- 'iphone_67', 'iphone_65', 'ipad', 'google_phone', 'google_tablet'
+  s3_key TEXT NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  file_size INTEGER NOT NULL,
+  validation_status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending', 'valid', 'invalid'
+  validation_issues JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_store_assets_session ON studio_store_assets(session_id, asset_type);
+```
+
+#### Ad Creatives (PostgreSQL + S3)
+
+```sql
+CREATE TABLE studio_ad_creatives (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID NOT NULL REFERENCES studio_sessions(id),
+  creative_type VARCHAR(30) NOT NULL, -- 'vertical_15s', 'horizontal_30s', 'bumper_6s', 'playable'
+  target_network VARCHAR(20), -- 'admob', 'applovin', 'unity'
+  s3_key TEXT NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  duration_seconds INTEGER,
+  file_size INTEGER NOT NULL,
+  validation_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  validation_issues JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_ad_creatives_session ON studio_ad_creatives(session_id, creative_type);
+```
+
+### Hook Integration
+
+The studio emits lifecycle hooks through the existing Event Bus infrastructure:
+
+| Hook | Trigger | Downstream Action |
+|------|---------|-------------------|
+| `app.idea.created` | King submits app idea | Market research, competitor analysis, design baseline |
+| `app.code.changed` | AI edit applied | Lint, typecheck, test execution, preview rebuild |
+| `app.preview.updated` | Preview build refreshes | Screenshot regeneration, test execution |
+| `app.screenflow.changed` | Navigation/screen layout changes | Screenshot regeneration |
+| `app.ios.build.created` | iOS build initiated | Apple validation (Xcode, bundle ID, signing, metadata) |
+| `app.android.build.created` | Android build initiated | Google validation (Gradle, package name, keystore, Data Safety) |
+| `app.assets.requested` | Store Assets tab opened | Screenshot capture across all device sizes |
+| `app.marketing.state.entered` | Ad Studio tab opened | Video ad creative generation |
+| `app.store.gate.failed` | Gate check fails | Identify sub-agent, create rework task, rerun after fix |
+| `app.submission.ready` | All gates pass | King approval request before final submission |
+
+### MCP Tool Integration
+
+Each sub-agent exposes and consumes MCP tools:
+
+**ZionX App Studio MCP Tools (consumed):**
+- `file.edit` — Apply code modifications
+- `file.create` — Create new files
+- `git.commit` — Version control operations
+- `test.run` — Execute test suites
+- `preview.launch` — Start preview runtime
+- `preview.reload` — Reload preview after changes
+
+**Apple Release Agent MCP Tools (exposed):**
+- `apple.validateMetadata` — Validate App Store metadata
+- `apple.uploadScreenshots` — Upload screenshots to App Store Connect
+- `apple.submitForReview` — Submit app for Apple review
+- `apple.checkReviewStatus` — Check review status
+- `apple.uploadBuild` — Upload signed IPA to TestFlight
+
+**Google Play Release Agent MCP Tools (exposed):**
+- `google.validateListing` — Validate Play Store listing
+- `google.uploadAssets` — Upload assets to Play Console
+- `google.submitForReview` — Submit to production track
+- `google.checkReviewStatus` — Check review status
+- `google.uploadAAB` — Upload signed AAB
+
+**Store Asset Agent MCP Tools (exposed):**
+- `preview.captureScreen` — Capture screenshot from preview
+- `preview.captureVideo` — Record video from preview
+- `assets.generateIcon` — Generate app icon
+- `assets.generateFeatureGraphic` — Generate feature graphic
+- `assets.validate` — Validate assets against platform specs
+
+**Ad Studio MCP Tools (exposed):**
+- `ads.generateVertical` — Generate 15s vertical ad
+- `ads.generateHorizontal` — Generate 30s horizontal ad
+- `ads.generateBumper` — Generate 6s bumper ad
+- `ads.generatePlayable` — Generate playable ad demo
+- `ads.validateForNetwork` — Validate against ad network specs
+- `heygen.createVideo` — Generate AI video via HeyGen driver
+
+### Frontend Component Architecture
+
+```mermaid
+graph TB
+    subgraph "ZionX App Studio Tab (React)"
+        StudioLayout["StudioLayout"]
+        
+        subgraph "Left Panel"
+            IntegrationSidebar["IntegrationSidebar"]
+        end
+        
+        subgraph "Center Panel"
+            TabBar["TabBar (Preview | Assets | Ads | Revenue)"]
+            PreviewFrame["DeviceFramePreview"]
+            AssetsGrid["StoreAssetsGrid"]
+            AdCreativesList["AdCreativesList"]
+            RevenueCharts["RevenueCharts"]
+        end
+        
+        subgraph "Right Panel"
+            ChatPanel["ZionX Chat (Prompt + Edit)"]
+            FileTree["FileTreePanel"]
+            TestResults["TestResultsPanel"]
+            BuildStatus["BuildStatusPanel"]
+        end
+    end
+
+    StudioLayout --> IntegrationSidebar
+    StudioLayout --> TabBar
+    StudioLayout --> ChatPanel
+    TabBar --> PreviewFrame
+    TabBar --> AssetsGrid
+    TabBar --> AdCreativesList
+    TabBar --> RevenueCharts
+    ChatPanel --> FileTree
+    ChatPanel --> TestResults
+    ChatPanel --> BuildStatus
+```
+
+### Preview Rendering Architecture (Level 1)
+
+```mermaid
+sequenceDiagram
+    participant King as King (Browser)
+    participant Studio as Studio Frontend
+    participant WS as WebSocket
+    participant ZionX as ZionX Agent
+    participant Preview as Preview Runtime
+    participant RNW as React Native Web
+
+    King->>Studio: "Build me a meditation app"
+    Studio->>WS: sendMessage(zionx, prompt)
+    WS->>ZionX: Process app idea
+    ZionX->>ZionX: Generate spec + code
+    ZionX->>WS: codeGenerated(files)
+    WS->>Studio: Update file tree
+    Studio->>Preview: buildPreview(files)
+    Preview->>RNW: Bundle React Native Web
+    RNW->>Studio: Rendered app in iframe
+    Studio->>King: Live preview in device frame
+    
+    King->>Studio: "Make the header purple"
+    Studio->>WS: sendMessage(zionx, edit)
+    WS->>ZionX: Process edit command
+    ZionX->>ZionX: Modify code + run tests
+    ZionX->>WS: editApplied(changes, testResults)
+    WS->>Studio: Update file tree + tests
+    Studio->>Preview: hotReload(changes)
+    Preview->>RNW: Apply changes
+    RNW->>Studio: Updated preview
+    Studio->>King: Preview refreshed
+```
+
+### Security Considerations
+
+1. **Code execution isolation** — Preview runtime runs in a sandboxed iframe with restricted permissions (no network access to internal services, no file system access)
+2. **Credential protection** — API keys and environment variables stored in Otzar, injected at build time, never exposed in the frontend UI
+3. **Governance enforcement** — Store submissions require Mishmar approval (L1 authority — King approval)
+4. **Audit trail** — Every action (create, edit, build, submit, asset generation) logged to XO_Audit
+5. **Budget enforcement** — LLM token usage for code generation and editing tracked and enforced via Otzar budgets
+
+### Performance Requirements
+
+| Operation | Target Latency |
+|-----------|---------------|
+| Device frame switch | < 2 seconds |
+| Preview hot reload after edit | < 3 seconds |
+| Screenshot capture (single device) | < 5 seconds |
+| Full screenshot set (all devices) | < 30 seconds |
+| Ad creative generation (15s video) | < 60 seconds |
+| iOS build trigger to status update | < 10 seconds (status polling) |
+| File tree refresh after edit | < 1 second |
+
+
+---
+
+## Phase 10 — ZXMG Video Development Studio Architecture
+
+### Overview
+
+The ZXMG Video Development Studio is a new dashboard tab within the Shaar interface that provides a complete AI video production experience organized by channel. ZXMG autonomously researches trending topics and fills the content pipeline with ranked ideas. The King selects a channel, reviews the pipeline, clicks "Generate" on ideas to produce videos, provides edit feedback to refine them, and clicks "Publish" when satisfied. The autonomy is in the thinking (research + ideation); the King controls what gets made and what goes live.
+
+This is a Shaar dashboard view backed by the existing ZXMG agent via WebSocket/REST. The autonomous pipeline integrates with the existing ZXMG state machine (planning → script → asset creation → video assembly → upload → monitoring).
+
+### Key Architectural Decisions
+
+1. **Autonomous ideation, human-gated production and publishing** — ZXMG autonomously researches and fills the content pipeline. The King clicks "Generate" to produce a video (gate 1), reviews it with edit feedback, then clicks "Publish" to push it live (gate 2). No video is produced or published without explicit King action.
+2. **Channel-centric organization** — All pipeline views, generation queues, edit sessions, and publishing actions are organized BY CHANNEL. The King selects a channel and sees only that channel's content.
+3. **Iterative edit feedback loop** — After generation, the King can give natural language feedback ("make the intro shorter", "re-do scene 3") and ZXMG re-generates affected portions while preserving the rest — same pattern as ZionX App Studio's AI edit loop.
+4. **Multi-model video generation** — Different AI models excel at different shot types. Otzar routes each scene to the optimal model based on shot type, quality requirements, and budget constraints.
+5. **Zikaron-backed learning** — Every content performance outcome feeds back into Zikaron procedural memory, enabling the autonomous engine to continuously improve what it ideates.
+6. **Existing infrastructure reuse** — WebSocket (Shaar), agent chat (Req 37), MCP tools (Phase 8), event hooks (Event Bus), credential management (Otzar), governance (Mishmar), audit (XO_Audit), memory (Zikaron).
+7. **Platform-native distribution** — Content is formatted per platform requirements at export time. Each platform gets optimized aspect ratio, duration, captions, and scheduling.
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "Shaar Dashboard — ZXMG Video Studio Tab"
+        ChatPanel["AI Chat Panel<br/>(Pipeline View + Override)"]
+        VideoPreview["Video Preview Panel<br/>(Player + Timeline)"]
+        ToolSidebar["Tool Sidebar<br/>(13 Tool Buttons)"]
+    end
+
+    subgraph "Autonomous Content Engine"
+        TrendEngine["Trend Intelligence Engine"]
+        ContentCalendar["Content Calendar Generator"]
+        PipelineManager["Pipeline Manager<br/>(Per-Channel, 7-14 day rolling)"]
+        ChannelSelector["Channel Selector"]
+    end
+
+    subgraph "Video Production Pipeline"
+        ScriptGen["Script Generator"]
+        SceneBreakdown["Scene Decomposer"]
+        ModelRouter["Multi-Model Video Router"]
+        VideoAssembler["Video Assembler"]
+        TimelineEditor["Timeline Editor"]
+        EditFeedback["Edit Feedback Loop<br/>(NL edits → re-generate)"]
+    end
+
+    subgraph "AI Video Models (via Otzar)"
+        Sora["Sora 2 / Veo 3<br/>(Cinematic)"]
+        Kling["Kling / WAN / Minimax<br/>(Fast Iteration)"]
+        AnimModels["Animation Models<br/>(Specialized)"]
+    end
+
+    subgraph "Distribution & Analytics"
+        PlatformDist["Platform Distribution Engine"]
+        ThumbnailGen["Thumbnail Generator"]
+        AnalyticsEngine["Analytics Engine"]
+        PerformanceTracker["Performance Tracker"]
+    end
+
+    subgraph "Existing Infrastructure"
+        ZXMGAgent["ZXMG Agent"]
+        EventBus["Event Bus (Hooks)"]
+        Otzar["Otzar (Budgets + Model Routing)"]
+        Mishmar["Mishmar (Governance)"]
+        XOAudit["XO Audit"]
+        Zikaron["Zikaron (Memory + Learning)"]
+        WebSocket["Shaar WebSocket"]
+        YouTubeAPI["YouTube API Driver"]
+        BrowserAuto["Browser Automation"]
+    end
+
+    ChatPanel -->|"Override commands"| ZXMGAgent
+    TrendEngine -->|"Research signals"| ContentCalendar
+    ContentCalendar -->|"Ranked ideas"| PipelineManager
+    PipelineManager -->|"Auto-execute"| AutoExecutor
+    AutoExecutor -->|"Produce"| ScriptGen
+    ScriptGen -->|"Script"| SceneBreakdown
+    SceneBreakdown -->|"Scenes"| ModelRouter
+    ModelRouter -->|"Route by type"| Sora
+    ModelRouter -->|"Route by type"| Kling
+    ModelRouter -->|"Route by type"| AnimModels
+    Sora -->|"Clips"| VideoAssembler
+    Kling -->|"Clips"| VideoAssembler
+    AnimModels -->|"Clips"| VideoAssembler
+    VideoAssembler -->|"Full video"| TimelineEditor
+    TimelineEditor -->|"Final cut"| PlatformDist
+    PlatformDist -->|"Publish"| YouTubeAPI
+    AnalyticsEngine -->|"Metrics"| PerformanceTracker
+    PerformanceTracker -->|"Learnings"| Zikaron
+    TrendEngine -->|"Signals"| BrowserAuto
+    TrendEngine -->|"Data"| YouTubeAPI
+    ModelRouter -->|"Budget check"| Otzar
+    PipelineManager -->|"Lifecycle events"| EventBus
+    ZXMGAgent -->|"All actions"| XOAudit
+    VideoPreview -->|"Real-time"| WebSocket
+```
+
+### Component Design
+
+#### 1. Autonomous Content Engine
+
+**Purpose:** The default operating mode — researches trends, generates content ideas, maintains the rolling pipeline, and auto-executes production without King intervention.
+
+```typescript
+interface AutonomousContentEngine {
+  // Research
+  runTrendResearch(channelId: string): Promise<TrendResearchResult>;
+  analyzeCompetitors(channelId: string): Promise<CompetitorAnalysis>;
+  identifyContentGaps(channelId: string): Promise<ContentGap[]>;
+  detectViralPatterns(platform: Platform): Promise<ViralPattern[]>;
+  
+  // Calendar Generation
+  generateContentCalendar(
+    channelId: string,
+    daysAhead: number // 7-14
+  ): Promise<ContentCalendarEntry[]>;
+  
+  // Pipeline Management
+  getPipeline(channelId: string): Promise<PipelineItem[]>;
+  autoExecuteItem(itemId: string): Promise<ProductionResult>;
+  
+  // King Override
+  approveItem(itemId: string): Promise<void>;
+  rejectItem(itemId: string, reason: string): Promise<void>;
+  modifyItem(itemId: string, modifications: Partial<PipelineItem>): Promise<void>;
+}
+
+interface ContentCalendarEntry {
+  id: string;
+  channelId: string;
+  concept: VideoConceptSummary;
+  predictedViews: number;
+  predictedEngagementRate: number;
+  predictedRevenue: number;
+  recommendedPublishDate: Date;
+  scheduledProductionStart: Date;
+  status: 'pending' | 'approved' | 'rejected' | 'in_production' | 'published';
+  autoExecuteAt: Date; // 24hr after scheduledProductionStart
+}
+
+interface PipelineItem {
+  id: string;
+  channelId: string;
+  calendarEntry: ContentCalendarEntry;
+  script?: VideoScript;
+  scenes?: SceneDefinition[];
+  renderedClips?: RenderedClip[];
+  assembledVideo?: AssembledVideo;
+  thumbnails?: ThumbnailVariant[];
+  metadata?: VideoMetadata;
+  distributionStatus: DistributionStatus;
+}
+
+interface TrendResearchResult {
+  trendingTopics: TrendingTopic[];
+  algorithmSignals: AlgorithmSignal[];
+  competitorInsights: CompetitorInsight[];
+  contentGaps: ContentGap[];
+  viralPatterns: ViralPattern[];
+  researchedAt: Date;
+  confidence: number;
+}
+```
+
+#### 2. Trend Intelligence Engine
+
+**Purpose:** Real-time analysis of trending content across platforms using browser automation and APIs.
+
+```typescript
+interface TrendIntelligenceEngine {
+  // Platform Analysis
+  analyzeTrendingTopics(platform: Platform): Promise<TrendingTopic[]>;
+  detectAlgorithmSignals(platform: Platform): Promise<AlgorithmSignal[]>;
+  
+  // Competitor Analysis
+  analyzeCompetitorChannel(channelUrl: string): Promise<ChannelAnalysis>;
+  comparePerformance(
+    channelId: string,
+    competitors: string[]
+  ): Promise<PerformanceComparison>;
+  
+  // Audience Analysis
+  analyzeRetentionCurves(videoIds: string[]): Promise<RetentionAnalysis>;
+  identifyDropOffPatterns(channelId: string): Promise<DropOffPattern[]>;
+  
+  // Content Intelligence
+  identifyContentGaps(niche: string): Promise<ContentGap[]>;
+  detectViralPatterns(timeframe: TimeRange): Promise<ViralPattern[]>;
+  
+  // Learning
+  storeInsights(insights: TrendInsight[]): Promise<void>; // → Zikaron
+}
+
+interface TrendingTopic {
+  topic: string;
+  platform: Platform;
+  velocity: number; // growth rate
+  volume: number; // search/view volume
+  competition: 'low' | 'medium' | 'high';
+  relevanceScore: number; // to channel niche
+  detectedAt: Date;
+}
+
+interface AlgorithmSignal {
+  platform: Platform;
+  signalType: 'format_boost' | 'topic_boost' | 'length_preference' | 'engagement_weight';
+  description: string;
+  confidence: number;
+  detectedAt: Date;
+  expiresAt?: Date;
+}
+
+interface ViralPattern {
+  patternType: 'hook' | 'pacing' | 'format' | 'thumbnail' | 'title';
+  description: string;
+  examples: string[];
+  effectivenessScore: number;
+  applicableNiches: string[];
+}
+
+type Platform = 'youtube' | 'tiktok' | 'instagram' | 'x' | 'facebook' | 'rumble';
+```
+
+#### 3. Multi-Model Video Router
+
+**Purpose:** Routes video generation requests to the optimal AI model based on shot type, quality requirements, and budget.
+
+```typescript
+interface MultiModelVideoRouter {
+  routeScene(
+    scene: SceneDefinition,
+    qualityRequirement: QualityLevel,
+    budget: BudgetConstraint
+  ): Promise<ModelRouting>;
+  
+  generateClip(
+    routing: ModelRouting,
+    scene: SceneDefinition
+  ): Promise<RenderedClip>;
+  
+  getAvailableModels(): ModelCapability[];
+  getModelCosts(): ModelCostTable;
+}
+
+interface ModelRouting {
+  modelId: string;
+  modelName: string;
+  provider: 'openai' | 'google' | 'kling' | 'wan' | 'minimax' | 'custom';
+  reason: string;
+  estimatedCost: number;
+  estimatedDuration: number;
+}
+
+interface ModelCapability {
+  modelId: string;
+  name: string;
+  provider: string;
+  strengths: ShotType[];
+  maxDuration: number; // seconds per clip
+  supportedInputs: ('text' | 'image' | 'audio')[];
+  supportsCameraControl: boolean;
+  supportsLipSync: boolean;
+  supportsCharacterPersistence: boolean;
+  costPerSecond: number;
+  qualityTier: 'premium' | 'standard' | 'fast';
+}
+
+type ShotType = 'cinematic' | 'dramatic' | 'animation' | 'documentary' | 'tutorial' | 'vlog' | 'music_video' | 'fast_iteration';
+type QualityLevel = 'premium' | 'standard' | 'draft';
+
+interface SceneDefinition {
+  id: string;
+  sequenceNumber: number;
+  duration: number; // seconds
+  visualDescription: string;
+  cameraDirection: CameraDirection;
+  audioLayers: AudioLayerSpec[];
+  characterRefs: CharacterRef[];
+  style: ShotType;
+  inputMode: 'text' | 'image' | 'audio';
+  inputAsset?: string; // URL to input image/audio if applicable
+}
+
+interface CameraDirection {
+  shotType: 'wide' | 'medium' | 'close' | 'extreme_close';
+  movement: 'static' | 'pan' | 'zoom' | 'dolly' | 'crane' | 'tracking';
+  movementParams?: { direction: string; speed: 'slow' | 'medium' | 'fast' };
+}
+
+interface CharacterRef {
+  characterId: string;
+  name: string;
+  persistenceProfile: string; // Zikaron reference for face/body consistency
+  hasDialogue: boolean;
+  lipSyncRequired: boolean;
+}
+```
+
+#### 4. Video Production Pipeline
+
+**Purpose:** Orchestrates the full production flow from script to assembled video.
+
+```typescript
+interface VideoProductionPipeline {
+  // Script Generation
+  generateScript(
+    concept: VideoConceptSummary,
+    channelConfig: ChannelConfig,
+    trendContext: TrendResearchResult
+  ): Promise<VideoScript>;
+  
+  // Scene Breakdown
+  decomposeScript(script: VideoScript): Promise<SceneDefinition[]>;
+  
+  // Rendering
+  renderScene(scene: SceneDefinition): Promise<RenderedClip>;
+  renderAllScenes(scenes: SceneDefinition[]): Promise<RenderedClip[]>;
+  
+  // Assembly
+  assembleVideo(
+    clips: RenderedClip[],
+    audioLayers: AudioLayer[],
+    transitions: TransitionConfig[]
+  ): Promise<AssembledVideo>;
+  
+  // Post-Production
+  applyColorGrading(video: AssembledVideo, preset: string): Promise<AssembledVideo>;
+  addCaptions(video: AssembledVideo, language: string): Promise<AssembledVideo>;
+  exportMultiFormat(video: AssembledVideo): Promise<ExportedFormats>;
+}
+
+interface VideoScript {
+  id: string;
+  title: string;
+  description: string;
+  totalDuration: number; // seconds
+  scenes: ScriptScene[];
+  audioDirection: AudioDirection;
+  visualStyleGuide: VisualStyleGuide;
+  targetAudience: string;
+  hooks: string[]; // opening hooks
+}
+
+interface AssembledVideo {
+  id: string;
+  scriptId: string;
+  duration: number;
+  resolution: { width: number; height: number };
+  fps: number;
+  audioTracks: AudioTrack[];
+  scenes: AssembledScene[];
+  colorGrading?: string;
+  captions?: CaptionTrack;
+  fileSize: number;
+  storageUrl: string;
+}
+
+interface ExportedFormats {
+  youtube_16_9: ExportedFile;
+  shorts_9_16: ExportedFile;
+  instagram_1_1: ExportedFile;
+  tiktok_9_16: ExportedFile;
+}
+
+interface ExportedFile {
+  format: string;
+  resolution: { width: number; height: number };
+  duration: number;
+  fileSize: number;
+  storageUrl: string;
+}
+```
+
+#### 5. Platform Distribution Engine
+
+**Purpose:** Handles multi-platform publishing with platform-specific formatting and optimal scheduling.
+
+```typescript
+interface PlatformDistributionEngine {
+  // Publishing
+  publishToYouTube(
+    video: ExportedFile,
+    metadata: YouTubeMetadata,
+    schedule?: Date
+  ): Promise<PublishResult>;
+  
+  publishToTikTok(
+    video: ExportedFile,
+    metadata: TikTokMetadata,
+    schedule?: Date
+  ): Promise<PublishResult>;
+  
+  publishToInstagram(
+    video: ExportedFile,
+    metadata: InstagramMetadata,
+    schedule?: Date
+  ): Promise<PublishResult>;
+  
+  publishToX(video: ExportedFile, metadata: XMetadata): Promise<PublishResult>;
+  publishToFacebook(video: ExportedFile, metadata: FacebookMetadata): Promise<PublishResult>;
+  publishToRumble(video: ExportedFile, metadata: RumbleMetadata): Promise<PublishResult>;
+  
+  // Scheduling
+  getOptimalPublishTime(
+    channelId: string,
+    platform: Platform
+  ): Promise<Date>;
+  
+  // Repurposing
+  generateShorts(longFormVideo: AssembledVideo): Promise<ExportedFile[]>;
+  generateClips(longFormVideo: AssembledVideo, highlights: TimeRange[]): Promise<ExportedFile[]>;
+  generateTeasers(longFormVideo: AssembledVideo): Promise<ExportedFile[]>;
+}
+
+interface PublishResult {
+  success: boolean;
+  platform: Platform;
+  platformVideoId?: string;
+  publishedUrl?: string;
+  scheduledAt?: Date;
+  error?: string;
+}
+
+interface YouTubeMetadata {
+  title: string;
+  description: string;
+  tags: string[];
+  category: string;
+  thumbnailUrl: string;
+  playlistIds?: string[];
+  visibility: 'public' | 'unlisted' | 'private';
+  madeForKids: boolean;
+  language: string;
+}
+```
+
+#### 6. Channel Manager
+
+**Purpose:** Manages multiple YouTube channels with per-channel strategy and analytics.
+
+```typescript
+interface ChannelManager {
+  // Configuration
+  addChannel(config: ChannelConfig): Promise<Channel>;
+  updateChannel(channelId: string, updates: Partial<ChannelConfig>): Promise<Channel>;
+  getChannels(): Promise<Channel[]>;
+  
+  // Analytics
+  getChannelAnalytics(channelId: string, timeRange: TimeRange): Promise<ChannelAnalytics>;
+  getChannelHealth(channelId: string): Promise<ChannelHealth>;
+  
+  // Cross-Channel
+  getCrossPromotionOpportunities(channelId: string): Promise<CrossPromoOpportunity[]>;
+}
+
+interface ChannelConfig {
+  channelId: string;
+  youtubeChannelId: string;
+  name: string;
+  niche: string;
+  toneOfVoice: string;
+  postingCadence: PostingCadence;
+  targetAudience: AudienceDemographic;
+  contentPillars: string[];
+  performanceBaseline: PerformanceBaseline;
+  autoPublish: boolean; // whether autonomous publishing is enabled
+  approvalRequired: boolean; // whether King must approve before publish
+}
+
+interface ChannelAnalytics {
+  channelId: string;
+  timeRange: TimeRange;
+  views: number;
+  subscribers: number;
+  subscriberGrowth: number;
+  revenue: number;
+  averageRetention: number;
+  averageCTR: number;
+  topVideos: VideoPerformance[];
+  growthRate: number;
+}
+
+interface ChannelHealth {
+  channelId: string;
+  growthTrend: 'accelerating' | 'stable' | 'declining';
+  engagementTrend: 'improving' | 'stable' | 'declining';
+  algorithmStanding: 'favored' | 'neutral' | 'suppressed';
+  alerts: HealthAlert[];
+}
+
+interface HealthAlert {
+  type: 'growth_decline' | 'engagement_drop' | 'algorithm_change' | 'competitor_surge';
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  recommendation: string;
+  detectedAt: Date;
+}
+```
+
+#### 7. Thumbnail and SEO Generator
+
+**Purpose:** Generates thumbnail variants and optimizes titles/descriptions for maximum CTR and discoverability.
+
+```typescript
+interface ThumbnailSEOGenerator {
+  // Thumbnails
+  generateThumbnails(
+    video: AssembledVideo,
+    channelStyle: ChannelConfig,
+    count: number // minimum 3
+  ): Promise<ThumbnailVariant[]>;
+  
+  // SEO
+  generateTitleVariants(
+    script: VideoScript,
+    trendContext: TrendResearchResult
+  ): Promise<TitleVariant[]>;
+  
+  generateDescription(
+    script: VideoScript,
+    channelConfig: ChannelConfig
+  ): Promise<string>;
+  
+  generateTags(
+    script: VideoScript,
+    trendContext: TrendResearchResult
+  ): Promise<string[]>;
+  
+  // A/B Learning
+  recordABResult(
+    videoId: string,
+    winningThumbnail: string,
+    metrics: ABTestMetrics
+  ): Promise<void>; // stores in Zikaron
+}
+
+interface ThumbnailVariant {
+  id: string;
+  imageUrl: string;
+  style: 'face_close' | 'text_overlay' | 'dramatic' | 'curiosity_gap' | 'before_after';
+  predictedCTR: number;
+  width: number;
+  height: number;
+}
+
+interface TitleVariant {
+  title: string;
+  style: 'curiosity' | 'how_to' | 'listicle' | 'challenge' | 'story';
+  predictedCTR: number;
+  searchVolume: number;
+}
+```
+
+### Data Models
+
+#### Content Pipeline (PostgreSQL)
+
+```sql
+CREATE TABLE video_pipeline_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  channel_id UUID NOT NULL REFERENCES video_channels(id),
+  concept JSONB NOT NULL,
+  predicted_views INTEGER,
+  predicted_engagement_rate DECIMAL(5,4),
+  predicted_revenue DECIMAL(10,2),
+  recommended_publish_date TIMESTAMPTZ,
+  scheduled_production_start TIMESTAMPTZ,
+  auto_execute_at TIMESTAMPTZ,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  script JSONB,
+  scenes JSONB,
+  assembled_video_url TEXT,
+  thumbnails JSONB,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_pipeline_channel ON video_pipeline_items(channel_id, status);
+CREATE INDEX idx_pipeline_auto_execute ON video_pipeline_items(auto_execute_at) WHERE status = 'pending';
+CREATE INDEX idx_pipeline_tenant ON video_pipeline_items(tenant_id);
+```
+
+#### Video Channels (PostgreSQL)
+
+```sql
+CREATE TABLE video_channels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  youtube_channel_id VARCHAR(50) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  niche VARCHAR(100) NOT NULL,
+  tone_of_voice TEXT,
+  posting_cadence JSONB NOT NULL,
+  target_audience JSONB,
+  content_pillars JSONB,
+  performance_baseline JSONB,
+  auto_publish BOOLEAN NOT NULL DEFAULT true,
+  approval_required BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_channels_tenant ON video_channels(tenant_id);
+CREATE UNIQUE INDEX idx_channels_youtube ON video_channels(youtube_channel_id);
+```
+
+#### Rendered Scenes (PostgreSQL + S3)
+
+```sql
+CREATE TABLE video_rendered_scenes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pipeline_item_id UUID NOT NULL REFERENCES video_pipeline_items(id),
+  sequence_number INTEGER NOT NULL,
+  model_used VARCHAR(50) NOT NULL,
+  model_provider VARCHAR(30) NOT NULL,
+  duration_seconds DECIMAL(6,2) NOT NULL,
+  resolution_width INTEGER NOT NULL,
+  resolution_height INTEGER NOT NULL,
+  s3_key TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  render_cost DECIMAL(8,4),
+  render_duration_ms INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_scenes_pipeline ON video_rendered_scenes(pipeline_item_id, sequence_number);
+```
+
+#### Video Performance (PostgreSQL)
+
+```sql
+CREATE TABLE video_performance (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pipeline_item_id UUID NOT NULL REFERENCES video_pipeline_items(id),
+  channel_id UUID NOT NULL REFERENCES video_channels(id),
+  platform VARCHAR(20) NOT NULL,
+  platform_video_id VARCHAR(100),
+  views INTEGER NOT NULL DEFAULT 0,
+  watch_time_hours DECIMAL(10,2) NOT NULL DEFAULT 0,
+  engagement_rate DECIMAL(5,4),
+  click_through_rate DECIMAL(5,4),
+  average_retention DECIMAL(5,4),
+  revenue_adsense DECIMAL(10,2) NOT NULL DEFAULT 0,
+  revenue_sponsorship DECIMAL(10,2) NOT NULL DEFAULT 0,
+  revenue_affiliate DECIMAL(10,2) NOT NULL DEFAULT 0,
+  retention_curve JSONB,
+  published_at TIMESTAMPTZ,
+  last_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_performance_pipeline ON video_performance(pipeline_item_id);
+CREATE INDEX idx_performance_channel ON video_performance(channel_id, published_at);
+```
+
+#### Trend Research Cache (PostgreSQL)
+
+```sql
+CREATE TABLE video_trend_research (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id UUID REFERENCES video_channels(id),
+  platform VARCHAR(20) NOT NULL,
+  research_type VARCHAR(30) NOT NULL,
+  results JSONB NOT NULL,
+  confidence DECIMAL(3,2) NOT NULL,
+  researched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_trend_research_channel ON video_trend_research(channel_id, research_type);
+CREATE INDEX idx_trend_research_expiry ON video_trend_research(expires_at);
+```
+
+### Hook Integration
+
+The studio emits lifecycle hooks through the existing Event Bus infrastructure:
+
+| Hook | Trigger | Downstream Action |
+|------|---------|-------------------|
+| `video.idea.generated` | Autonomous engine generates new content idea | Notification to King, pipeline update |
+| `video.script.created` | Script generated for a video | Scene decomposition, production start |
+| `video.scene.rendered` | Individual scene clip generated | Assembly progress update, cost tracking |
+| `video.assembled` | Full video assembled from scenes | Thumbnail generation, metadata prep |
+| `video.thumbnail.generated` | Thumbnail variants created | A/B test setup, publish readiness check |
+| `video.scheduled` | Video scheduled for upload | Calendar update, notification |
+| `video.published` | Video uploaded to platform | Performance tracking start |
+| `video.performance.update` | Performance metrics updated | Learning engine, optimization recommendations |
+| `video.pipeline.updated` | Pipeline modified (approve/reject/modify) | Calendar recalculation, production scheduling |
+
+### Frontend Component Architecture
+
+```mermaid
+graph TB
+    subgraph "ZXMG Video Studio Tab (React)"
+        StudioLayout["VideoStudioLayout"]
+        
+        subgraph "Left Panel (1fr)"
+            ChatPanel["ZXMG Chat Panel"]
+            PipelineView["Autonomous Pipeline View"]
+        end
+        
+        subgraph "Center Panel (2fr)"
+            VideoPlayer["Video Preview Player"]
+            Timeline["Timeline Editor"]
+            SceneThumbs["Scene Thumbnail Strip"]
+            AudioWaveform["Audio Waveform"]
+        end
+        
+        subgraph "Right Panel (64px)"
+            ToolSidebar["Tool Sidebar"]
+            ScriptTool["📋 Script"]
+            ScenesTool["🎬 Scenes"]
+            CharactersTool["👤 Characters"]
+            AudioTool["🎵 Audio"]
+            EffectsTool["✨ Effects"]
+            TrendsTool["📈 Trends"]
+            ThumbsTool["🖼️ Thumbnails"]
+            CaptionsTool["💬 Captions"]
+            ExportTool["📤 Export"]
+            AnalyticsTool["📊 Analytics"]
+            PublishTool["🚀 Publish"]
+            PipelineTool["🤖 Pipeline"]
+            ResearchTool["🔬 Research"]
+        end
+    end
+
+    StudioLayout --> ChatPanel
+    StudioLayout --> PipelineView
+    StudioLayout --> VideoPlayer
+    StudioLayout --> Timeline
+    StudioLayout --> SceneThumbs
+    StudioLayout --> AudioWaveform
+    StudioLayout --> ToolSidebar
+```
+
+### Autonomous Pipeline Sequence
+
+```mermaid
+sequenceDiagram
+    participant Engine as Autonomous Content Engine
+    participant Trend as Trend Intelligence
+    participant Zikaron as Zikaron Memory
+    participant Pipeline as Pipeline Manager
+    participant King as King (Dashboard)
+    participant Prod as Production Pipeline
+    participant Models as AI Video Models
+    participant Dist as Distribution Engine
+    participant YouTube as YouTube API
+
+    Note over Engine: Runs continuously per channel
+    Engine->>Trend: Research trending topics
+    Trend->>Trend: Analyze YouTube, TikTok, Instagram
+    Trend->>Zikaron: Store trend insights
+    Trend->>Engine: TrendResearchResult
+    
+    Engine->>Zikaron: Query past performance patterns
+    Zikaron->>Engine: Successful content patterns
+    
+    Engine->>Pipeline: Generate calendar entries (7-14 days)
+    Pipeline->>King: Display pipeline (via WebSocket)
+    
+    Note over Pipeline: 24hr timeout starts
+    
+    alt King intervenes
+        King->>Pipeline: Approve/Modify/Reject
+        Pipeline->>Pipeline: Update pipeline state
+    else No intervention (24hr timeout)
+        Pipeline->>Prod: Auto-execute item
+    end
+    
+    Prod->>Prod: Generate script
+    Prod->>Prod: Decompose into scenes
+    
+    loop For each scene
+        Prod->>Models: Route to optimal model
+        Models->>Prod: Rendered clip
+    end
+    
+    Prod->>Prod: Assemble video
+    Prod->>Prod: Generate thumbnails (3+ variants)
+    Prod->>Prod: Optimize title/description/tags
+    
+    Prod->>Dist: Publish to platforms
+    Dist->>YouTube: Upload with metadata
+    YouTube->>Dist: Published URL
+    
+    Note over Dist: Performance tracking begins
+    Dist->>Zikaron: Store performance outcomes
+    Zikaron->>Engine: Feed back into next cycle
+```
+
+### Security Considerations
+
+1. **API credential isolation** — YouTube API keys, platform tokens stored in Otzar, never exposed in frontend
+2. **Model API key management** — Sora/Veo/Kling API keys managed by Otzar with per-model budget enforcement
+3. **Content safety** — Generated video content passes through content safety filters before publishing
+4. **Governance enforcement** — Optional Mishmar approval before autonomous publishing (configurable per channel)
+5. **Audit trail** — Every action from research to publish logged to XO_Audit
+6. **Budget enforcement** — Otzar enforces per-channel and per-video budget limits for AI model usage
+
+### Performance Requirements
+
+| Operation | Target Latency |
+|-----------|---------------|
+| Trend research cycle (per channel) | < 5 minutes |
+| Script generation | < 30 seconds |
+| Scene rendering (single clip, 10s) | < 120 seconds |
+| Full video assembly (15 min video) | < 10 minutes |
+| Thumbnail generation (3 variants) | < 30 seconds |
+| Platform publish (single platform) | < 60 seconds |
+| Pipeline refresh (WebSocket) | < 1 second |
+| Analytics update | < 5 seconds |
+| Content calendar generation | < 60 seconds |
+
+
+---
+
+## Phase 11 — ZionX Autonomous App Ideation Engine + Eretz Business Command Center
+
+### Overview
+
+Phase 11 adds two major features: (1) an autonomous app ideation pipeline for ZionX that mirrors the ZXMG Video Studio's autonomous content engine pattern, and (2) a dedicated full-page Eretz Business Command Center dashboard tab. Both features extend the existing Shaar dashboard with new full-page views backed by existing services.
+
+The ZionX Ideation Engine autonomously researches app markets, scores niches, generates ranked app ideas, and presents them in a pipeline view alongside the existing manual chat interface. The King clicks "Generate" to build any idea (Gate 1) and "Publish" to submit to stores (Gate 2) — identical to the ZXMG two-gate pattern.
+
+The Eretz Business Command Center is a dedicated full-page tab providing a single pane of glass for the entire business portfolio. It consumes existing Eretz services (portfolio-dashboard.ts, synergy-engine.ts, pattern-library.ts, training-cascade.ts) and presents them in a unified real-time dashboard.
+
+### Key Architectural Decisions
+
+1. **Mirror ZXMG autonomous pattern** — The ZionX ideation engine follows the exact same autonomous-research → ranked-pipeline → human-gated-execution pattern as ZXMG Video Studio (Requirement 44). Autonomous ideation, human-gated generation and publishing.
+2. **Dual input paths, single pipeline** — Both autonomous ideas and manual King-created ideas feed into the same pipeline → Generate → Review → Publish flow. The pipeline is the single source of truth for all app ideas regardless of origin.
+3. **Existing ZionX Studio integration** — When the King clicks "Generate" on a pipeline idea, it feeds directly into the existing ZionX App Development Studio (Requirement 42) flow. No new generation infrastructure needed.
+4. **Presentation layer only for Command Center** — The Eretz Business Command Center does NOT duplicate business logic. It is a React frontend that consumes existing Eretz service APIs through WebSocket and REST.
+5. **WebSocket real-time for both features** — Both the ideation pipeline and the command center use the existing Shaar WebSocket infrastructure for real-time updates.
+6. **Zikaron-backed learning** — The ideation engine stores all research, scoring, and outcome data in Zikaron, enabling continuous improvement of predictions based on actual app performance.
+
+### System Architecture — ZionX Autonomous App Ideation Engine
+
+```mermaid
+graph TB
+    subgraph "Shaar Dashboard — ZionX App Studio Tab (Updated)"
+        ChatPanel["ZionX AI Chat Panel<br/>(Manual App Creation)"]
+        PipelineView["Autonomous Pipeline View<br/>(Ranked Ideas + Generate Buttons)"]
+        StudioPanels["Existing Studio Panels<br/>(Preview, Code, Build, etc.)"]
+    end
+
+    subgraph "Autonomous Ideation Engine"
+        MarketResearch["Market Research Engine"]
+        NicheScoring["Niche Scoring Algorithm"]
+        IdeaGenerator["App Idea Generator"]
+        PipelineManager["Pipeline Manager<br/>(Ranked Ideas)"]
+    end
+
+    subgraph "Data Sources"
+        AppStore["Apple App Store<br/>(Rankings, Reviews, Revenue)"]
+        PlayStore["Google Play Store<br/>(Rankings, Reviews, Revenue)"]
+        BrowserAuto["Browser Automation<br/>(SensorTower, AppAnnie)"]
+    end
+
+    subgraph "Existing Infrastructure"
+        ZionXAgent["ZionX Product Agent"]
+        ZionXStudio["ZionX App Studio (Req 42)"]
+        EventBus["Event Bus (Hooks)"]
+        Zikaron["Zikaron (Memory + Learning)"]
+        XOAudit["XO Audit"]
+        WebSocket["Shaar WebSocket"]
+    end
+
+    MarketResearch -->|"Scan categories"| AppStore
+    MarketResearch -->|"Scan categories"| PlayStore
+    MarketResearch -->|"Trend data"| BrowserAuto
+    MarketResearch -->|"Store findings"| Zikaron
+    MarketResearch -->|"Scored niches"| NicheScoring
+    NicheScoring -->|"High-scoring niches"| IdeaGenerator
+    IdeaGenerator -->|"Ranked ideas"| PipelineManager
+    PipelineManager -->|"Display pipeline"| PipelineView
+    PipelineManager -->|"Lifecycle events"| EventBus
+    PipelineView -->|"King clicks Generate"| ZionXStudio
+    ChatPanel -->|"Manual ideas"| PipelineManager
+    Zikaron -->|"Historical success data"| NicheScoring
+    PipelineManager -->|"All actions"| XOAudit
+    PipelineView -->|"Real-time updates"| WebSocket
+```
+
+### Component Design — ZionX Autonomous App Ideation Engine
+
+#### 1. Market Research Engine
+
+**Purpose:** Autonomously scans app markets to identify opportunities, gaps, and trends.
+
+```typescript
+interface MarketResearchEngine {
+  // Research Cycles
+  runResearchCycle(): Promise<MarketResearchResult>;
+  scanAppStoreCategory(category: string, store: 'apple' | 'google'): Promise<CategoryAnalysis>;
+  analyzeCompetitorApps(niche: string): Promise<CompetitorAnalysis[]>;
+  identifyReviewGaps(category: string): Promise<ReviewGap[]>;
+  detectEmergingNiches(): Promise<EmergingNiche[]>;
+
+  // Data Storage
+  storeResearchFindings(findings: MarketResearchResult): Promise<void>; // → Zikaron
+  getHistoricalResearch(niche: string): Promise<MarketResearchResult[]>;
+}
+
+interface MarketResearchResult {
+  id: string;
+  researchedAt: Date;
+  categories: CategoryAnalysis[];
+  emergingNiches: EmergingNiche[];
+  competitorGaps: CompetitorGap[];
+  revenueOpportunities: RevenueOpportunity[];
+  confidence: number;
+}
+
+interface CategoryAnalysis {
+  category: string;
+  store: 'apple' | 'google';
+  topApps: AppRanking[];
+  averageRevenue: number;
+  totalDownloads: number;
+  competitionDensity: number;
+  growthTrend: 'rising' | 'stable' | 'declining';
+  reviewSentiment: number; // -1 to 1
+}
+
+interface CompetitorGap {
+  niche: string;
+  existingApps: string[];
+  missingFeatures: string[];
+  userComplaints: string[];
+  opportunityScore: number;
+}
+
+interface RevenueOpportunity {
+  niche: string;
+  estimatedMarketSize: number;
+  averageRevenuePerApp: number;
+  competitionLevel: 'low' | 'medium' | 'high';
+  entryBarrier: 'low' | 'medium' | 'high';
+}
+
+interface EmergingNiche {
+  name: string;
+  description: string;
+  growthVelocity: number;
+  currentAppCount: number;
+  estimatedDemand: number;
+  detectedAt: Date;
+}
+```
+
+#### 2. Niche Scoring Algorithm
+
+**Purpose:** Scores identified niches using a composite algorithm with learning-based weight adjustment.
+
+```typescript
+interface NicheScoringAlgorithm {
+  scoreNiche(niche: NicheData): Promise<NicheScore>;
+  batchScoreNiches(niches: NicheData[]): Promise<NicheScore[]>;
+  updateWeights(outcomes: IdeaOutcome[]): Promise<void>; // Learn from results
+  getWeights(): ScoringWeights;
+}
+
+interface NicheData {
+  name: string;
+  marketSize: number; // total addressable downloads
+  competitionDensity: number; // number of established apps
+  revenuePotential: number; // average revenue per app in niche
+  technicalFeasibility: number; // complexity relative to ZionX capabilities
+  growthTrend: number; // market growth rate
+  reviewGapScore: number; // unmet user needs
+}
+
+interface NicheScore {
+  niche: string;
+  compositeScore: number; // 0-100 normalized
+  factorBreakdown: {
+    marketSize: { raw: number; weighted: number };
+    competitionDensity: { raw: number; weighted: number };
+    revenuePotential: { raw: number; weighted: number };
+    technicalFeasibility: { raw: number; weighted: number };
+    growthTrend: { raw: number; weighted: number };
+    reviewGapScore: { raw: number; weighted: number };
+  };
+  confidence: number;
+  scoredAt: Date;
+}
+
+interface ScoringWeights {
+  marketSize: number;
+  competitionDensity: number; // inverse — lower competition = higher score
+  revenuePotential: number;
+  technicalFeasibility: number;
+  growthTrend: number;
+  reviewGapScore: number;
+  lastCalibrated: Date;
+}
+
+interface IdeaOutcome {
+  ideaId: string;
+  nicheScore: NicheScore;
+  actualDownloads30Day: number;
+  actualRevenue30Day: number;
+  actualCompetitionEncountered: 'low' | 'medium' | 'high';
+  publishedAt: Date;
+  measuredAt: Date;
+}
+```
+
+#### 3. Pipeline Manager
+
+**Purpose:** Manages the ranked pipeline of app ideas from both autonomous and manual sources.
+
+```typescript
+interface AppIdeaPipelineManager {
+  // Pipeline Operations
+  addIdea(idea: AppIdea, source: 'autonomous' | 'manual'): Promise<string>;
+  removeIdea(ideaId: string): Promise<void>;
+  rankPipeline(): Promise<AppIdea[]>;
+  getIdea(ideaId: string): Promise<AppIdea>;
+  getPipeline(filters?: PipelineFilters): Promise<AppIdea[]>;
+
+  // Status Management
+  markAsGenerating(ideaId: string): Promise<void>;
+  markAsGenerated(ideaId: string): Promise<void>;
+  markAsPublished(ideaId: string): Promise<void>;
+  dismissIdea(ideaId: string): Promise<void>;
+  bookmarkIdea(ideaId: string): Promise<void>;
+
+  // Pipeline Maintenance
+  refreshPipeline(): Promise<void>; // Re-score, remove stale
+  pruneStaleIdeas(maxAgeDays: number): Promise<number>;
+}
+
+interface AppIdea {
+  id: string;
+  source: 'autonomous' | 'manual';
+  name: string;
+  valueProposition: string;
+  targetAudience: string;
+  monetizationModel: 'subscription' | 'freemium' | 'paid' | 'ad_supported' | 'hybrid';
+  predictedDownloads30Day: number;
+  predictedMonthlyRevenue: number;
+  competitionLevel: 'low' | 'medium' | 'high';
+  nicheScore: NicheScore;
+  marketAnalysis: {
+    niche: string;
+    competitors: string[];
+    differentiators: string[];
+    revenueModel: string;
+  };
+  status: 'pipeline' | 'generating' | 'generated' | 'published' | 'dismissed' | 'bookmarked';
+  createdAt: Date;
+  lastScoredAt: Date;
+}
+
+interface PipelineFilters {
+  category?: string;
+  minRevenuePotential?: number;
+  maxCompetitionLevel?: 'low' | 'medium' | 'high';
+  minFeasibilityScore?: number;
+  status?: AppIdea['status'];
+}
+```
+
+### System Architecture — Eretz Business Command Center
+
+```mermaid
+graph TB
+    subgraph "Shaar Dashboard — Eretz Command Center Tab"
+        PortfolioHeader["Portfolio Overview Header<br/>(Total MRR, Revenue, Growth, Health)"]
+        SubCards["Subsidiary Cards<br/>(ZionX, ZXMG, Zion Alpha)"]
+        SynergyMap["Synergy Map Visualization<br/>(Active Synergies + Revenue Impact)"]
+        PatternBrowser["Pattern Library Browser<br/>(Searchable + Adoption Metrics)"]
+        TrainingView["Training Cascade Effectiveness<br/>(Quality Trends per Subsidiary)"]
+        RecommendationQueue["Recommendation Queue<br/>(Approve/Reject/Modify)"]
+        AlertsPanel["Decline Alerts Panel<br/>(Real-time + Intervention Plans)"]
+        ResourceView["Resource Allocation View<br/>(Budget Distribution + Controls)"]
+        StrategyPanel["Strategic Priorities<br/>(Portfolio Thesis + Per-Sub Priorities)"]
+    end
+
+    subgraph "Existing Eretz Services (Backend)"
+        PortfolioDashboard["portfolio-dashboard.ts<br/>(Metrics, Alerts, Strategy)"]
+        SynergyEngine["synergy-engine.ts<br/>(Synergies, Revenue Impact)"]
+        PatternLibrary["pattern-library.ts<br/>(Patterns, Adoption)"]
+        TrainingCascade["training-cascade.ts<br/>(Quality Trends)"]
+    end
+
+    subgraph "Existing Infrastructure"
+        WebSocket["Shaar WebSocket"]
+        EventBus["Event Bus"]
+        RecommendationSvc["Recommendation Queue Service"]
+    end
+
+    PortfolioHeader -->|"REST/WS"| PortfolioDashboard
+    SubCards -->|"REST/WS"| PortfolioDashboard
+    SynergyMap -->|"REST/WS"| SynergyEngine
+    PatternBrowser -->|"REST/WS"| PatternLibrary
+    TrainingView -->|"REST/WS"| TrainingCascade
+    RecommendationQueue -->|"REST/WS"| RecommendationSvc
+    AlertsPanel -->|"WS Push"| PortfolioDashboard
+    ResourceView -->|"REST/WS"| PortfolioDashboard
+    StrategyPanel -->|"REST/WS"| PortfolioDashboard
+
+    PortfolioDashboard -->|"Real-time updates"| WebSocket
+    SynergyEngine -->|"Synergy events"| EventBus
+    EventBus -->|"Push to dashboard"| WebSocket
+```
+
+### Component Design — Eretz Business Command Center
+
+#### 1. Command Center Layout
+
+**Purpose:** Full-page React component providing the single pane of glass for the business portfolio.
+
+```typescript
+interface EretzCommandCenterProps {
+  // All data sourced from existing Eretz services via WebSocket/REST
+}
+
+interface CommandCenterState {
+  portfolioMetrics: PortfolioMetrics;
+  subsidiaryCards: SubsidiaryCardData[];
+  activeSynergies: SynergyMapData;
+  patterns: PatternLibraryData;
+  trainingEffectiveness: TrainingCascadeData;
+  recommendations: PendingRecommendation[];
+  declineAlerts: DeclineAlert[];
+  resourceAllocation: ResourceAllocationData;
+  strategy: PortfolioStrategy;
+  wsConnected: boolean;
+}
+
+interface SubsidiaryCardData {
+  subsidiary: string;
+  displayName: string;
+  // ZionX-specific
+  appsCount?: number;
+  totalAppRevenue?: number;
+  topApps?: { name: string; revenue: number }[];
+  appPipelineCount?: number;
+  // ZXMG-specific
+  channelsCount?: number;
+  totalViews30Day?: number;
+  totalChannelRevenue?: number;
+  topChannels?: { name: string; revenue: number }[];
+  contentPipelineCount?: number;
+  // Zion Alpha-specific
+  activePositions?: number;
+  totalPnL?: number;
+  winRate?: number;
+  currentStrategy?: string;
+  riskExposure?: 'low' | 'medium' | 'high';
+  // Common
+  growthTrend: 'accelerating' | 'stable' | 'declining';
+  mrrContribution: number;
+  revenueContribution: number;
+}
+
+interface SynergyMapData {
+  synergies: {
+    id: string;
+    sourceSubsidiary: string;
+    targetSubsidiary: string;
+    type: string;
+    revenueImpact: number;
+    status: 'active' | 'proposed' | 'measuring';
+  }[];
+  totalSynergyRevenue: number;
+}
+
+interface ResourceAllocationData {
+  allocations: {
+    subsidiary: string;
+    budgetPercentage: number;
+    actualSpend: number;
+    recommendedPercentage: number;
+  }[];
+  totalBudget: number;
+}
+
+interface PendingRecommendation {
+  id: string;
+  summary: string;
+  priority: number;
+  sourceAgent: string;
+  domain: string;
+  submittedAt: Date;
+  actionPlan: string;
+  estimatedImpact: string;
+}
+```
+
+#### 2. WebSocket Integration
+
+**Purpose:** Real-time data delivery to the Command Center via existing Shaar WebSocket infrastructure.
+
+```typescript
+interface CommandCenterWebSocket {
+  // Subscribe to real-time updates
+  subscribeToMetrics(): void;
+  subscribeToAlerts(): void;
+  subscribeToRecommendations(): void;
+  subscribeToSynergies(): void;
+
+  // Event handlers
+  onMetricsUpdate(handler: (metrics: PortfolioMetrics) => void): void;
+  onAlertReceived(handler: (alert: DeclineAlert) => void): void;
+  onRecommendationUpdate(handler: (rec: PendingRecommendation) => void): void;
+  onSynergyUpdate(handler: (synergy: SynergyMapData) => void): void;
+
+  // Actions (sent to backend)
+  approveRecommendation(recId: string): Promise<void>;
+  rejectRecommendation(recId: string, reason?: string): Promise<void>;
+  modifyRecommendation(recId: string, modifications: Record<string, unknown>): Promise<void>;
+  updateResourceAllocation(allocations: { subsidiary: string; percentage: number }[]): Promise<void>;
+}
+```
+
+### Data Flow
+
+Both features are presentation layers over existing services:
+
+| Feature | Data Source | Transport | Update Frequency |
+|---------|------------|-----------|-----------------|
+| ZionX Pipeline View | AppIdeaPipelineManager | WebSocket | On pipeline change |
+| ZionX Market Research | MarketResearchEngine → Zikaron | REST (background) | Every 6 hours |
+| Eretz Portfolio Metrics | portfolio-dashboard.ts | WebSocket | Real-time |
+| Eretz Decline Alerts | portfolio-dashboard.ts | WebSocket push | Immediate |
+| Eretz Synergy Map | synergy-engine.ts | WebSocket | On synergy change |
+| Eretz Pattern Library | pattern-library.ts | REST + WS | On pattern update |
+| Eretz Training Cascade | training-cascade.ts | REST + WS | On training cycle |
+| Eretz Recommendations | RecommendationQueue | WebSocket | On submission |
+| Eretz Resource Allocation | portfolio-dashboard.ts | REST + WS | On strategy update |
+
+### Hook Integration — ZionX Ideation Engine
+
+| Hook | Trigger | Downstream Action |
+|------|---------|-------------------|
+| `app.idea.researched` | Market research cycle completes | Pipeline refresh, niche scoring |
+| `app.idea.ranked` | New ideas added or re-ranked in pipeline | Dashboard pipeline view update |
+| `app.pipeline.updated` | Pipeline state changes (add/remove/status) | WebSocket push to dashboard |
+
+### Frontend Component Architecture — Eretz Command Center
+
+```mermaid
+graph TB
+    subgraph "Eretz Command Center Tab (React)"
+        CommandCenter["EretzCommandCenter"]
+
+        subgraph "Top Section"
+            PortfolioHeader["PortfolioOverviewHeader"]
+            SubsidiaryCards["SubsidiaryCardGrid"]
+            ZionXCard["ZionXCard"]
+            ZXMGCard["ZXMGCard"]
+            ZionAlphaCard["ZionAlphaCard"]
+        end
+
+        subgraph "Middle Section"
+            SynergyMap["SynergyMapVisualization"]
+            PatternBrowser["PatternLibraryBrowser"]
+            TrainingChart["TrainingCascadeChart"]
+        end
+
+        subgraph "Bottom Section"
+            RecommendationQueue["RecommendationQueuePanel"]
+            AlertsPanel["DeclineAlertsPanel"]
+            ResourceAllocation["ResourceAllocationView"]
+            StrategyPanel["StrategicPrioritiesPanel"]
+        end
+    end
+
+    CommandCenter --> PortfolioHeader
+    CommandCenter --> SubsidiaryCards
+    SubsidiaryCards --> ZionXCard
+    SubsidiaryCards --> ZXMGCard
+    SubsidiaryCards --> ZionAlphaCard
+    CommandCenter --> SynergyMap
+    CommandCenter --> PatternBrowser
+    CommandCenter --> TrainingChart
+    CommandCenter --> RecommendationQueue
+    CommandCenter --> AlertsPanel
+    CommandCenter --> ResourceAllocation
+    CommandCenter --> StrategyPanel
+```
+
+### Security Considerations
+
+1. **Read-only by default** — The Command Center is primarily a read view. Write operations (approve/reject recommendations, adjust allocations) go through existing Mishmar governance.
+2. **No credential exposure** — All API keys and service credentials remain in Otzar; the dashboard never handles raw credentials.
+3. **Audit trail** — All King actions in the Command Center (approvals, rejections, allocation changes) are logged to XO_Audit.
+4. **Market research data isolation** — App market research data is tenant-scoped and stored in Zikaron with appropriate access controls.
+
+### Performance Requirements
+
+| Operation | Target Latency |
+|-----------|---------------|
+| Market research cycle (full scan) | < 10 minutes |
+| Niche scoring (single niche) | < 2 seconds |
+| Pipeline refresh (re-rank all ideas) | < 5 seconds |
+| Command Center initial load | < 3 seconds |
+| WebSocket metric push | < 500ms |
+| Recommendation action (approve/reject) | < 1 second |
+| Resource allocation update | < 2 seconds |
+| Alert delivery (event to display) | < 1 second |
+
+
+---
+
+## Seraphim Core Architecture Views — Dashboard Integration Design
+
+### Overview
+
+This section defines the design for five new tabs integrated into the Seraphim Core section of the Shaar dashboard: OV-1 Operational View, SV-1 System View, Requirements, Design, and Capabilities. The architecture diagrams follow INCOSE Systems Engineering standards (OV-1 for operational context, SV-1 for system decomposition) and are rendered as interactive, color SVG visuals with click-to-zoom modal interaction. The document tabs render live markdown content from the spec documents with real-time auto-sync via WebSocket.
+
+### Component Architecture
+
+```mermaid
+graph TB
+    subgraph "Seraphim Core Dashboard Section"
+        NavItems["Navigation Items<br/>(5 new tabs)"]
+        OV1View["OV-1 Operational View"]
+        SV1View["SV-1 System View"]
+        ReqView["Requirements View"]
+        DesignView["Design View"]
+        CapView["Capabilities View"]
+    end
+
+    subgraph "Shared Components"
+        DiagramRenderer["Diagram Renderer<br/>(SVG generation)"]
+        DiagramModal["Diagram Modal<br/>(Pan + Zoom)"]
+        MarkdownRenderer["Markdown Renderer<br/>(marked + highlight.js)"]
+        MermaidRenderer["Mermaid Renderer<br/>(mermaid.js)"]
+    end
+
+    subgraph "Services"
+        DocAPI["Document API<br/>(GET /specs/:docType)"]
+        WSSync["WebSocket Sync<br/>(spec.document.updated)"]
+    end
+
+    subgraph "Data Sources"
+        ReqMD["requirements.md"]
+        DesignMD["design.md"]
+        CapMD["capabilities.md"]
+    end
+
+    NavItems --> OV1View
+    NavItems --> SV1View
+    NavItems --> ReqView
+    NavItems --> DesignView
+    NavItems --> CapView
+
+    OV1View --> DiagramRenderer
+    SV1View --> DiagramRenderer
+    OV1View --> DiagramModal
+    SV1View --> DiagramModal
+
+    ReqView --> MarkdownRenderer
+    DesignView --> MarkdownRenderer
+    DesignView --> MermaidRenderer
+    CapView --> MarkdownRenderer
+
+    ReqView --> DocAPI
+    DesignView --> DocAPI
+    CapView --> DocAPI
+
+    DocAPI --> ReqMD
+    DocAPI --> DesignMD
+    DocAPI --> CapMD
+
+    WSSync --> ReqView
+    WSSync --> DesignView
+    WSSync --> CapView
+```
+
+### Diagram Renderer Design
+
+The Diagram Renderer generates color SVG diagrams programmatically using structured diagram definitions. Each diagram is defined as a TypeScript data structure specifying nodes, connections, layers, and styling — then rendered to SVG at runtime.
+
+#### Color Palette (WCAG 2.1 AA Compliant)
+
+| Layer | Background Color | Text Color | Hex (BG) | Purpose |
+|-------|-----------------|------------|-----------|---------|
+| Interface (Shaar) | Light Blue | Dark Navy | `#DBEAFE` / `#1E3A5F` | User-facing components |
+| Kernel (Seraphim Core) | Deep Purple | White | `#7C3AED` / `#FFFFFF` | Core orchestration |
+| System Services | Emerald Green | White | `#059669` / `#FFFFFF` | Platform services |
+| Application Layer | Amber/Gold | Dark Brown | `#F59E0B` / `#451A03` | Business pillars |
+| Driver Layer | Slate Gray | White | `#475569` / `#FFFFFF` | External adapters |
+| Data Layer | Indigo | White | `#4338CA` / `#FFFFFF` | Persistence |
+
+#### Connection Line Colors
+
+| Flow Type | Color | Hex | Style |
+|-----------|-------|-----|-------|
+| Command Flow | Red-Orange | `#DC2626` | Solid, arrow |
+| Data Flow | Blue | `#2563EB` | Solid, arrow |
+| Event Flow | Green | `#16A34A` | Dashed, arrow |
+| Information Flow | Purple | `#9333EA` | Dotted, arrow |
+
+#### OV-1 Diagram Structure (INCOSE Operational View)
+
+The OV-1 shows the operational context — who interacts with the system, what operational activities exist, and how information flows at the mission level.
+
+```typescript
+interface OV1DiagramDefinition {
+  actors: {
+    king: { label: 'King (Primary User)'; type: 'human'; position: 'top-center' };
+    queen: { label: 'Queen (Family)'; type: 'human'; position: 'top-right' };
+  };
+  orchestrator: {
+    seraphim: { label: 'Seraphim Core'; type: 'system'; position: 'center' };
+  };
+  operationalNodes: {
+    eretz: { label: 'Eretz (Business)'; domain: 'business'; position: 'mid-left' };
+    zionx: { label: 'ZionX (Apps)'; domain: 'business'; position: 'mid-center-left' };
+    zxmg: { label: 'ZXMG (Media)'; domain: 'business'; position: 'mid-center-right' };
+    zionAlpha: { label: 'Zion Alpha (Trading)'; domain: 'business'; position: 'mid-right' };
+    otzar: { label: 'Otzar (Resources)'; domain: 'system'; position: 'bottom-left' };
+    zikaron: { label: 'Zikaron (Memory)'; domain: 'system'; position: 'bottom-center' };
+    mishmar: { label: 'Mishmar (Governance)'; domain: 'system'; position: 'bottom-right' };
+  };
+  externalSystems: {
+    appStores: { label: 'App Stores'; position: 'far-left' };
+    socialPlatforms: { label: 'Social Platforms'; position: 'far-center' };
+    tradingPlatforms: { label: 'Trading Markets'; position: 'far-right' };
+  };
+  flows: [
+    { from: 'king'; to: 'seraphim'; type: 'command'; label: 'Vision & Directives' },
+    { from: 'seraphim'; to: 'king'; type: 'information'; label: 'Status & Recommendations' },
+    { from: 'seraphim'; to: 'eretz'; type: 'command'; label: 'Strategy & Directives' },
+    { from: 'eretz'; to: 'zionx'; type: 'command'; label: 'App Directives' },
+    { from: 'eretz'; to: 'zxmg'; type: 'command'; label: 'Content Directives' },
+    { from: 'eretz'; to: 'zionAlpha'; type: 'command'; label: 'Trading Directives' },
+    { from: 'zionx'; to: 'appStores'; type: 'data'; label: 'App Submissions' },
+    { from: 'zxmg'; to: 'socialPlatforms'; type: 'data'; label: 'Content Publishing' },
+    { from: 'zionAlpha'; to: 'tradingPlatforms'; type: 'data'; label: 'Trade Execution' },
+    // ... additional flows
+  ];
+}
+```
+
+#### SV-1 Diagram Structure (INCOSE System View)
+
+The SV-1 shows the system decomposition — layered architecture, component relationships, and data flows at the technical level.
+
+```typescript
+interface SV1DiagramDefinition {
+  layers: [
+    {
+      name: 'Interface Layer (Shaar)';
+      color: '#DBEAFE';
+      components: ['Web Dashboard', 'REST API', 'WebSocket API', 'CLI', 'Voice', 'Messaging'];
+    },
+    {
+      name: 'Kernel (Seraphim Core)';
+      color: '#7C3AED';
+      components: ['Agent Runtime', 'State Machine Engine', 'Permission System', 'Lifecycle Manager', 'IPC Router'];
+    },
+    {
+      name: 'System Services';
+      color: '#059669';
+      components: ['Zikaron (Memory)', 'Mishmar (Governance)', 'Otzar (Resources)', 'XO Audit', 'Event Bus', 'Learning Engine'];
+    },
+    {
+      name: 'Application Layer';
+      color: '#F59E0B';
+      components: ['ZionX (App Factory)', 'ZXMG (Media)', 'Zion Alpha (Trading)', 'Eretz (Business)'];
+    },
+    {
+      name: 'Driver Layer';
+      color: '#475569';
+      components: ['App Store Connect', 'Google Play', 'YouTube', 'Kalshi', 'Gmail', 'GitHub', 'LLM Providers', '...'];
+    },
+    {
+      name: 'Data Layer';
+      color: '#4338CA';
+      components: ['Aurora PostgreSQL + pgvector', 'DynamoDB', 'S3', 'Secrets Manager'];
+    }
+  ];
+  connections: [
+    { from: 'Web Dashboard'; to: 'REST API'; type: 'data'; label: 'HTTP/WS' },
+    { from: 'REST API'; to: 'Agent Runtime'; type: 'command'; label: 'Commands' },
+    { from: 'Agent Runtime'; to: 'State Machine Engine'; type: 'data'; label: 'Transitions' },
+    { from: 'Agent Runtime'; to: 'Zikaron (Memory)'; type: 'data'; label: 'Memory Ops' },
+    { from: 'Agent Runtime'; to: 'Mishmar (Governance)'; type: 'command'; label: 'Auth Checks' },
+    { from: 'Agent Runtime'; to: 'Otzar (Resources)'; type: 'data'; label: 'Budget/Route' },
+    { from: 'ZionX (App Factory)'; to: 'App Store Connect'; type: 'data'; label: 'Submissions' },
+    { from: 'Zikaron (Memory)'; to: 'Aurora PostgreSQL + pgvector'; type: 'data'; label: 'Vector Store' },
+    { from: 'XO Audit'; to: 'DynamoDB'; type: 'data'; label: 'Audit Records' },
+    // ... additional connections
+  ];
+}
+```
+
+### Diagram Modal and Pan/Zoom Controller
+
+The Diagram Modal is a full-viewport overlay that displays the clicked diagram with interactive pan and zoom controls.
+
+```typescript
+interface DiagramModalConfig {
+  minZoom: 0.25;
+  maxZoom: 4.0;
+  defaultZoom: 1.0;
+  zoomStep: 0.1;           // per mouse wheel tick
+  panEnabled: true;
+  pinchZoomEnabled: true;
+  showZoomIndicator: true;  // percentage display
+  closeOnEscape: true;
+  closeOnBackdropClick: true;
+  animationDuration: 200;   // ms for open/close transitions
+}
+
+interface PanZoomState {
+  zoom: number;
+  panX: number;
+  panY: number;
+  isDragging: boolean;
+}
+```
+
+**Implementation approach:**
+- SVG `viewBox` manipulation for zoom (scale transform)
+- CSS `transform: translate(x, y) scale(z)` for smooth pan/zoom
+- Mouse wheel → zoom in/out centered on cursor position
+- Click-and-drag → pan (translate)
+- Pinch gesture → zoom (touch events)
+- Zoom buttons (+/-/reset) in modal toolbar
+- Current zoom level displayed as percentage (e.g., "150%")
+
+### Markdown Renderer Design
+
+The document views (Requirements, Design, Capabilities) render markdown content as styled HTML using `marked` for parsing and `highlight.js` for code syntax highlighting.
+
+```typescript
+interface MarkdownRendererConfig {
+  parser: 'marked';
+  syntaxHighlighter: 'highlight.js';
+  mermaidSupport: true;       // for design.md mermaid blocks
+  maxContentWidth: '900px';
+  theme: 'dashboard-dark';    // consistent with existing dashboard theme
+  tableStyle: 'striped';
+  codeBlockStyle: 'rounded-with-copy';
+}
+```
+
+**Rendering pipeline:**
+1. Fetch markdown content from Document API
+2. Parse with `marked` → HTML AST
+3. Post-process: detect mermaid code blocks → render with `mermaid.js`
+4. Apply syntax highlighting to code blocks via `highlight.js`
+5. Inject into view container with dashboard-consistent CSS
+
+### Auto-Sync Service Design
+
+The Auto-Sync Service uses the existing WebSocket infrastructure to push document updates to active views in real-time.
+
+```typescript
+// Backend: File watcher publishes events when spec docs change
+interface SpecDocumentUpdatedEvent {
+  type: 'spec.document.updated';
+  detail: {
+    documentType: 'requirements' | 'design' | 'capabilities';
+    path: string;
+    timestamp: Date;
+    hash: string;  // content hash for change detection
+  };
+}
+
+// Frontend: WebSocket listener triggers re-fetch
+interface AutoSyncHandler {
+  onDocumentUpdated(event: SpecDocumentUpdatedEvent): void;
+  // 1. Compare hash with currently rendered content
+  // 2. If different, fetch updated content from Document API
+  // 3. Re-render the view without navigation change
+  // 4. Target: < 5 seconds from file save to dashboard update
+}
+```
+
+**Backend flow:**
+1. File system watcher (chokidar or fs.watch) monitors `.kiro/specs/seraphim-os-core/` directory
+2. On file change → compute content hash → publish `spec.document.updated` event to Event Bus
+3. WebSocket handler picks up event → pushes to connected dashboard clients
+
+**Frontend flow:**
+1. Dashboard WebSocket receives `spec.document.updated` message
+2. If the updated document matches the currently active view → trigger re-fetch
+3. Fetch new content from `GET /api/specs/:documentType`
+4. Re-render markdown → update DOM (no full page reload)
+
+### Document API Endpoint
+
+```typescript
+// New REST endpoint for serving spec document content
+// GET /api/specs/:documentType
+// documentType: 'requirements' | 'design' | 'capabilities'
+
+interface SpecDocumentResponse {
+  documentType: string;
+  content: string;        // raw markdown content
+  lastModified: Date;
+  hash: string;           // SHA-256 of content for cache validation
+}
+```
+
+### File Structure
+
+```
+packages/dashboard/src/views/seraphim-core/
+├── ov1-view.ts              # OV-1 Operational View
+├── sv1-view.ts              # SV-1 System View
+├── requirements-view.ts     # Requirements document view
+├── design-view.ts           # Design document view
+├── capabilities-view.ts     # Capabilities document view
+├── diagram-renderer.ts      # SVG diagram generation
+├── diagram-modal.ts         # Full-viewport zoom modal
+├── pan-zoom-controller.ts   # Pan/zoom interaction logic
+├── markdown-renderer.ts     # Markdown → HTML rendering
+├── auto-sync-handler.ts     # WebSocket-based auto-sync
+└── diagram-definitions/
+    ├── ov1-definition.ts    # OV-1 diagram data structure
+    └── sv1-definition.ts    # SV-1 diagram data structure
+```
+
+### Integration with Existing Dashboard
+
+The new views follow the existing dashboard patterns:
+- Class-based view components extending the base view class
+- Registration in the sidebar navigation under "Seraphim Core" section
+- WebSocket integration through the existing `DashboardWebSocket` infrastructure
+- Consistent styling using the existing dashboard CSS variables and theme
+- No new dependencies beyond `marked`, `highlight.js`, and `mermaid` (all lightweight, well-maintained)
+
+---
+
+## Persistent Agent Identity and Memory-Backed Conversations
+
+### Overview
+
+This section defines how agents maintain persistent identities, accumulate institutional memory through every interaction, and provide conversational continuity across sessions, container restarts, and redeployments. Every interaction with the system — whether from the King via the dashboard, from another agent, or from an automated process — is stored in Zikaron and becomes part of the agent's permanent context.
+
+### Agent Identity Architecture
+
+```mermaid
+graph TB
+    subgraph "Agent Identity Stack"
+        IdentityProfile["Identity Profile<br/>(immutable per version)"]
+        PersonalityEngine["Personality Engine<br/>(enforces character)"]
+        MemoryContext["Memory Context<br/>(loaded from Zikaron)"]
+        ConversationHistory["Conversation History<br/>(last 20 + vector search)"]
+    end
+
+    subgraph "LLM Context Assembly"
+        SystemPrompt["System Prompt<br/>(identity + personality + role)"]
+        ContextWindow["Context Window<br/>(memory + history + task)"]
+        UserMessage["Current User Message"]
+    end
+
+    subgraph "Persistence Layer"
+        Zikaron["Zikaron (Aurora + pgvector)"]
+        XOAudit["XO Audit (DynamoDB)"]
+        EventBus["Event Bus (EventBridge)"]
+    end
+
+    IdentityProfile --> SystemPrompt
+    PersonalityEngine --> SystemPrompt
+    MemoryContext --> ContextWindow
+    ConversationHistory --> ContextWindow
+    UserMessage --> ContextWindow
+
+    SystemPrompt --> LLM["LLM API Call"]
+    ContextWindow --> LLM
+    LLM --> Response["Agent Response"]
+
+    Response --> Zikaron
+    Response --> XOAudit
+    Response --> EventBus
+```
+
+### Identity Profile Schema
+
+Each agent's `identityProfile` is defined as part of the `AgentProgram` and loaded into the system prompt on every LLM call:
+
+```typescript
+interface AgentIdentityProfile {
+  // Core Identity (immutable per version)
+  name: string;                          // e.g., "Seraphim"
+  role: string;                          // e.g., "Top-level orchestrator of SeraphimOS"
+  hierarchyPosition: string;             // e.g., "Reports to King, commands all subsidiary agents"
+  
+  // Personality Traits
+  personality: {
+    tone: 'authoritative' | 'collaborative' | 'analytical' | 'creative' | 'protective';
+    verbosity: 'concise' | 'balanced' | 'detailed';
+    proactivity: 'reactive' | 'balanced' | 'proactive';
+    formality: 'casual' | 'professional' | 'formal';
+  };
+  
+  // Domain Expertise
+  expertise: string[];                   // e.g., ["system orchestration", "strategy", "cross-pillar coordination"]
+  domainLanguage: string[];              // e.g., ["agents", "pillars", "governance", "memory layers"]
+  
+  // Decision Principles
+  decisionPrinciples: string[];          // e.g., ["Enforcement over documentation", "Cost-aware execution"]
+  
+  // Relationships
+  relationships: Array<{
+    agentId: string;
+    relationship: 'commands' | 'reports_to' | 'collaborates_with' | 'monitors';
+    description: string;
+  }>;
+  
+  // Character Enforcement
+  neverBreakCharacter: true;             // Always true — agents never identify as generic AI
+  identityReinforcement: string;         // Instruction appended if character drift detected
+}
+```
+
+### Conversation Persistence Flow
+
+```mermaid
+sequenceDiagram
+    participant User as King (Dashboard)
+    participant API as Backend API
+    participant Runtime as Agent Runtime
+    participant Zikaron as Zikaron Memory
+    participant LLM as Anthropic/OpenAI
+
+    User->>API: POST /api/agents/{id}/execute (chat task)
+    API->>Runtime: execute(agentId, task)
+    
+    Runtime->>Zikaron: loadAgentContext(agentId)
+    Zikaron-->>Runtime: working memory + procedural patterns
+    
+    Runtime->>Zikaron: query(conversation history, last 20)
+    Zikaron-->>Runtime: previous conversations
+    
+    Runtime->>Runtime: Assemble LLM context:<br/>1. System prompt (identity + personality)<br/>2. Conversation history (as messages)<br/>3. Relevant procedural memory<br/>4. Current user message
+    
+    Runtime->>LLM: messages[] with full context
+    LLM-->>Runtime: agent response
+    
+    Runtime->>Zikaron: storeEpisodic(user message + response)
+    Runtime->>Zikaron: storeWorking(updated context)
+    Runtime->>XOAudit: recordAction(chat interaction)
+    Runtime->>EventBus: publish(agent.chat.completed)
+    
+    Runtime-->>API: TaskResult with response
+    API-->>User: { output: { response: "..." } }
+```
+
+### Memory Loading Strategy
+
+When an agent processes a chat task, the runtime assembles context in this order:
+
+1. **System Prompt** (always first):
+   - Agent identity profile (name, role, personality)
+   - Character enforcement directive ("You ARE {name}. You NEVER break character.")
+   - Decision principles and domain expertise
+   - Current system state summary (if available from working memory)
+
+2. **Conversation History** (loaded from Zikaron):
+   - Last 20 exchanges for this agent-user pair (chronological)
+   - If context window is tight, use vector search for most relevant past conversations
+   - Formatted as alternating user/assistant messages for the LLM
+
+3. **Procedural Memory** (decision support):
+   - Top 5 relevant procedural patterns by success rate
+   - Injected as "institutional knowledge" the agent can reference
+
+4. **Current Message** (the user's new input)
+
+### Working Memory Persistence
+
+```typescript
+interface AgentWorkingMemory {
+  agentId: string;
+  sessionId: string;
+  lastPersistedAt: Date;
+  
+  // Active state
+  activeGoals: string[];
+  pendingTasks: Array<{ id: string; description: string; status: string }>;
+  currentContext: Record<string, unknown>;
+  
+  // Conversation state
+  conversationCount: number;
+  lastInteractionAt: Date;
+  topicsDiscussed: string[];
+  
+  // Decision state
+  recentDecisions: Array<{ decision: string; reasoning: string; outcome?: string; timestamp: Date }>;
+  
+  // Persistence metadata
+  persistenceHash: string;              // SHA-256 of serialized state for integrity verification
+  sessionTransitions: Array<{ from: string; to: string; timestamp: Date; reason: string }>;
+}
+```
+
+Working memory is persisted:
+- Every 60 seconds during active sessions
+- Immediately on task completion
+- On graceful shutdown (SIGTERM)
+- Hash-verified on reload to detect corruption
+
+### Governance Integration
+
+All memory operations are governed by Mishmar:
+
+| Operation | Authority Required | Audit Logged |
+|---|---|---|
+| Read own conversation history | L4 (autonomous) | Yes — key name only |
+| Write own episodic memory | L4 (autonomous) | Yes |
+| Read cross-agent memory | L3 (peer verification) | Yes — full access record |
+| Write to shared semantic memory | L3 (peer verification) | Yes |
+| Access King's L1 conversations | L4 (all agents, read-only) | Yes |
+| Modify identity profile | L1 (King approval only) | Yes — full diff logged |
+| Delete any memory entry | DENIED — memories are append-only | Attempted deletion logged as security event |
+
+### Agent Identity Definitions
+
+The following agents are defined with full identity profiles:
+
+| Agent | Role | Personality | Authority |
+|---|---|---|---|
+| **Seraphim** | Top-level orchestrator, translates King's vision to strategy | Authoritative, concise, strategic | L1 |
+| **Eretz** | Business portfolio orchestrator, manages subsidiaries | Strategic, data-driven, portfolio-focused | L2 |
+| **ZionX** | App factory, builds and submits mobile apps | Creative, execution-focused, market-aware | L3 |
+| **ZXMG** | Media production, creates and distributes content | Creative, trend-aware, performance-focused | L3 |
+| **Zion Alpha** | Prediction market trading, manages positions | Analytical, risk-aware, edge-focused | L3 |
+| **Mishmar** | Governance enforcement, authority validation | Precise, rule-oriented, security-focused | L1 |
+| **Otzar** | Resource management, model routing, budgets | Cost-conscious, analytical, efficiency-focused | L2 |
+
+### Event-Driven Knowledge Sharing
+
+When an agent learns something valuable, it publishes to the Event Bus:
+
+```typescript
+// Published when an agent stores a new procedural pattern or semantic fact
+interface KnowledgeSharedEvent {
+  source: string;                        // e.g., "seraphim.agent-runtime"
+  type: 'memory.knowledge_shared';
+  detail: {
+    sourceAgentId: string;
+    memoryEntryId: string;
+    layer: 'semantic' | 'procedural';
+    relevanceTags: string[];             // e.g., ["app-store", "rejection", "privacy-labels"]
+    summary: string;                     // Human-readable summary of the knowledge
+  };
+  metadata: {
+    tenantId: string;
+    correlationId: string;
+    timestamp: Date;
+  };
+}
+```
+
+Other agents subscribe to knowledge events tagged with their domain and incorporate them on next context load.
+
+### Implementation Notes
+
+- **No mock data**: All conversation history comes from Zikaron (Aurora PostgreSQL). If the database is empty, the agent starts fresh but immediately begins accumulating memory.
+- **Embedding generation**: Conversation content is embedded using `text-embedding-3-small` (1536 dimensions) for vector search retrieval of relevant past conversations.
+- **Token budget awareness**: Conversation history loading respects Otzar token budgets — if loading 20 conversations would exceed the budget, fewer are loaded with a note in working memory.
+- **Graceful degradation**: If Zikaron is unavailable, the agent operates with identity-only context (system prompt) and logs the memory failure. Conversations are queued for persistence when Zikaron recovers.
+
+
+
+---
+
+## Agentic Execution Core
+
+### Overview
+
+The Agentic Execution Core ensures SeraphimOS operates as a true agentic system — not a chatbot with agent names. Every LLM invocation passes through a structured Cognition Envelope that assembles full context. Agents plan before executing, select tools dynamically, delegate to specialized agents, and produce full execution traces.
+
+### Agent Cognition Envelope
+
+The Cognition Envelope is the mandatory context package assembled before every LLM call:
+
+```typescript
+interface CognitionEnvelope {
+  // Identity
+  agentId: string;
+  identityProfile: AgentIdentityProfile;
+  systemPrompt: string;                    // Built from identity + personality + principles
+  
+  // Authority
+  authorityLevel: 'L1' | 'L2' | 'L3' | 'L4';
+  autonomyMode: 'crawl' | 'walk' | 'run';
+  allowedActions: string[];
+  delegationPolicy: DelegationPolicy;
+  
+  // Context
+  workingMemory: WorkingMemoryState;
+  conversationHistory: Message[];          // Last 20 exchanges
+  proceduralPatterns: string[];            // Top 5 relevant patterns
+  episodicContext: string[];               // Recent relevant events
+  
+  // Workflow
+  currentPlan?: ExecutionPlan;
+  activeGoals: string[];
+  pendingDecisions: string[];
+  completionContract?: CompletionContract;
+  
+  // Tools
+  availableMCPTools: MCPToolDescriptor[];
+  toolSelectionCriteria: ToolSelectionPolicy;
+  
+  // Budget
+  remainingDailyBudget: number;
+  estimatedTaskCost: number;
+}
+```
+
+### Execution Flow with Cognition Envelope
+
+```mermaid
+sequenceDiagram
+    participant User as King (Dashboard)
+    participant Runtime as Agent Runtime
+    participant Envelope as Cognition Envelope Builder
+    participant Zikaron as Memory (Zikaron)
+    participant Mishmar as Governance (Mishmar)
+    participant Otzar as Budget (Otzar)
+    participant MCP as MCP Registry
+    participant LLM as LLM Provider
+    participant Audit as XO Audit
+
+    User->>Runtime: Task/Message
+    Runtime->>Envelope: Build Cognition Envelope
+    Envelope->>Zikaron: Load memory (working + episodic + procedural)
+    Envelope->>Mishmar: Check authority + delegation policy
+    Envelope->>Otzar: Check budget + estimate cost
+    Envelope->>MCP: Discover available tools
+    Envelope-->>Runtime: Complete Envelope
+    
+    Runtime->>LLM: Call with full envelope context
+    LLM-->>Runtime: Response + tool calls + delegation requests
+    
+    alt Tool Invocation
+        Runtime->>Mishmar: Authorize tool use
+        Runtime->>Otzar: Debit budget
+        Runtime->>MCP: Execute tool
+        MCP-->>Runtime: Tool result
+    end
+    
+    alt A2A Delegation
+        Runtime->>Mishmar: Authorize delegation
+        Runtime->>Runtime: Dispatch to target agent
+        Runtime-->>Runtime: Aggregate result
+    end
+    
+    Runtime->>Zikaron: Store execution in memory
+    Runtime->>Audit: Log execution trace
+    Runtime-->>User: Response with trace metadata
+```
+
+### Planning Engine
+
+When an agent receives a complex directive, it generates a structured plan:
+
+```typescript
+interface ExecutionPlan {
+  id: string;
+  agentId: string;
+  objective: string;
+  createdAt: Date;
+  status: 'planning' | 'approved' | 'executing' | 'completed' | 'failed' | 'paused';
+  
+  subtasks: Array<{
+    id: string;
+    description: string;
+    requiredTools: string[];
+    requiredAgents: string[];
+    dependencies: string[];          // IDs of subtasks that must complete first
+    risks: string[];
+    expectedOutput: string;
+    gate?: string;                   // Gate that must pass before this step
+    budgetEstimate: number;
+    approvalRequired: boolean;
+    status: 'pending' | 'executing' | 'completed' | 'failed' | 'skipped';
+  }>;
+  
+  totalBudgetEstimate: number;
+  approvalRequirements: Array<{ level: 'L1' | 'L2' | 'L3'; reason: string }>;
+  autonomyMode: 'crawl' | 'walk' | 'run';
+}
+```
+
+### A2A Delegation Protocol
+
+```typescript
+interface DelegationRequest {
+  id: string;
+  initiatingAgentId: string;
+  targetAgentId: string;
+  
+  // Task specification
+  scope: string;
+  constraints: string[];
+  expectedOutputFormat: string;
+  timeout: number;                   // milliseconds
+  authorityLevel: 'L1' | 'L2' | 'L3' | 'L4';
+  
+  // Context passed to delegate
+  context: Record<string, unknown>;
+  parentPlanId?: string;
+  parentSubtaskId?: string;
+}
+
+interface DelegationResult {
+  requestId: string;
+  targetAgentId: string;
+  status: 'completed' | 'failed' | 'timeout' | 'rejected';
+  output?: unknown;
+  error?: string;
+  executionTrace?: ExecutionTrace;
+  durationMs: number;
+}
+```
+
+### Autonomy Mode Configuration
+
+```typescript
+interface AutonomyConfig {
+  agentId: string;
+  defaultMode: 'crawl' | 'walk' | 'run';
+  
+  // Per-workflow overrides
+  workflowOverrides: Record<string, 'crawl' | 'walk' | 'run'>;
+  
+  // Escalation criteria
+  escalationPolicy: {
+    promoteAfterSuccesses: number;     // e.g., 10 successful runs → promote
+    demoteAfterFailures: number;       // e.g., 3 failures → demote
+    requireKingApprovalToPromote: boolean;
+  };
+  
+  // Human gates
+  humanGates: Array<{
+    workflowType: string;
+    gatePoint: string;                 // e.g., "before_submission", "before_publish"
+    requiredInModes: ('crawl' | 'walk')[];
+    bypassableInRun: boolean;
+  }>;
+}
+```
+
+### Execution Trace
+
+```typescript
+interface ExecutionTrace {
+  id: string;
+  agentId: string;
+  taskId: string;
+  timestamp: Date;
+  durationMs: number;
+  
+  // What happened
+  planGenerated?: ExecutionPlan;
+  toolsConsidered: string[];
+  toolsSelected: string[];
+  toolsInvoked: Array<{ tool: string; input: unknown; output: unknown; durationMs: number }>;
+  agentsDelegatedTo: Array<{ agentId: string; scope: string; result: string }>;
+  memoryRetrieved: Array<{ layer: string; query: string; resultCount: number }>;
+  governanceChecks: Array<{ check: string; result: 'passed' | 'blocked'; reason: string }>;
+  budgetChecks: Array<{ estimated: number; remaining: number; approved: boolean }>;
+  actionsPerformed: string[];
+  
+  // Final output
+  synthesisReasoning: string;
+  finalOutput: unknown;
+  
+  // Metadata
+  autonomyMode: 'crawl' | 'walk' | 'run';
+  envelopeHash: string;              // Hash of cognition envelope for reproducibility
+}
+```
+
+### MCP Tool Registry
+
+```typescript
+interface MCPToolDescriptor {
+  id: string;
+  name: string;
+  description: string;
+  capabilities: string[];            // Semantic tags for discovery
+  provider: string;
+  
+  // Selection criteria
+  costPerInvocation: number;
+  reliabilityScore: number;          // 0-1, based on historical success
+  averageLatencyMs: number;
+  
+  // Access control
+  requiredAuthorityLevel: 'L1' | 'L2' | 'L3' | 'L4';
+  requiredPermissions: string[];
+  
+  // Health
+  status: 'available' | 'degraded' | 'unavailable';
+  lastHealthCheck: Date;
+  
+  // Fallback
+  fallbackTools: string[];           // IDs of alternate tools
+}
+```
+
+
+---
+
+## Shaar Agent — Human Interface Intelligence and UI/UX Design Authority
+
+### Overview
+
+The Shaar Agent is the autonomous product intelligence layer for the SeraphimOS interface. Where Shaar provides channels and surfaces, the Shaar Agent evaluates whether those surfaces actually work for humans. It observes the front end directly using browser automation and visual inspection, compares the human experience against expected workflows, detects friction and operational gaps, evaluates visual design quality, and generates improvement tasks for Kiro.
+
+The Shaar Agent does not own business strategy. It owns **interface truth, usability, visual quality, communication quality, workflow visibility, and human-operational readiness**.
+
+### Architecture
+
+```
+King → Seraphim → Shaar Agent → Dashboard / Telegram / Chat / UX / Notifications
+
+Shaar Agent
+├── Visual Observer (Playwright screenshots, DOM inspection)
+├── Workflow Tester (navigate, click, submit, verify)
+├── UX Friction Detector (cognitive load, dead ends, missing feedback)
+├── UI/UX Design Evaluator (layout, hierarchy, spacing, typography, color)
+├── Agent Behavior Auditor (traces, memory, tools, delegation visible?)
+├── Data Truth Auditor (mock data, stale metrics, disconnected charts)
+├── Revenue Workflow Auditor (ZionX/ZXMG revenue screens complete?)
+├── Permission Tester (role boundaries, credential safety)
+├── Readiness Score Generator (composite score across all dimensions)
+├── Recommendation Generator (structured proposals with evidence)
+├── Kiro Task Dispatcher (converts recommendations to implementation tasks)
+└── Verification Agent (retests after implementation, before/after comparison)
+```
+
+### Observation Flow
+
+```mermaid
+sequenceDiagram
+    participant Shaar as Shaar Agent
+    participant Browser as Playwright Browser
+    participant Dashboard as SeraphimOS Dashboard
+    participant Kiro as Kiro (IDE)
+    participant King as King (Approval)
+
+    Shaar->>Browser: Open dashboard URL
+    Browser->>Dashboard: Navigate to page
+    Browser-->>Shaar: Screenshot + DOM + Console
+    Shaar->>Shaar: Analyze: UX, design, data truth, workflows
+    Shaar->>Shaar: Generate recommendations
+    Shaar->>King: Present findings + readiness score
+    King->>Shaar: Approve recommendation
+    Shaar->>Kiro: Dispatch implementation task
+    Kiro->>Dashboard: Implement changes
+    Shaar->>Browser: Retest affected page
+    Browser-->>Shaar: New screenshot + verification
+    Shaar->>Shaar: Compare before/after, verify or reopen
+```
+
+### Readiness Score Model
+
+```typescript
+interface ShaarReadinessScore {
+  overall: number;                    // 0-100 composite
+  dimensions: {
+    uxQuality: number;               // Layout, navigation, workflow clarity
+    visualDesign: number;            // Hierarchy, spacing, typography, color
+    workflowClarity: number;         // Can user complete tasks without confusion?
+    agenticVisibility: number;       // Are execution traces, tools, delegation visible?
+    revenueWorkflowSupport: number;  // Do screens help make money?
+    dataTruth: number;               // Is displayed data real and current?
+    permissionSafety: number;        // Are role boundaries enforced?
+    mobileResponsiveness: number;    // Does it work on mobile?
+    costVisibility: number;          // Can user see spending and optimization?
+    multiUserReadiness: number;      // Ready for Queens and other users?
+  };
+  topImprovements: Array<{
+    title: string;
+    impact: number;                  // Estimated score improvement
+    effort: 'low' | 'medium' | 'high';
+  }>;
+  lastAuditAt: Date;
+  pagesAudited: number;
+}
+```
+
+### Recommendation Structure
+
+```typescript
+interface ShaarRecommendation {
+  id: string;
+  title: string;
+  problem: string;
+  evidence: {
+    screenshot?: string;             // S3 URL to screenshot
+    domIssues?: string[];
+    consoleErrors?: string[];
+    workflowFailure?: string;
+  };
+  affectedScreen: string;
+  userImpact: string;
+  designPrincipleViolated?: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  acceptanceCriteria: string[];
+  likelyFiles: string[];
+  implementationGuidance: string;
+  verificationSteps: string[];
+  estimatedEffort: 'small' | 'medium' | 'large';
+  status: 'proposed' | 'approved' | 'dispatched' | 'implemented' | 'verified' | 'reopened';
+}
+```
+
+### UI/UX Design Evaluation Criteria
+
+The Shaar Agent evaluates pages against these design principles:
+
+| Principle | What it checks |
+|---|---|
+| Visual Hierarchy | Is the most important information most prominent? |
+| Information Architecture | Is content organized logically? Can users find what they need? |
+| Spacing & Alignment | Are elements consistently spaced? Is the grid respected? |
+| Typography | Are font sizes, weights, and styles used consistently and purposefully? |
+| Color Usage | Do colors communicate meaning? Is contrast sufficient? |
+| CTA Placement | Are primary actions obvious and accessible? |
+| Navigation Clarity | Can users always tell where they are and how to get elsewhere? |
+| Empty States | Do empty screens guide users on what to do next? |
+| Loading States | Is there feedback during async operations? |
+| Error States | Are errors clear, actionable, and non-destructive? |
+| Workflow Clarity | Can users complete multi-step tasks without confusion? |
+| Mobile Responsiveness | Does the layout adapt gracefully to smaller screens? |
+| Accessibility | Does it meet WCAG 2.1 AA? Keyboard navigable? Screen reader friendly? |
+| Cognitive Load | Is the user overwhelmed? Too much information at once? |
+
+### Shaar Agent Identity Profile
+
+```typescript
+const SHAAR_AGENT_PROGRAM: AgentProgram = {
+  id: 'shaar-guardian',
+  name: 'Shaar Guardian',
+  pillar: 'system',
+  systemPrompt: `You are the Shaar Guardian — the autonomous UI/UX intelligence and product experience authority for SeraphimOS. You observe the dashboard from the human perspective using browser automation, detect friction, evaluate visual design quality, audit data truth, and generate improvement recommendations.
+
+You are an expert UI/UX designer. When a page is ugly, confusing, or poorly laid out — you say so directly with specific evidence and proposed fixes. You don't just find bugs — you find design failures, workflow friction, and missed opportunities.
+
+You report to Seraphim. You generate Kiro tasks for approved improvements. You verify implementations after Kiro completes them.`,
+  identityProfile: {
+    name: 'Shaar Guardian',
+    role: 'Human Interface Intelligence and UI/UX Design Authority. Observes the dashboard from the human perspective, evaluates design quality, detects friction, and generates improvement tasks.',
+    hierarchyPosition: 'Reports to Seraphim. Owns the entire human-facing experience layer.',
+    personality: { tone: 'analytical', verbosity: 'detailed', proactivity: 'proactive', formality: 'professional' },
+    expertise: ['UI/UX design', 'visual hierarchy', 'information architecture', 'accessibility', 'workflow design', 'browser automation', 'screenshot analysis', 'usability testing', 'mobile responsiveness', 'conversion optimization'],
+    domainLanguage: ['readiness score', 'friction', 'hierarchy', 'cognitive load', 'CTA', 'empty state', 'loading state', 'data truth', 'permission boundary', 'before/after'],
+    decisionPrinciples: ['User experience over technical correctness', 'Visual quality matters independently of functionality', 'Every screen should help the King make money or make decisions', 'If it looks broken to a human, it IS broken'],
+    relationships: [
+      { agentId: 'seraphim-core', relationship: 'reports_to', description: 'Reports findings and recommendations to Seraphim' },
+    ],
+    neverBreakCharacter: true,
+    identityReinforcement: 'You are the Shaar Guardian. You see what humans see. You judge what humans judge.',
+  },
+};
+```

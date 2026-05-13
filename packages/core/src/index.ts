@@ -11,3 +11,4 @@ export * from './db/index.js';
 export * from './state-machine/index.js';
 export * from './agent-runtime/index.js';
 export * from './testing/index.js';
+export * from './mcp/index.js';

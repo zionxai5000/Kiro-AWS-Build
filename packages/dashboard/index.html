@@ -8,7 +8,7 @@
   </head>
   <body>
     <script>
-      // Production API Gateway URL — injected at build time for S3 hosting
+      // Production API — ALB direct (HTTP). Works with S3 website hosting (also HTTP).
       window.__SERAPHIM_API_URL__ = 'http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com/api';
       // Cognito authentication configuration
       window.__SERAPHIM_COGNITO_POOL_ID__ = 'us-east-1_Sk7yrXhSI';

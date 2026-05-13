@@ -1,0 +1,38 @@
+{
+  "family": "SeraphimdevComputeAgentRuntimeTaskDef2B3755BC",
+  "containerDefinitions": [
+    {
+      "name": "AgentRuntime",
+      "image": "562887205007.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-562887205007-us-east-1:phase18-shaar-intelligence-20260512-191156",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "SERAPHIM_MODE", "value": "production" },
+        { "name": "AURORA_SECRET_NAME", "value": "SeraphimAuroraSecret3FC3811-bVxbXGVUFH2L" },
+        { "name": "AWS_REGION", "value": "us-east-1" },
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3000" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/seraphim/agent-runtime",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "agent-runtime"
+        }
+      },
+      "essential": true
+    }
+  ],
+  "taskRoleArn": "arn:aws:iam::562887205007:role/Seraphim-dev-Compute-AgentRuntimeTaskRole86065EF1-5PiOQKxisTPG",
+  "executionRoleArn": "arn:aws:iam::562887205007:role/Seraphim-dev-Compute-AgentRuntimeExecutionRole21587-0TDBuZ9InC3H",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048"
+}

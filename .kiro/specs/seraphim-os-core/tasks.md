@@ -1245,3 +1245,1830 @@ This implementation plan breaks SeraphimOS into five phases, each building on th
 - [ ] 16. Checkpoint — Phase 7 complete
   - Ensure all tests pass, ask the user if questions arise.
   - Verify: Reference Ingestion Service correctly classifies and dispatches URLs, App Store Analyzer produces structured reports from real listing data, YouTube Channel Analyzer produces structured reports with Production Formula, Quality Baseline Generator scores dimensions and performs monotonic merge, Baseline Storage versions and tags baselines in Zikaron with event publishing, Reference Quality Gate evaluates output against baselines with pass/fail, Auto-Rework Loop routes rejections through Training Cascade with escalation after 5 failures, Pre-Production Plan generation works for both ZionX and ZXMG, Learning Engine tracks baseline effectiveness, all events flow correctly through EventBridge/SQS, ZionX and ZXMG gate-review states invoke Reference Quality Gate
+
+- [ ] 17. Phase 8 — Parallel Agent Orchestration, MCP Integration, and Unified Communication Layer
+  - [x] 17.1 Implement Dependency Graph Engine
+    - Create `packages/services/src/parallel/dependency-graph.ts` implementing the `DependencyGraphEngine` interface
+    - Implement `createGraph()`: construct a DAG from a list of `ParallelTask` definitions with dependency edges
+    - Implement `validateGraph()`: detect circular dependencies using topological sort (Kahn's algorithm), reject invalid graphs with specific cycle path reporting
+    - Implement `schedule()`: generate an execution plan using topological ordering, grouping independent tasks into parallel batches
+    - Implement `getReadyTasks()`: return all tasks whose dependencies are satisfied and are ready for execution
+    - Implement `markComplete()`: update task status, release dependent tasks, check for DAG completion
+    - Implement `detectDeadlocks()`: identify tasks that are blocked indefinitely due to failed dependencies
+    - _Requirements: 35c.8, 35c.9, 35c.10, 35c.11_
+
+  - [x] 17.2 Write unit tests for Dependency Graph Engine
+    - Test DAG construction from task list with dependencies
+    - Test circular dependency detection rejects invalid graphs with cycle path
+    - Test topological sort produces valid execution order
+    - Test getReadyTasks returns only tasks with satisfied dependencies
+    - Test markComplete releases dependent tasks correctly
+    - Test deadlock detection identifies permanently blocked tasks
+    - _Requirements: 35c.8, 35c.9, 35c.10, 35c.11, 19.1_
+
+  - [x] 17.3 Implement Parallel Scheduler and Load Balancer
+    - Create `packages/services/src/parallel/scheduler.ts` implementing parallel task scheduling
+    - Implement work distribution across available compute resources using configurable strategy (round-robin, least-loaded, affinity-based)
+    - Implement parallelism limits per agent (default: 5 concurrent sub-tasks) with configurable overrides
+    - Implement resource-aware scheduling: check Otzar budget before dispatching, queue lower-priority tasks when resources are constrained
+    - Implement failure isolation: failed sub-tasks don't terminate siblings, retry according to policy, report partial results
+    - _Requirements: 35a.1, 35a.2, 35a.4, 35d.12, 35d.13_
+
+  - [x] 17.4 Write unit tests for Parallel Scheduler
+    - Test parallelism limit enforcement (max 5 concurrent per agent by default)
+    - Test work distribution strategies (round-robin, least-loaded)
+    - Test failure isolation (sibling tasks continue when one fails)
+    - Test resource constraint queuing for lower-priority tasks
+    - Test budget enforcement blocks over-budget parallel dispatch
+    - _Requirements: 35a.1, 35a.2, 35a.4, 35d.12, 35d.13, 19.1_
+
+  - [x] 17.5 Implement Inter-Agent Coordination Bus
+    - Create `packages/services/src/parallel/coordination-bus.ts` implementing the `CoordinationBus` interface
+    - Implement `sendToAgent()` and `broadcast()`: real-time message passing between concurrently executing agents via EventBridge + WebSocket
+    - Implement `signalCompletion()` and `waitForDependency()`: dependency signaling with configurable timeout
+    - Implement `shareIntermediateResult()` and `getIntermediateResult()`: shared state for parallel agents working on related tasks
+    - Implement subscription management for real-time coordination messages
+    - _Requirements: 35b.7_
+
+  - [x] 17.6 Write unit tests for Inter-Agent Coordination Bus
+    - Test point-to-point messaging between agents
+    - Test broadcast messaging to all agents in a DAG
+    - Test dependency signaling unblocks waiting tasks
+    - Test intermediate result sharing and retrieval
+    - Test timeout handling for waitForDependency
+    - _Requirements: 35b.7, 19.1_
+
+  - [x] 17.7 Implement Result Aggregator
+    - Create `packages/services/src/parallel/result-aggregator.ts` implementing the `ResultAggregator` interface
+    - Implement `collectResult()`: store individual stream results as they complete
+    - Implement `aggregate()`: merge results from all parallel streams using configurable strategy (merge, concatenate, vote, custom)
+    - Implement `getPartialResults()`: return results collected so far for in-progress DAGs
+    - Implement conflict resolution when parallel streams produce contradictory results
+    - _Requirements: 35a.3, 35c.11_
+
+  - [x] 17.8 Write unit tests for Result Aggregator
+    - Test result collection from multiple parallel streams
+    - Test merge aggregation strategy combines results correctly
+    - Test partial results available before all streams complete
+    - Test conflict resolution for contradictory results
+    - _Requirements: 35a.3, 35c.11, 19.1_
+
+  - [x] 17.9 Wire Parallel Orchestration into Agent Runtime
+    - Update `packages/core/src/agent-runtime/runtime.ts` to support parallel task dispatch
+    - Implement intra-agent parallelization: when an agent decomposes a task into independent sub-tasks, dispatch them concurrently through the Parallel Scheduler
+    - Implement inter-agent parallelization: when Seraphim/Eretz dispatches to multiple agents, use the Dependency Graph Engine to manage execution
+    - Update Seraphim_Core and Eretz directive decomposition to produce parallel task DAGs when tasks are independent
+    - Add parallel execution status to agent health reporting
+    - _Requirements: 35a.1, 35b.5, 35b.6_
+
+  - [x] 17.10 Write integration tests for Parallel Orchestration
+    - Test intra-agent: single agent spawns 3 parallel sub-tasks, all complete, results aggregated
+    - Test inter-agent: Seraphim dispatches to ZionX and ZXMG in parallel, both complete independently
+    - Test dependency: agent B waits for agent A's output, proceeds after A completes
+    - Test failure isolation: one parallel stream fails, others continue, partial results returned
+    - Test deadlock detection: circular dependency detected and reported
+    - _Requirements: 35a.1, 35b.5, 35b.6, 35c.9, 19.2_
+
+  - [x] 17.11 Implement MCP Server Host
+    - Create `packages/services/src/mcp/server-host.ts` implementing the `MCPServerHost` interface
+    - Implement `startServer()`: start an MCP server for a given agent exposing its tools via the MCP protocol (JSON-RPC over stdio/SSE/WebSocket)
+    - Implement `registerTool()` and `unregisterTool()`: dynamic tool registration with JSON Schema validation
+    - Implement MCP protocol handlers: `tools/list`, `tools/call`, `initialize`, `ping`
+    - Implement authentication: validate incoming MCP connections against Mishmar authorization
+    - Implement rate limiting per connection
+    - _Requirements: 36a.1, 36a.2, 36a.3, 36a.4_
+
+  - [x] 17.12 Write unit tests for MCP Server Host
+    - Test server starts and responds to MCP protocol messages
+    - Test tool registration exposes tools with correct schemas
+    - Test authentication rejects unauthorized connections
+    - Test rate limiting blocks excessive requests
+    - Test tool invocation routes to correct agent and returns results
+    - _Requirements: 36a.1, 36a.2, 36a.3, 36a.4, 19.1_
+
+  - [x] 17.13 Define and register per-agent MCP tools
+    - Create `packages/services/src/mcp/tools/seraphim-tools.ts`: system health, directive submission, recommendation queue access, parallel execution status
+    - Create `packages/services/src/mcp/tools/eretz-tools.ts`: portfolio metrics, synergy status, pattern library query, directive enrichment
+    - Create `packages/services/src/mcp/tools/zionx-tools.ts`: app status, pipeline triggers, gate results, design system query
+    - Create `packages/services/src/mcp/tools/zxmg-tools.ts`: content pipeline status, analytics, production queue, baseline query
+    - Create `packages/services/src/mcp/tools/zion-alpha-tools.ts`: positions, strategy status, market scans, trade history
+    - Each tool definition includes JSON Schema for inputs/outputs and required authority level
+    - _Requirements: 36a.5_
+
+  - [x] 17.14 Implement MCP Client Manager
+    - Create `packages/services/src/mcp/client-manager.ts` implementing the `MCPClientManager` interface
+    - Implement `connect()`: establish connection to external MCP servers with retry and circuit breaker
+    - Implement `discoverTools()`: query connected server for available tools
+    - Implement `invokeTool()`: call external MCP tools with proper error handling, timeout, and cost tracking via Otzar
+    - Implement `findToolByCapability()`: semantic search across registered tools using embedding similarity
+    - Implement connection health monitoring with automatic reconnection
+    - _Requirements: 36b.6, 36b.7, 36b.8, 36b.9_
+
+  - [x] 17.15 Write unit tests for MCP Client Manager
+    - Test connection establishment and reconnection on failure
+    - Test tool discovery from external servers
+    - Test tool invocation with proper error handling
+    - Test cost tracking for external tool calls via Otzar
+    - Test circuit breaker opens after repeated failures
+    - Test semantic tool search by capability description
+    - _Requirements: 36b.6, 36b.7, 36b.8, 36b.9, 19.1_
+
+  - [x] 17.16 Implement MCP Tool Registry
+    - Create `packages/services/src/mcp/tool-registry.ts` implementing the `MCPToolRegistry` interface
+    - Implement `registerInternalTools()`: register agent tools with schema validation
+    - Implement `registerExternalServer()`: register external MCP server tools with health monitoring
+    - Implement `listAllTools()`, `searchTools()`, `getToolSchema()`: query and discovery operations
+    - Implement `findByCapability()`: semantic matching using embedding similarity against tool descriptions
+    - Implement dynamic registration: new MCP servers auto-discovered and registered without restart
+    - Store registry in `mcp_tool_registry` database table
+    - _Requirements: 36c.10, 36c.11, 36c.12_
+
+  - [x] 17.17 Write unit tests for MCP Tool Registry
+    - Test internal tool registration with schema validation
+    - Test external server registration with health monitoring
+    - Test tool listing and search operations
+    - Test semantic capability matching returns relevant tools
+    - Test dynamic registration without restart
+    - _Requirements: 36c.10, 36c.11, 36c.12, 19.1_
+
+  - [x] 17.18 Implement Kiro-Seraphim MCP Bridge
+    - Create `packages/services/src/mcp/kiro-bridge.ts` implementing the `KiroSeraphimBridge` interface
+    - Implement Kiro → Seraphim direction: expose all agent MCP tools to Kiro IDE sessions
+    - Implement Seraphim → Kiro direction: allow agents to invoke Kiro tools (readFile, writeFile, runCommand, search, getDiagnostics) through the bridge
+    - Implement persistent connection management for ongoing development sessions
+    - Implement bridge status monitoring and automatic reconnection
+    - _Requirements: 36d.13, 36d.14, 36d.15_
+
+  - [x] 17.19 Write unit tests for Kiro-Seraphim MCP Bridge
+    - Test Kiro can discover and invoke SeraphimOS agent tools
+    - Test SeraphimOS agents can invoke Kiro tools through the bridge
+    - Test persistent connection survives temporary disconnections
+    - Test bridge status reporting
+    - _Requirements: 36d.13, 36d.14, 36d.15, 19.1_
+
+  - [x] 17.20 Implement Agent Communication Service
+    - Create `packages/services/src/communication/service.ts` implementing the `AgentCommunicationService` interface
+    - Implement `sendMessage()`: route user message to target agent, persist in `chat_messages` table, process through priority queue, deliver agent response
+    - Implement `getHistory()` and `searchHistory()`: retrieve and search chat history per agent with filtering
+    - Implement `getUnifiedHistory()`: return all users' messages for an agent in chronological order with user attribution
+    - Implement `getActiveUsers()`: return currently active users chatting with an agent
+    - Implement multi-user context management: maintain separate conversation contexts per user while providing unified history access to the agent
+    - _Requirements: 37a.1, 37a.2, 37a.3, 37b.5, 37b.6, 37b.7_
+
+  - [x] 17.21 Write unit tests for Agent Communication Service
+    - Test message sending persists to database and routes to agent
+    - Test history retrieval with filtering (time range, user, priority)
+    - Test unified history shows all users' messages chronologically
+    - Test multi-user concurrent access with separate contexts
+    - Test search across chat history
+    - _Requirements: 37a.1, 37a.2, 37a.3, 37b.5, 37b.6, 37b.7, 19.1_
+
+  - [x] 17.22 Implement Message Priority Queue
+    - Create `packages/services/src/communication/priority-queue.ts`
+    - Implement priority-based message processing: critical → high → normal → low, FIFO within same priority
+    - Implement critical message interruption: when critical message arrives, interrupt non-critical agent work within 10 seconds
+    - Implement configurable King message auto-elevation (default: high priority)
+    - Implement rate limiting and fairness for multi-user access
+    - _Requirements: 37b.8, 39.1, 39.2, 39.3, 39.4_
+
+  - [x] 17.23 Write unit tests for Message Priority Queue
+    - Test priority ordering (critical processed before normal)
+    - Test FIFO within same priority level
+    - Test critical message interruption within 10 seconds
+    - Test King message auto-elevation to high priority
+    - Test rate limiting prevents single user from monopolizing agent
+    - _Requirements: 37b.8, 39.1, 39.2, 39.3, 39.4, 19.1_
+
+  - [x] 17.24 Implement Context Sharing Engine
+    - Create `packages/services/src/communication/context-sharing.ts` implementing the `ContextSharingEngine` interface
+    - Implement `analyzeRelevance()`: use embedding similarity to determine if a message to one agent is relevant to other agents (threshold: 0.7 relevance score)
+    - Implement `propagateContext()`: share relevant context to target agents, store in `context_share_events` table, update receiving agent's working memory
+    - Implement explicit @-mention parsing: detect @agent_name patterns in messages and route context explicitly
+    - Implement `generateHandoffSummary()`: when user switches agents, generate a concise summary of recent conversation for the new agent
+    - Implement configurable handoff mode per user (automatic, on-request, manual)
+    - _Requirements: 37c.9, 37c.10, 37c.11, 37c.12, 37d.13, 37d.14_
+
+  - [x] 17.25 Write unit tests for Context Sharing Engine
+    - Test relevance analysis detects cross-agent relevant messages
+    - Test auto-propagation shares context above threshold
+    - Test explicit @-mention routes to correct agent
+    - Test handoff summary generation captures key conversation points
+    - Test context share events are logged correctly
+    - Test configurable handoff modes work as expected
+    - _Requirements: 37c.9, 37c.10, 37c.11, 37c.12, 37d.13, 37d.14, 19.1_
+
+  - [x] 17.26 Implement Agent Presence Service
+    - Create `packages/services/src/communication/presence.ts`
+    - Implement real-time agent presence tracking: idle, working (with task description), waiting_input, thinking, parallel_processing (with count), degraded
+    - Implement presence change broadcasting via WebSocket within 2 seconds
+    - Implement queue depth reporting per agent
+    - Wire presence updates to agent runtime state changes
+    - _Requirements: 37e.15, 37e.16_
+
+  - [x] 17.27 Write unit tests for Agent Presence Service
+    - Test presence updates reflect actual agent state
+    - Test WebSocket broadcast within 2-second SLA
+    - Test queue depth accurately reflects pending messages
+    - Test all presence states are correctly reported
+    - _Requirements: 37e.15, 37e.16, 19.1_
+
+  - [x] 17.28 Implement Telegram Integration Service
+    - Create `packages/services/src/communication/telegram.ts` implementing the `TelegramIntegrationService` interface
+    - Implement bot initialization with Telegram Bot API (token from Secrets Manager)
+    - Implement per-agent thread management: create and manage dedicated threads/topics for each agent in a Telegram group
+    - Implement `handleIncomingMessage()`: receive Telegram messages, identify user (linked account), route to correct agent via Communication Service
+    - Implement `sendToThread()`: deliver agent responses to the correct Telegram thread
+    - Implement account linking: connect Telegram user IDs to SeraphimOS user accounts
+    - Implement Mishmar authorization enforcement for Telegram interactions
+    - _Requirements: 38a.1, 38a.2, 38a.3, 38c.7, 38c.8, 38c.9_
+
+  - [x] 17.29 Write unit tests for Telegram Integration Service
+    - Test bot initialization and thread creation per agent
+    - Test incoming message routing to correct agent
+    - Test response delivery to correct Telegram thread
+    - Test account linking flow
+    - Test unauthorized users are rejected
+    - Test command semantics match dashboard behavior
+    - _Requirements: 38a.1, 38a.2, 38a.3, 38c.7, 38c.8, 38c.9, 19.1_
+
+  - [x] 17.30 Implement Dashboard-Telegram Synchronization
+    - Create `packages/services/src/communication/sync.ts`
+    - Implement `syncToDashboard()`: Telegram messages appear in dashboard chat with "via Telegram" indicator
+    - Implement `syncFromDashboard()`: dashboard messages appear in Telegram thread with "via Dashboard" indicator
+    - Implement real-time bidirectional sync within 3 seconds
+    - Ensure unified conversation stream regardless of originating surface
+    - _Requirements: 38b.4, 38b.5, 38b.6_
+
+  - [x] 17.31 Write unit tests for Dashboard-Telegram Synchronization
+    - Test Telegram messages appear in dashboard with source indicator
+    - Test dashboard messages appear in Telegram with source indicator
+    - Test sync latency within 3-second SLA
+    - Test conversation continuity across surfaces
+    - _Requirements: 38b.4, 38b.5, 38b.6, 19.1_
+
+  - [x] 17.32 Implement Notification Routing Engine
+    - Create `packages/services/src/communication/notification-router.ts` implementing the `NotificationRoutingEngine` interface
+    - Implement `setRules()` and `getRules()`: manage per-user notification routing rules with conditions (agent, priority, type, time window) and target channels
+    - Implement `route()`: evaluate all applicable rules for a notification and deliver to all matching channels simultaneously
+    - Implement `checkEscalation()` and `escalate()`: background job checks unacknowledged notifications, escalates after configurable timeout (15min high, 5min critical)
+    - Implement `acknowledge()`: mark notification as acknowledged across all channels (deduplication)
+    - Implement delivery to: dashboard (WebSocket push), Telegram (via Telegram service), email (via Gmail driver), iMessage (via iMessage driver)
+    - _Requirements: 41.1, 41.2, 41.3, 41.4, 38d.10, 38d.11, 38d.12_
+
+  - [x] 17.33 Write unit tests for Notification Routing Engine
+    - Test rule evaluation routes to correct channels
+    - Test simultaneous multi-channel delivery
+    - Test escalation triggers after timeout
+    - Test acknowledgment deduplicates across channels
+    - Test quiet hours suppress notifications
+    - Test priority threshold filtering
+    - _Requirements: 41.1, 41.2, 41.3, 41.4, 38d.10, 38d.11, 38d.12, 19.1_
+
+  - [x] 17.34 Implement Agent-to-Agent Delegation Visibility
+    - Create `packages/services/src/communication/delegation-visibility.ts`
+    - Implement delegation tracking: when an agent delegates work to another agent during message processing, record the delegation with status
+    - Implement chat UI delegation indicators: show delegation chain, delegated task description, and real-time status (pending/in-progress/complete/failed)
+    - Implement parallel delegation display: when multiple agents are delegated to simultaneously, show all streams with individual progress
+    - Wire delegation events to both dashboard WebSocket and Telegram threads
+    - _Requirements: 40.1, 40.2, 40.3, 40.4_
+
+  - [x] 17.35 Write unit tests for Delegation Visibility
+    - Test delegation recording captures correct metadata
+    - Test delegation status updates propagate to chat UI
+    - Test parallel delegation display shows all streams
+    - Test delegation visibility works in both dashboard and Telegram
+    - _Requirements: 40.1, 40.2, 40.3, 40.4, 19.1_
+
+  - [x] 17.36 Implement Communication Audit Trail
+    - Extend XO Audit to log all human-agent communications: user identity, agent identity, message content, timestamp, response time, actions triggered
+    - Implement conversation replay: retrieve full communication history between any user and any agent for a given time period
+    - Implement audit queries for communication patterns: response times, message volumes, priority distribution
+    - _Requirements: 37f.17, 37f.18_
+
+  - [x] 17.37 Write unit tests for Communication Audit Trail
+    - Test all messages are logged to XO Audit with required fields
+    - Test conversation replay retrieves complete history
+    - Test audit queries return correct communication patterns
+    - _Requirements: 37f.17, 37f.18, 19.1_
+
+  - [x] 17.38 Implement Dashboard Chat UI Components
+    - Add per-agent chat panel to each agent's dashboard page (Seraphim, Eretz, ZionX, ZXMG, Zion Alpha)
+    - Implement chat message list with: user attribution, timestamps, source indicators (dashboard/telegram), priority badges, delegation indicators
+    - Implement agent presence indicator with real-time status updates
+    - Implement @-mention autocomplete for cross-agent tagging
+    - Implement message priority selector (low/normal/high/critical)
+    - Implement unified history view toggle (show all users vs. my messages only)
+    - Implement notification preferences UI for routing rule configuration
+    - _Requirements: 37a.1, 37a.4, 37b.6, 37c.10, 37e.15, 39.1, 41.5_
+
+  - [x] 17.39 Write unit tests for Dashboard Chat UI Components
+    - Test chat panel renders messages with correct attribution
+    - Test presence indicator updates in real-time
+    - Test @-mention autocomplete suggests correct agents
+    - Test priority selector changes message priority
+    - Test unified history toggle switches between views
+    - Test notification preferences UI saves rules correctly
+    - _Requirements: 37a.1, 37a.4, 37b.6, 37c.10, 37e.15, 41.5, 19.1_
+
+  - [x] 17.40 Implement database migrations for Phase 8
+    - Create migration for `chat_messages` table with indexes
+    - Create migration for `context_share_events` table with indexes
+    - Create migration for `notification_rules` table
+    - Create migration for `notification_deliveries` table with indexes
+    - Create migration for `telegram_account_links` table
+    - Create migration for `mcp_tool_registry` table with indexes
+    - Create migration for `parallel_execution_dags` table with indexes
+    - _Requirements: 35c.8, 36c.10, 37a.2, 37c.12, 38c.7, 41.1_
+
+  - [x] 17.41 Write integration tests for Phase 8 end-to-end
+    - Test full parallel execution: create DAG → schedule → execute parallel → coordinate → aggregate results
+    - Test MCP server: external client connects → discovers tools → invokes tool → receives result
+    - Test MCP client: agent needs external tool → discovers via registry → invokes → tracks cost
+    - Test Kiro bridge: Kiro invokes agent tool → agent invokes Kiro tool → bidirectional flow
+    - Test communication: user sends message via dashboard → agent responds → message appears in Telegram
+    - Test cross-agent context: message to ZionX auto-shared with ZXMG → ZXMG acknowledges context
+    - Test notification routing: agent generates alert → routed to dashboard + Telegram → user acknowledges on Telegram → marked acknowledged on dashboard
+    - Test delegation visibility: user asks Seraphim → Seraphim delegates to Eretz and ZionX in parallel → delegation shown in chat → results aggregated
+    - Test multi-user: two users chat with same agent → unified history shows both → priority ordering respected
+    - _Requirements: 35a-35d, 36a-36d, 37a-37f, 38a-38d, 39, 40, 41, 19.2_
+
+- [x] 18. Checkpoint — Phase 8 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Dependency Graph Engine validates DAGs and detects cycles, Parallel Scheduler distributes work with configurable limits and failure isolation, Coordination Bus enables real-time inter-agent messaging, Result Aggregator merges parallel outputs, MCP Server Host exposes agent tools with authentication, MCP Client Manager connects to external tools with cost tracking, MCP Tool Registry supports dynamic discovery and semantic search, Kiro-Seraphim Bridge enables bidirectional tool invocation, Agent Communication Service handles multi-user persistent chat, Priority Queue processes messages in priority order with critical interruption, Context Sharing Engine auto-detects and propagates relevant context, Telegram Integration provides per-agent threads with dashboard sync, Notification Routing Engine delivers to multiple channels with escalation, Delegation Visibility shows agent-to-agent work chains in chat, all database migrations applied successfully
+
+- [ ] 19. Phase 9 — ZionX App Development Studio
+  - [x] 19.1 Implement Studio Session Manager
+    - Create `packages/app/src/zionx/studio/session-manager.ts` with StudioSession interface and lifecycle management
+    - Implement session creation, state persistence, file tree tracking, and last-activity updates
+    - Implement undo/redo stack management for edit commands
+    - Create `packages/app/src/zionx/studio/types.ts` with all studio-specific types (ProjectState, FileNode, BuildStatus, PlatformBuildStatus, EditCommand, EditResult)
+    - _Requirements: 42a.1, 42d.11, 42c.8_
+
+  - [x] 19.2 Write unit tests for Studio Session Manager
+    - Test session creation with valid project state
+    - Test undo/redo stack push, pop, and state restoration
+    - Test file tree updates after code generation and edits
+    - Test build status transitions (idle → building → success/failed)
+    - Test session activity tracking and cleanup
+    - _Requirements: 42a.1, 42d.11, 19.1_
+
+  - [x] 19.3 Implement Device Profile Manager
+    - Create `packages/app/src/zionx/studio/device-profiles.ts` with all device frame definitions
+    - Define profiles for: iPhone 15 (6.7"), iPhone SE, iPad, Pixel 8, Android Tablet
+    - Include accurate dimensions, scale factors, safe area insets, notch/dynamic island specs, and status bar heights
+    - _Requirements: 42b.6, 42j.31_
+
+  - [x] 19.4 Implement App Preview Runtime (Level 1 — React Native Web)
+    - Create `packages/dashboard/src/components/studio/PreviewRuntime.tsx` — React component that renders React Native Web app inside device frames
+    - Implement sandboxed iframe rendering with restricted permissions
+    - Implement device frame switching with re-render within 2 seconds
+    - Implement hot reload on code changes via WebSocket message
+    - Implement screenshot capture from preview iframe
+    - _Requirements: 42b.4, 42b.5, 42b.6, 42j.31_
+
+  - [x] 19.5 Write unit tests for App Preview Runtime
+    - Test device frame renders with correct dimensions and safe areas
+    - Test device switching triggers re-render within 2 seconds
+    - Test hot reload applies code changes without full page refresh
+    - Test click-through navigation works within iframe
+    - Test screenshot capture produces correct dimensions per device profile
+    - _Requirements: 42b.4, 42b.5, 42b.6, 19.1_
+
+  - [x] 19.6 Implement AI Edit Controller
+    - Create `packages/app/src/zionx/studio/edit-controller.ts` with natural language edit processing
+    - Implement edit command routing to ZionX agent for code modification
+    - Implement test execution after each edit (lint, typecheck, unit tests)
+    - Implement preview reload trigger after successful edit
+    - Implement undo/redo by restoring file state from edit history
+    - Emit `app.code.changed` hook after every edit
+    - _Requirements: 42d.10, 42d.11, 42d.12_
+
+  - [x] 19.7 Write unit tests for AI Edit Controller
+    - Test edit command produces file changes and triggers tests
+    - Test undo restores previous file state
+    - Test redo re-applies undone edit
+    - Test failed edit (test failures) does not update preview
+    - Test `app.code.changed` hook emitted after successful edit
+    - _Requirements: 42d.10, 42d.11, 42d.12, 19.1_
+
+  - [x] 19.8 Implement Integration Panel Service
+    - Create `packages/app/src/zionx/studio/integrations.ts` with integration configuration management
+    - Implement integration enable/disable with SDK code generation (RevenueCat, Database, Analytics, Push, Ads, etc.)
+    - Implement secure credential storage via Otzar for environment variables and API keys
+    - Implement integration list: Preview, Code, Design, Files, Images, Audio, API, Environment Variables, Database, Payments, Prompts, Haptics, Logs, Network Requests, Store Assets, Ad Studio, Revenue, Deployments
+    - _Requirements: 42e.13, 42e.14, 42e.15_
+
+  - [x] 19.9 Write unit tests for Integration Panel Service
+    - Test enabling an integration generates correct SDK code and config
+    - Test disabling an integration removes SDK code cleanly
+    - Test credential storage calls Otzar without exposing values
+    - Test integration list returns all configured services with status
+    - _Requirements: 42e.13, 42e.14, 42e.15, 19.1_
+
+  - [x] 19.10 Implement Testing Panel Service
+    - Create `packages/app/src/zionx/studio/testing-panel.ts` with test execution and gate check management
+    - Implement test runner that executes unit tests, UI tests, and accessibility checks
+    - Implement design quality scoring against Quality_Baseline
+    - Implement store readiness checklist (metadata, privacy policy, screenshots, IAP sandbox)
+    - Implement gate-blocked progression — block Build/Submit if critical gates fail
+    - _Requirements: 42f.16, 42f.17, 42f.18_
+
+  - [x] 19.11 Write unit tests for Testing Panel Service
+    - Test test execution returns structured pass/fail results with failure details
+    - Test gate check blocks progression when critical checks fail
+    - Test gate check allows progression when all critical checks pass
+    - Test design quality score calculation against baseline
+    - _Requirements: 42f.16, 42f.17, 42f.18, 19.1_
+
+  - [x] 19.12 Implement Store Asset Generator
+    - Create `packages/app/src/zionx/studio/store-assets.ts` with screenshot capture and asset generation
+    - Implement screenshot capture from preview across all device sizes (iPhone 6.7", 6.5", iPad, Google Play phone, tablet)
+    - Implement app icon generation (1024×1024)
+    - Implement feature graphic generation (1024×500)
+    - Implement promotional banner generation
+    - Implement localized caption generation per screenshot
+    - Implement platform-specific validation (Apple and Google dimension/size/content requirements)
+    - Emit `app.screenflow.changed` hook when navigation changes trigger regeneration
+    - _Requirements: 42h.24, 42h.25, 42h.26, 42h.27_
+
+  - [x] 19.13 Write unit tests for Store Asset Generator
+    - Test screenshot capture produces correct dimensions per device profile
+    - Test app icon generation produces 1024×1024 output
+    - Test feature graphic generation produces 1024×500 output
+    - Test validation catches incorrect dimensions, oversized files, and content policy violations
+    - Test `app.screenflow.changed` hook triggers regeneration
+    - _Requirements: 42h.24, 42h.25, 42h.26, 42h.27, 19.1_
+
+  - [x] 19.14 Implement Ad Studio Service
+    - Create `packages/app/src/zionx/studio/ad-studio.ts` with video ad creative generation
+    - Implement 15-second vertical ad generation (TikTok/Reels/Shorts format)
+    - Implement 30-second horizontal ad generation (YouTube pre-roll format)
+    - Implement 6-second bumper ad generation
+    - Implement playable ad demo generation with interactive elements
+    - Implement ad network validation (AdMob, AppLovin, Unity Ads specs)
+    - Implement export in network-ready formats without manual conversion
+    - _Requirements: 42i.28, 42i.29, 42i.30_
+
+  - [x] 19.15 Write unit tests for Ad Studio Service
+    - Test vertical ad generation produces correct aspect ratio and duration
+    - Test horizontal ad generation produces correct aspect ratio and duration
+    - Test bumper ad generation produces 6-second output
+    - Test playable ad includes interactive elements
+    - Test validation catches file size, aspect ratio, and duration violations per network
+    - Test export produces network-ready format without conversion needed
+    - _Requirements: 42i.28, 42i.29, 42i.30, 19.1_
+
+  - [x] 19.16 Implement Apple Release Agent
+    - Create `packages/app/src/zionx/studio/agents/apple-release-agent.ts`
+    - Implement Xcode build trigger and status tracking
+    - Implement Bundle ID management via App Store Connect driver
+    - Implement code signing with provisioning profiles
+    - Implement App Store Connect metadata preparation
+    - Implement privacy nutrition label generation from app analysis
+    - Implement IAP/RevenueCat validation
+    - Implement screenshot validation against Apple HIG
+    - Implement TestFlight upload and distribution
+    - Implement App Store review submission
+    - Implement rejection parsing and remediation plan generation
+    - Expose MCP tools: `apple.validateMetadata`, `apple.uploadScreenshots`, `apple.submitForReview`, `apple.checkReviewStatus`, `apple.uploadBuild`
+    - _Requirements: 42g.20, 42k.34_
+
+  - [x] 19.17 Write unit tests for Apple Release Agent
+    - Test build trigger initiates Xcode build and tracks status
+    - Test metadata preparation produces valid App Store Connect format
+    - Test privacy nutrition label generation from app analysis
+    - Test IAP validation catches misconfigured products
+    - Test rejection parsing extracts actionable remediation steps
+    - Test MCP tool exposure with correct schemas
+    - _Requirements: 42g.20, 42k.34, 19.1_
+
+  - [x] 19.18 Implement Google Play Release Agent
+    - Create `packages/app/src/zionx/studio/agents/google-play-release-agent.ts`
+    - Implement Gradle AAB build trigger and status tracking
+    - Implement package name management via Google Play Console driver
+    - Implement signing keystore management
+    - Implement Google Play Console metadata preparation
+    - Implement Data Safety form generation from app analysis
+    - Implement Google Play billing/RevenueCat validation
+    - Implement closed testing track upload
+    - Implement production release promotion
+    - Implement rejection parsing and remediation plan generation
+    - Expose MCP tools: `google.validateListing`, `google.uploadAssets`, `google.submitForReview`, `google.checkReviewStatus`, `google.uploadAAB`
+    - _Requirements: 42g.21, 42k.35_
+
+  - [x] 19.19 Write unit tests for Google Play Release Agent
+    - Test build trigger initiates Gradle AAB build and tracks status
+    - Test metadata preparation produces valid Play Console format
+    - Test Data Safety form generation from app analysis
+    - Test billing validation catches misconfigured products
+    - Test rejection parsing extracts actionable remediation steps
+    - Test MCP tool exposure with correct schemas
+    - _Requirements: 42g.21, 42k.35, 19.1_
+
+  - [x] 19.20 Implement Store Asset Agent (MCP)
+    - Create `packages/app/src/zionx/studio/agents/store-asset-agent.ts`
+    - Implement preview screenshot capture via MCP tool `preview.captureScreen`
+    - Implement image generation and resizing for multiple device sizes
+    - Implement video generation for App Preview videos
+    - Implement asset format conversion per platform requirements
+    - Implement S3 storage for all generated assets
+    - Expose MCP tools: `preview.captureScreen`, `preview.captureVideo`, `assets.generateIcon`, `assets.generateFeatureGraphic`, `assets.validate`
+    - _Requirements: 42k.36, 42h.24, 42h.25_
+
+  - [x] 19.21 Implement Hook Integration for Studio Lifecycle
+    - Create `packages/app/src/zionx/studio/hooks.ts` with all studio lifecycle hook emissions
+    - Implement hook emitters for: `app.idea.created`, `app.code.changed`, `app.preview.updated`, `app.screenflow.changed`, `app.ios.build.created`, `app.android.build.created`, `app.assets.requested`, `app.marketing.state.entered`, `app.store.gate.failed`, `app.submission.ready`
+    - Implement `app.store.gate.failed` handler: identify responsible sub-agent, create rework task, rerun gate after remediation
+    - Integrate with existing Event Bus infrastructure
+    - _Requirements: 42l.38, 42l.39, 42l.40_
+
+  - [x] 19.22 Write unit tests for Hook Integration
+    - Test each hook emits correct event payload to Event Bus
+    - Test `app.store.gate.failed` identifies correct sub-agent and creates rework task
+    - Test `app.submission.ready` triggers King approval request via Mishmar
+    - Test hooks integrate with existing WebSocket for real-time dashboard updates
+    - _Requirements: 42l.38, 42l.39, 42l.40, 19.1_
+
+  - [x] 19.23 Implement Revenue and Performance Panel
+    - Create `packages/app/src/zionx/studio/revenue-panel.ts` with metrics aggregation
+    - Implement data sourcing from App Store Connect and Google Play Console drivers (downloads, revenue, ratings, reviews, crash rate, retention)
+    - Implement combined subscription + ad revenue display
+    - Implement LLM token cost tracking per app via Otzar integration (cost-per-app, cost-per-edit)
+    - _Requirements: 42m.41, 42m.42_
+
+  - [x] 19.24 Implement Governance and Audit Integration
+    - Create `packages/app/src/zionx/studio/governance.ts` with Mishmar approval workflows
+    - Implement King approval requirement before store submission (L1 authority)
+    - Implement budget allocation approval for paid acquisition
+    - Implement authority escalation for cross-pillar resource requests
+    - Implement XO_Audit logging for all studio actions with full traceability (idea → live app)
+    - _Requirements: 42n.43, 42n.44_
+
+  - [x] 19.25 Write unit tests for Governance and Audit Integration
+    - Test store submission blocked without King approval
+    - Test budget allocation requires approval above threshold
+    - Test all studio actions produce XO_Audit records with correct metadata
+    - Test audit trail provides full traceability from idea to live app
+    - _Requirements: 42n.43, 42n.44, 19.1_
+
+  - [x] 19.26 Implement Build/Submit Panel Service
+    - Create `packages/app/src/zionx/studio/build-panel.ts` with build status management
+    - Implement separate iOS and Android build status tracking (progress, signing, metadata, privacy policy, screenshots, IAP sandbox)
+    - Implement `app.ios.build.created` hook emission for iOS builds
+    - Implement `app.android.build.created` hook emission for Android builds
+    - Implement `app.submission.ready` hook when all gates pass
+    - _Requirements: 42g.19, 42g.22, 42g.23_
+
+  - [x] 19.27 Write unit tests for Build/Submit Panel Service
+    - Test iOS build status tracks all required fields
+    - Test Android build status tracks all required fields
+    - Test `app.ios.build.created` hook validates Xcode/iOS SDK, bundle ID, signing, metadata
+    - Test `app.android.build.created` hook validates Gradle/AAB, package name, keystore, Data Safety
+    - Test `app.submission.ready` fires only when all gates pass
+    - _Requirements: 42g.19, 42g.22, 42g.23, 19.1_
+
+  - [x] 19.28 Implement Preview Maturity Level 2 (Expo QR)
+    - Create `packages/app/src/zionx/studio/preview-expo.ts` with Expo QR code generation
+    - Implement QR code generation for Expo Go or custom dev client
+    - Implement real-device connection tracking
+    - _Requirements: 42j.32_
+
+  - [x] 19.29 Implement Preview Maturity Level 3 (Cloud Emulator)
+    - Create `packages/app/src/zionx/studio/preview-emulator.ts` with cloud emulator streaming
+    - Implement Android emulator streaming from cloud to dashboard
+    - Implement iOS simulator streaming from cloud to dashboard
+    - Implement automated screenshot capture via Maestro/Detox test frameworks
+    - _Requirements: 42j.33_
+
+  - [x] 19.30 Create database migrations for Phase 9
+    - Create migration for `studio_sessions` table with tenant and app indexes
+    - Create migration for `studio_edit_history` table with session index
+    - Create migration for `studio_store_assets` table with session and type indexes
+    - Create migration for `studio_ad_creatives` table with session and type indexes
+    - _Requirements: 42a.1, 42d.11, 42h.24, 42i.28_
+
+  - [x] 19.31 Implement Dashboard UI — Studio Layout and Tab Structure
+    - Create `packages/dashboard/src/pages/ZionXStudio.tsx` — main studio layout with three-panel design
+    - Implement left panel: Integration Sidebar with service connection toggles
+    - Implement center panel: Tab bar (Preview | Store Assets | Ad Studio | Revenue) with content switching
+    - Implement right panel: ZionX Chat (reusing existing agent chat component), File Tree, Test Results, Build Status
+    - _Requirements: 42a.1, 42b.4, 42c.8, 42e.13_
+
+  - [x] 19.32 Implement Dashboard UI — Device Frame Preview Component
+    - Create `packages/dashboard/src/components/studio/DeviceFrame.tsx` — accurate device frame rendering
+    - Implement device selector dropdown (iPhone 15, iPhone SE, iPad, Pixel 8, Android Tablet)
+    - Implement frame chrome (notch, dynamic island, status bar, home indicator) per device profile
+    - Implement iframe container for React Native Web preview content
+    - _Requirements: 42b.4, 42b.5, 42b.6_
+
+  - [x] 19.33 Implement Dashboard UI — File Tree and Code Viewer
+    - Create `packages/dashboard/src/components/studio/FileTree.tsx` — navigable file tree component
+    - Create `packages/dashboard/src/components/studio/CodeViewer.tsx` — syntax-highlighted file viewer (read-only MVP)
+    - Implement file selection with content display
+    - Implement build status indicators on file tree nodes
+    - _Requirements: 42c.8, 42c.9_
+
+  - [x] 19.34 Implement Dashboard UI — Testing Panel Component
+    - Create `packages/dashboard/src/components/studio/TestingPanel.tsx` — test results display
+    - Implement unit test, UI test, and accessibility results display with pass/fail indicators
+    - Implement design quality score visualization
+    - Implement store readiness checklist with gate status
+    - Implement "Run Tests" button triggering test execution
+    - _Requirements: 42f.16, 42f.17, 42f.18_
+
+  - [x] 19.35 Implement Dashboard UI — Build/Submit Panel Component
+    - Create `packages/dashboard/src/components/studio/BuildPanel.tsx` — dual-platform build status
+    - Implement iOS build status card (progress, signing, metadata, privacy, screenshots, IAP)
+    - Implement Android build status card (progress, signing, metadata, Data Safety, screenshots, billing)
+    - Implement "Submit to App Store" and "Submit to Play Store" buttons with Mishmar approval flow
+    - _Requirements: 42g.19, 42g.20, 42g.21_
+
+  - [x] 19.36 Implement Dashboard UI — Store Assets Tab
+    - Create `packages/dashboard/src/components/studio/StoreAssetsTab.tsx` — asset grid display
+    - Implement screenshot grid organized by device size with validation status indicators
+    - Implement app icon, feature graphic, and promo banner preview
+    - Implement "Generate All Assets" button and individual regeneration
+    - Implement validation issue display with remediation instructions
+    - _Requirements: 42h.24, 42h.25, 42h.26_
+
+  - [x] 19.37 Implement Dashboard UI — Ad Studio Tab
+    - Create `packages/dashboard/src/components/studio/AdStudioTab.tsx` — ad creative management
+    - Implement creative list with type, format, duration, and validation status
+    - Implement video preview player for generated ads
+    - Implement "Generate Ads" button with format selection
+    - Implement export buttons per ad network (AdMob, AppLovin, Unity)
+    - _Requirements: 42i.28, 42i.29, 42i.30_
+
+  - [x] 19.38 Implement Dashboard UI — Revenue Panel Component
+    - Create `packages/dashboard/src/components/studio/RevenuePanel.tsx` — metrics dashboard
+    - Implement downloads, revenue (subscription + ad), ratings, reviews, crash rate, retention charts
+    - Implement cost-per-app and cost-per-edit metrics from Otzar
+    - Implement scale/optimize/kill recommendation display
+    - _Requirements: 42m.41, 42m.42_
+
+  - [x] 19.39 Write integration tests for Phase 9 end-to-end
+    - Test full app creation flow: King describes app → spec generated → code generated → preview renders → edit applied → preview reloads
+    - Test store asset flow: preview active → capture screenshots → generate icon → generate feature graphic → validate all → pass
+    - Test ad creative flow: preview active → generate vertical ad → validate for AdMob → export
+    - Test Apple submission flow: build triggered → signed → metadata prepared → screenshots uploaded → submitted for review
+    - Test Google submission flow: build triggered → signed → metadata prepared → Data Safety form → closed track → production
+    - Test hook integration: edit applied → `app.code.changed` fires → tests run → preview updates
+    - Test gate blocking: critical gate fails → submission blocked → rework task created → gate rerun after fix
+    - Test governance: submission attempted → Mishmar requires King approval → approved → submitted
+    - _Requirements: 42a-42n, 19.2_
+
+- [ ] 20. Checkpoint — Phase 9 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Studio Session Manager handles session lifecycle and undo/redo, App Preview Runtime renders React Native Web in device frames with hot reload, AI Edit Controller processes natural language edits and triggers test/preview cycle, Integration Panel enables service connections with SDK code generation, Testing Panel executes tests and enforces gate-blocked progression, Store Asset Generator captures screenshots and generates all required assets with validation, Ad Studio generates video creatives in multiple formats with network validation, Apple Release Agent owns complete iOS workflow from build to submission, Google Play Release Agent owns complete Android workflow from build to submission, Hook Integration emits all lifecycle events through Event Bus, Revenue Panel displays live metrics from store drivers, Governance Integration enforces King approval and logs all actions to XO_Audit, all database migrations applied successfully
+
+- [x] 21. Phase 10 — ZXMG Video Development Studio
+  - [x] 21.1 Implement Trend Intelligence Engine
+    - Create `packages/app/src/zxmg/studio/trend-engine.ts` with TrendIntelligenceEngine interface
+    - Implement trending topic analysis across YouTube, TikTok, and Instagram via browser automation and YouTube API driver
+    - Implement algorithm signal detection (format boosts, topic boosts, length preferences)
+    - Implement competitor channel analysis with above-average engagement identification
+    - Implement audience retention curve analysis with drop-off pattern detection
+    - Implement content gap identification (high demand, low supply topics)
+    - Implement viral pattern detection (hooks, pacing, formats, thumbnail styles)
+    - Store all research findings in Zikaron procedural memory with confidence scores
+    - _Requirements: 44e.24, 44e.25, 44e.26, 44e.27, 44e.28, 44e.29_
+
+  - [x] 21.2 Write unit tests for Trend Intelligence Engine
+    - Test trending topic analysis returns structured results with velocity and relevance scores
+    - Test algorithm signal detection identifies format and topic boosts with confidence levels
+    - Test competitor analysis extracts engagement strategies from channel data
+    - Test retention curve analysis identifies drop-off points and generates recommendations
+    - Test content gap identification finds high-demand low-supply topics
+    - Test viral pattern detection extracts hooks, pacing, and format patterns
+    - Test all findings are stored in Zikaron with correct metadata
+    - _Requirements: 44e.24-44e.29, 21.1_
+
+  - [x] 21.3 Implement Autonomous Content Engine
+    - Create `packages/app/src/zxmg/studio/autonomous-engine.ts` with AutonomousContentEngine interface
+    - Implement content calendar generation using trend research results and Zikaron performance patterns
+    - Implement content idea ranking by predicted views, engagement rate, and revenue potential
+    - Implement rolling pipeline management (7-14 days ahead per channel, organized BY CHANNEL)
+    - Implement "Generate" action — King clicks to trigger production pipeline for a specific idea
+    - Implement "Publish" action — King clicks to push generated video to assigned channel (no auto-publish)
+    - Implement natural language edit feedback loop — King provides feedback, ZXMG re-generates affected portions
+    - Implement King override interface (approve, reject, modify, reorder pipeline items)
+    - Emit `video.idea.generated` hook when new content idea is generated
+    - Emit `video.pipeline.updated` hook when pipeline state changes
+    - _Requirements: 44a.1, 44a.2, 44a.3, 44a.4, 44a.5, 44a.6, 44a.8, 44a.9, 44a.10_
+
+  - [x] 21.4 Write unit tests for Autonomous Content Engine
+    - Test content calendar generates 7-14 days of ranked ideas per channel
+    - Test idea ranking uses trend data and Zikaron performance patterns
+    - Test pipeline is organized by channel (each channel has independent pipeline)
+    - Test "Generate" action triggers production pipeline for selected idea
+    - Test "Publish" action uploads video to assigned channel only after explicit King click
+    - Test edit feedback re-generates affected scenes while preserving the rest
+    - Test King rejection removes item from pipeline and emits hook
+    - Test King modification updates item and recalculates schedule
+    - Test `video.idea.generated` hook emits with correct payload
+    - Test `video.pipeline.updated` hook emits on state changes
+    - _Requirements: 44a.1-44a.10, 21.1_
+
+  - [x] 21.5 Implement Multi-Model Video Router
+    - Create `packages/app/src/zxmg/studio/model-router.ts` with MultiModelVideoRouter interface
+    - Implement model capability registry (Sora 2/Veo 3, Kling, WAN, Minimax, animation models)
+    - Implement routing logic: cinematic → Sora 2/Veo 3, fast iteration → Kling/WAN/Minimax, animation → specialized models
+    - Implement Otzar integration for budget-aware model selection
+    - Implement text-to-video, image-to-video, and audio-to-video generation modes
+    - Implement camera simulation parameters (pan, zoom, dolly, crane, tracking)
+    - Implement character persistence across clips using Zikaron face/body profiles
+    - Implement lip-sync generation for dialogue scenes
+    - _Requirements: 44c.12, 44c.13, 44c.14, 44c.15, 44c.16, 44c.17_
+
+  - [x] 21.6 Write unit tests for Multi-Model Video Router
+    - Test cinematic scenes route to Sora 2 or Veo 3
+    - Test fast iteration scenes route to Kling, WAN, or Minimax
+    - Test animation scenes route to specialized animation models
+    - Test budget constraints influence model selection (downgrade when over budget)
+    - Test text-to-video, image-to-video, and audio-to-video modes produce valid clips
+    - Test camera simulation parameters are passed correctly to model API
+    - Test character persistence references Zikaron profiles across clips
+    - Test lip-sync generation synchronizes with voiceover audio
+    - Test `video.scene.rendered` hook emits after clip generation
+    - _Requirements: 44c.12-44c.17, 21.1_
+
+  - [x] 21.7 Implement Video Production Pipeline
+    - Create `packages/app/src/zxmg/studio/production-pipeline.ts` with VideoProductionPipeline interface
+    - Implement script generation from concept using channel config and trend context
+    - Implement scene decomposition (script → individual scenes with duration, visuals, camera, audio, characters)
+    - Implement scene rendering orchestration (route each scene through Multi-Model Router)
+    - Implement video assembly from rendered clips with transitions and audio layers
+    - Implement multi-format export (16:9, 9:16, 1:1)
+    - Emit `video.script.created` hook when script is generated
+    - Emit `video.assembled` hook when full video is assembled
+    - _Requirements: 44b.7, 44b.8, 44b.9, 44b.10, 44b.11, 44d.22, 44d.23_
+
+  - [x] 21.8 Write unit tests for Video Production Pipeline
+    - Test script generation produces complete production package (script, scenes, shot list, style guide, audio direction)
+    - Test scene decomposition creates scenes with all required fields (duration, visuals, camera, audio, characters)
+    - Test 15-minute video support with consistent character/visual style across scenes
+    - Test multi-style support (cinematic, animated, documentary, tutorial, vlog, music video)
+    - Test video assembly combines clips with transitions and audio layers
+    - Test multi-format export produces correct aspect ratios
+    - Test `video.script.created` and `video.assembled` hooks emit correctly
+    - _Requirements: 44b.7-44b.11, 44d.22, 44d.23, 21.1_
+
+  - [x] 21.9 Implement Timeline Editor Service
+    - Create `packages/app/src/zxmg/studio/timeline-editor.ts` with VideoTimelineEditor interface
+    - Implement scene-by-scene timeline control (reorder, trim, extend, replace)
+    - Implement audio layer management (music, SFX, voiceover, ambient as separate tracks)
+    - Implement transitions between scenes (cuts, fades, dissolves, wipes, motion graphics)
+    - Implement color grading presets (per scene and whole video)
+    - _Requirements: 44d.18, 44d.19, 44d.20, 44d.21_
+
+  - [x] 21.10 Write unit tests for Timeline Editor Service
+    - Test scene reorder updates sequence and maintains audio sync
+    - Test scene trim adjusts duration without affecting adjacent scenes
+    - Test audio layer management supports independent track manipulation
+    - Test transitions apply correctly between scene boundaries
+    - Test color grading applies per-scene and whole-video presets
+    - _Requirements: 44d.18-44d.21, 21.1_
+
+  - [x] 21.11 Implement Channel Manager
+    - Create `packages/app/src/zxmg/studio/channel-manager.ts` with ChannelManager interface
+    - Implement multi-channel CRUD (add, update, list channels)
+    - Implement per-channel configuration (niche, tone, cadence, audience, content pillars)
+    - Implement per-channel analytics aggregation (views, subscribers, revenue, retention, CTR, growth)
+    - Implement cross-channel promotion opportunity detection
+    - Implement channel health monitoring with decline alerts
+    - Store channel configurations in Zikaron for learning
+    - _Requirements: 44f.30, 44f.31, 44f.32, 44f.33, 44f.34_
+
+  - [x] 21.12 Write unit tests for Channel Manager
+    - Test channel creation stores configuration correctly
+    - Test channel update modifies only specified fields
+    - Test analytics aggregation returns correct metrics per channel
+    - Test cross-channel promotion identifies relevant opportunities
+    - Test health monitoring emits alerts when metrics decline below thresholds
+    - Test channel config stored in Zikaron
+    - _Requirements: 44f.30-44f.34, 21.1_
+
+  - [x] 21.13 Implement Platform Distribution Engine
+    - Create `packages/app/src/zxmg/studio/distribution.ts` with PlatformDistributionEngine interface
+    - Implement YouTube publishing via YouTube API driver with full metadata
+    - Implement TikTok, Instagram Reels, X, Facebook, and Rumble publishing
+    - Implement platform-specific formatting (aspect ratio, duration, captions, hashtags, thumbnails)
+    - Implement optimal scheduling based on audience activity data from Zikaron
+    - Implement content repurposing (long-form → shorts, clips, teasers)
+    - Emit `video.scheduled` hook when video is scheduled
+    - Emit `video.published` hook when video is uploaded to platform
+    - _Requirements: 44g.35, 44g.36, 44g.37, 44g.38, 44g.39_
+
+  - [x] 21.14 Write unit tests for Platform Distribution Engine
+    - Test YouTube publishing sends correct metadata and video file
+    - Test platform-specific formatting produces correct aspect ratios and durations
+    - Test optimal scheduling queries Zikaron for audience activity patterns
+    - Test content repurposing generates shorts from long-form with correct format
+    - Test `video.scheduled` and `video.published` hooks emit with correct payloads
+    - Test multi-platform publish handles partial failures gracefully
+    - _Requirements: 44g.35-44g.39, 21.1_
+
+  - [x] 21.15 Implement Thumbnail and SEO Generator
+    - Create `packages/app/src/zxmg/studio/thumbnail-seo.ts` with ThumbnailSEOGenerator interface
+    - Implement thumbnail generation (minimum 3 variants per video) with predicted CTR scoring
+    - Implement title variant generation optimized for YouTube SEO
+    - Implement description and tag generation
+    - Implement A/B test result recording and Zikaron learning feedback
+    - Emit `video.thumbnail.generated` hook when variants are created
+    - _Requirements: 44h.40, 44h.41, 44h.42, 44h.43_
+
+  - [x] 21.16 Write unit tests for Thumbnail and SEO Generator
+    - Test thumbnail generation produces minimum 3 variants with different styles
+    - Test title variants include predicted CTR and search volume
+    - Test tag generation produces relevant, non-duplicate tags
+    - Test A/B result recording stores in Zikaron with correct metrics
+    - Test `video.thumbnail.generated` hook emits with variant data
+    - _Requirements: 44h.40-44h.43, 21.1_
+
+  - [x] 21.17 Implement UGC and Ad Creative Builder
+    - Create `packages/app/src/zxmg/studio/ugc-builder.ts` with UGCAdCreativeBuilder interface
+    - Implement UGC-style video generation (authentic-looking user-generated content)
+    - Implement AI avatar/influencer creation with persistent identity in Zikaron
+    - Implement performance ad format generation (hook → value → CTA) with A/B variants
+    - _Requirements: 44i.44, 44i.45, 44i.46_
+
+  - [x] 21.18 Write unit tests for UGC and Ad Creative Builder
+    - Test UGC generation produces authentic-style video content
+    - Test AI avatar creation stores persistent identity in Zikaron
+    - Test performance ad variants follow hook → value → CTA structure
+    - Test multiple variants generated for A/B testing
+    - _Requirements: 44i.44-44i.46, 21.1_
+
+  - [x] 21.19 Implement Analytics and Performance Tracker
+    - Create `packages/app/src/zxmg/studio/analytics.ts` with VideoAnalyticsEngine interface
+    - Implement real-time performance tracking (views, watch time, engagement, CTR, revenue)
+    - Implement audience retention heatmap generation (second-by-second)
+    - Implement revenue tracking (AdSense, sponsorships, affiliate)
+    - Implement performance pattern storage in Zikaron procedural memory
+    - Emit `video.performance.update` hook when metrics are updated
+    - Generate optimization recommendations when metrics fall below channel baseline
+    - _Requirements: 44j.47, 44j.48, 44j.49, 44j.50_
+
+  - [x] 21.20 Write unit tests for Analytics and Performance Tracker
+    - Test real-time metrics tracking aggregates correctly from platform APIs
+    - Test retention heatmap generates second-by-second data
+    - Test revenue tracking combines AdSense, sponsorship, and affiliate sources
+    - Test performance patterns stored in Zikaron with correct metadata
+    - Test `video.performance.update` hook emits with metrics payload
+    - Test optimization recommendations generated when below baseline
+    - _Requirements: 44j.47-44j.50, 21.1_
+
+  - [x] 21.21 Implement Video Studio Hook Integration
+    - Create `packages/app/src/zxmg/studio/hooks.ts` with all video studio lifecycle hook emissions
+    - Implement hook emitters for: `video.idea.generated`, `video.script.created`, `video.scene.rendered`, `video.assembled`, `video.thumbnail.generated`, `video.scheduled`, `video.published`, `video.performance.update`, `video.pipeline.updated`
+    - Implement performance-based recommendation generation on `video.performance.update`
+    - Integrate with existing Event Bus infrastructure
+    - Integrate with existing Shaar WebSocket for real-time dashboard updates
+    - _Requirements: 44m.59, 44m.60, 44m.61_
+
+  - [x] 21.22 Write unit tests for Video Studio Hook Integration
+    - Test each hook emits correct event payload to Event Bus
+    - Test `video.performance.update` triggers optimization recommendations when below baseline
+    - Test WebSocket integration delivers real-time updates to dashboard
+    - Test hooks integrate with existing Event Bus infrastructure
+    - _Requirements: 44m.59-44m.61, 21.1_
+
+  - [x] 21.23 Implement Governance and Audit Integration
+    - Create `packages/app/src/zxmg/studio/governance.ts` with Mishmar and XO_Audit integration
+    - Implement optional King approval requirement before autonomous publishing (configurable per channel)
+    - Implement budget allocation approval for premium model usage via Otzar
+    - Implement authority escalation for cross-pillar resource requests
+    - Implement XO_Audit logging for all studio actions (idea → research → script → render → assemble → publish → performance)
+    - Implement Otzar model routing integration for budget-aware video generation
+    - _Requirements: 44n.62, 44n.63, 44n.64, 44n.65, 44n.66_
+
+  - [x] 21.24 Write unit tests for Governance and Audit Integration
+    - Test publishing blocked when channel requires King approval and approval not given
+    - Test publishing proceeds when channel has auto-publish enabled
+    - Test budget allocation requires approval above threshold
+    - Test all studio actions produce XO_Audit records with correct metadata
+    - Test audit trail provides full traceability from research to published video
+    - Test Otzar integration enforces per-channel budget limits
+    - _Requirements: 44n.62-44n.66, 21.1_
+
+  - [x] 21.25 Create database migrations for Phase 10
+    - Create migration for `video_channels` table with tenant and YouTube channel indexes
+    - Create migration for `video_pipeline_items` table with channel, status, and auto-execute indexes
+    - Create migration for `video_rendered_scenes` table with pipeline item index
+    - Create migration for `video_performance` table with pipeline and channel indexes
+    - Create migration for `video_trend_research` table with channel and expiry indexes
+    - _Requirements: 44a.3, 44f.30, 44j.47, 44e.24_
+
+  - [x] 21.26 Implement Dashboard UI — Video Studio Layout
+    - Create `packages/dashboard/src/pages/ZXMGVideoStudio.tsx` — main studio layout with three-panel design
+    - Implement left panel (1fr): ZXMG AI chat panel + autonomous pipeline view
+    - Implement center panel (2fr): Video preview player + timeline editor + scene thumbnail strip + audio waveform
+    - Implement right panel (64px): Tool sidebar with 13 icon buttons (Script, Scenes, Characters, Audio, Effects, Trends, Thumbnails, Captions, Export, Analytics, Publish, Pipeline, Research)
+    - _Requirements: 44l.56, 44l.57, 44l.58_
+
+  - [x] 21.27 Implement Dashboard UI — Video Preview Panel
+    - Create `packages/dashboard/src/components/video-studio/VideoPlayer.tsx` — full video player with timeline scrubbing
+    - Create `packages/dashboard/src/components/video-studio/SceneThumbnailStrip.tsx` — scene-by-scene thumbnail navigation
+    - Create `packages/dashboard/src/components/video-studio/AudioWaveform.tsx` — synchronized audio waveform visualization
+    - Implement side-by-side comparison view for before/after edits
+    - Implement device preview (mobile vs desktop viewing contexts)
+    - _Requirements: 44k.51, 44k.52, 44k.53, 44k.54, 44k.55_
+
+  - [x] 21.28 Implement Dashboard UI — Pipeline View Component
+    - Create `packages/dashboard/src/components/video-studio/PipelineView.tsx` — autonomous pipeline display
+    - Implement pipeline item cards showing: concept, predicted metrics, status, scheduled dates
+    - Implement approve/reject/modify buttons per pipeline item
+    - Implement pipeline timeline visualization (7-14 day view)
+    - Implement "Generate" button per pipeline item to trigger video production
+    - _Requirements: 44a.3, 44a.4, 44a.5_
+
+  - [x] 21.29 Implement Dashboard UI — Tool Panels
+    - Create `packages/dashboard/src/components/video-studio/ScriptPanel.tsx` — script editor and scene breakdown view
+    - Create `packages/dashboard/src/components/video-studio/ScenesPanel.tsx` — scene-by-scene management with render status
+    - Create `packages/dashboard/src/components/video-studio/CharactersPanel.tsx` — character consistency and avatar management
+    - Create `packages/dashboard/src/components/video-studio/AudioPanel.tsx` — music, SFX, voiceover layer management
+    - Create `packages/dashboard/src/components/video-studio/EffectsPanel.tsx` — transitions, color grading, visual effects
+    - Create `packages/dashboard/src/components/video-studio/TrendsPanel.tsx` — trending topics and algorithm signals display
+    - Create `packages/dashboard/src/components/video-studio/ThumbnailsPanel.tsx` — thumbnail generation and A/B testing
+    - Create `packages/dashboard/src/components/video-studio/CaptionsPanel.tsx` — subtitle and caption generation
+    - Create `packages/dashboard/src/components/video-studio/ExportPanel.tsx` — multi-format export settings
+    - Create `packages/dashboard/src/components/video-studio/AnalyticsPanel.tsx` — performance metrics and optimization
+    - Create `packages/dashboard/src/components/video-studio/PublishPanel.tsx` — platform distribution and scheduling
+    - Create `packages/dashboard/src/components/video-studio/ResearchPanel.tsx` — content research and competitor analysis
+    - _Requirements: 44l.57, 44l.58, 44d.18, 44e.24, 44h.40, 44j.47, 44g.35_
+
+  - [x] 21.30 Implement Dashboard UI — Channel Management View
+    - Create `packages/dashboard/src/components/video-studio/ChannelManager.tsx` — multi-channel management interface
+    - Implement channel configuration form (niche, tone, cadence, audience, content pillars)
+    - Implement per-channel analytics dashboard (views, subscribers, revenue, retention, CTR, growth)
+    - Implement channel health indicators with alert display
+    - _Requirements: 44f.30, 44f.31, 44f.32, 44f.34_
+
+  - [x] 21.31 Write integration tests for Phase 10 end-to-end
+    - Test full pipeline flow: trend research → idea generation → calendar entry → King clicks Generate → script → scenes → render → assemble → King reviews → King provides feedback → re-render → King clicks Publish
+    - Test King override flow: pipeline item displayed → King modifies → updated item produced → King publishes with modifications
+    - Test multi-model routing: cinematic scene → Sora 2, fast scene → Kling, animation → specialized model
+    - Test content repurposing: long-form video → shorts + clips + teasers generated
+    - Test multi-platform distribution: single video → YouTube + TikTok + Instagram published with correct formats
+    - Test performance learning loop: video published → metrics tracked → patterns stored in Zikaron → next cycle uses learnings
+    - Test channel health monitoring: metrics decline → alert generated → recommendation created
+    - Test governance: approval-required channel → publish blocked until King approves
+    - Test hook integration: each lifecycle event emits correct hook through Event Bus
+    - _Requirements: 44a-44n, 21.2_
+
+- [x] 22. Checkpoint — Phase 10 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Trend Intelligence Engine researches across platforms and stores findings in Zikaron, Autonomous Content Engine generates ranked content calendars and auto-executes after 24hr timeout, Multi-Model Video Router routes scenes to optimal AI models via Otzar budget management, Video Production Pipeline generates scripts and assembles 15-minute videos with character consistency, Timeline Editor provides scene-by-scene control with audio layers and transitions, Channel Manager supports multi-channel configuration with health monitoring, Platform Distribution Engine publishes to 6 platforms with optimal scheduling, Thumbnail/SEO Generator produces A/B variants with learning feedback, Analytics Engine tracks performance and feeds learnings back to Zikaron, all 9 lifecycle hooks emit through Event Bus, Governance integration enforces optional approval and logs all actions to XO_Audit, Dashboard UI provides three-panel layout with 13 tool sidebar buttons
+
+
+- [x] 23. Phase 11 — ZionX Autonomous App Ideation Engine + Eretz Business Command Center
+
+  - [x] 23.1 Implement Market Research Engine
+    - Create `packages/app/src/zionx/studio/ideation/market-research.ts` with MarketResearchEngine interface
+    - Implement `runResearchCycle()`: orchestrate full market scan across Apple App Store and Google Play Store
+    - Implement `scanAppStoreCategory()`: analyze category rankings, top apps, revenue data, and growth trends per store
+    - Implement `analyzeCompetitorApps()`: identify competitor weaknesses, missing features, and user complaints from reviews
+    - Implement `identifyReviewGaps()`: detect unmet user needs from review sentiment analysis
+    - Implement `detectEmergingNiches()`: identify rising niches with high demand and low supply
+    - Implement `storeResearchFindings()`: persist all findings to Zikaron with structured metadata (source, confidence, category, timestamp, relevance tags)
+    - Emit `app.idea.researched` hook when research cycle completes
+    - _Requirements: 45a.1, 45a.2, 45a.3, 45a.4_
+
+  - [x] 23.2 Write unit tests for Market Research Engine
+    - Test research cycle orchestrates scans across both stores and aggregates results
+    - Test category analysis produces correct structure with rankings, revenue, and competition density
+    - Test competitor analysis identifies gaps and user complaints from review data
+    - Test review gap detection identifies unmet needs with correct sentiment scoring
+    - Test emerging niche detection identifies rising niches with growth velocity
+    - Test findings are stored in Zikaron with correct metadata structure
+    - Test `app.idea.researched` hook emits with research result payload
+    - _Requirements: 45a.1-45a.4, 21.1_
+
+  - [x] 23.3 Implement Niche Scoring Algorithm
+    - Create `packages/app/src/zionx/studio/ideation/niche-scoring.ts` with NicheScoringAlgorithm interface
+    - Implement `scoreNiche()`: compute composite score (0-100) from market size, competition density (inverse), revenue potential, technical feasibility, growth trend, and review gap score
+    - Implement `batchScoreNiches()`: score multiple niches in parallel with consistent weighting
+    - Implement `updateWeights()`: adjust scoring weights based on historical outcomes stored in Zikaron (ideas that succeeded get their niche factors weighted higher)
+    - Implement `getWeights()`: return current scoring weights with last calibration date
+    - Implement per-factor breakdown in score output so King can understand ranking rationale
+    - _Requirements: 45b.5, 45b.6, 45b.7_
+
+  - [x] 23.4 Write unit tests for Niche Scoring Algorithm
+    - Test composite score normalizes correctly to 0-100 range
+    - Test per-factor breakdown sums to composite score
+    - Test competition density is inversely weighted (lower competition = higher score)
+    - Test weight updates from historical outcomes adjust future scoring
+    - Test niches with previous ZionX success receive higher feasibility scores
+    - Test batch scoring produces consistent results with single scoring
+    - _Requirements: 45b.5-45b.7, 21.1_
+
+  - [x] 23.5 Implement App Idea Generator and Pipeline Manager
+    - Create `packages/app/src/zionx/studio/ideation/pipeline-manager.ts` with AppIdeaPipelineManager interface
+    - Implement `addIdea()`: add ideas from both autonomous and manual sources with correct metadata
+    - Implement `rankPipeline()`: sort ideas by composite score of predicted downloads, revenue, and inverse competition
+    - Implement `getPipeline()`: return ranked ideas with optional filters (category, revenue, competition, feasibility, status)
+    - Implement `refreshPipeline()`: re-score existing ideas, remove stale ideas (>30 days without action), add new ideas from research
+    - Implement `markAsGenerating()`, `markAsGenerated()`, `markAsPublished()`: status transitions for Gate 1 and Gate 2
+    - Implement `dismissIdea()` and `bookmarkIdea()`: King pipeline management actions
+    - Emit `app.idea.ranked` hook when ideas are added or re-ranked
+    - Emit `app.pipeline.updated` hook when pipeline state changes
+    - _Requirements: 45c.8, 45c.9, 45c.10, 45c.11, 45d.12, 45d.13, 45d.14, 45d.15_
+
+  - [x] 23.6 Write unit tests for App Idea Generator and Pipeline Manager
+    - Test ideas from both autonomous and manual sources are added with correct metadata
+    - Test pipeline ranking sorts by composite score correctly
+    - Test filters (category, revenue, competition, feasibility, status) return correct subsets
+    - Test stale idea pruning removes ideas older than 30 days without action
+    - Test re-scoring updates rankings based on market changes
+    - Test status transitions (pipeline → generating → generated → published) work correctly
+    - Test dismiss and bookmark actions update idea status
+    - Test `app.idea.ranked` hook emits on add and re-rank
+    - Test `app.pipeline.updated` hook emits on all state changes
+    - Test both Gate 1 (Generate) and Gate 2 (Publish) transitions integrate with existing ZionX Studio flow
+    - _Requirements: 45c.8-45c.11, 45d.12-45d.15, 21.1_
+
+  - [x] 23.7 Implement Ideation Learning and Audit Integration
+    - Create `packages/app/src/zionx/studio/ideation/learning.ts` with outcome tracking and weight calibration
+    - Implement outcome recording: when a published app's performance data is available, correlate original idea scoring with actual results
+    - Implement weight calibration: use outcome data to adjust niche scoring weights via `updateWeights()`
+    - Implement XO_Audit logging for all ideation actions (research cycles, niche scoring, idea generation, pipeline updates)
+    - Integrate with existing ZionX design intelligence, quality baselines, and GTM engine — pipeline ideas inherit same standards
+    - _Requirements: 45f.20, 45f.21, 45f.22_
+
+  - [x] 23.8 Write unit tests for Ideation Learning and Audit Integration
+    - Test outcome recording stores correct correlation between idea scoring and actual performance
+    - Test weight calibration adjusts scoring weights based on outcome data
+    - Test all ideation actions produce XO_Audit records with correct metadata and traceability
+    - Test pipeline ideas inherit ZionX quality baselines and GTM automation
+    - _Requirements: 45f.20-45f.22, 21.1_
+
+  - [x] 23.9 Implement Dashboard UI — ZionX Studio Pipeline View Update
+    - Update `packages/dashboard/src/pages/ZionXAppStudio.tsx` left panel to include autonomous pipeline view alongside existing chat
+    - Create `packages/dashboard/src/components/app-studio/IdeationPipelineView.tsx` — ranked pipeline display with "Generate" buttons per idea
+    - Implement pipeline idea cards showing: app name, predicted downloads, predicted revenue, competition level, niche score, and status
+    - Implement pipeline filters: category, revenue potential, competition level, technical feasibility
+    - Implement idea detail view on click: full market analysis, competitor breakdown, revenue model, niche scoring factors
+    - Implement dismiss and bookmark actions per idea
+    - Connect to WebSocket for real-time pipeline updates
+    - _Requirements: 45e.16, 45e.17, 45e.18, 45e.19_
+
+  - [x] 23.10 Write unit tests for ZionX Studio Pipeline View
+    - Test pipeline view renders ranked ideas with correct metrics display
+    - Test "Generate" button triggers app generation flow for selected idea
+    - Test filters correctly narrow displayed ideas
+    - Test idea detail view shows full market analysis and scoring breakdown
+    - Test dismiss and bookmark actions update pipeline state
+    - Test WebSocket integration delivers real-time pipeline updates
+    - _Requirements: 45e.16-45e.19, 21.1_
+
+  - [x] 23.11 Implement Eretz Business Command Center — Page Layout and Portfolio Overview
+    - Create `packages/dashboard/src/pages/EretzCommandCenter.tsx` — full-page dedicated tab with responsive grid layout
+    - Create `packages/dashboard/src/components/command-center/PortfolioOverviewHeader.tsx` — total MRR, total revenue, growth trajectory sparkline, portfolio health indicator
+    - Create `packages/dashboard/src/components/command-center/SubsidiaryCardGrid.tsx` — grid of per-subsidiary cards
+    - Create `packages/dashboard/src/components/command-center/ZionXCard.tsx` — apps count, total app revenue, top 3 apps, pipeline count, growth trend
+    - Create `packages/dashboard/src/components/command-center/ZXMGCard.tsx` — channels count, total views, revenue, top 3 channels, content pipeline count
+    - Create `packages/dashboard/src/components/command-center/ZionAlphaCard.tsx` — active positions, P&L, win rate, strategy, risk exposure
+    - Implement per-subsidiary breakdown showing MRR contribution percentage and trend indicators
+    - Connect to portfolio-dashboard.ts via WebSocket for real-time metric updates
+    - _Requirements: 46a.1, 46a.2, 46a.3, 46b.4, 46b.5, 46c.6, 46c.7, 46c.8_
+
+  - [x] 23.12 Write unit tests for Command Center Layout and Portfolio Overview
+    - Test full-page layout renders as dedicated tab (not sub-view)
+    - Test portfolio header displays correct total MRR, revenue, growth, and health indicator
+    - Test per-subsidiary breakdown shows correct contribution percentages
+    - Test ZionX card displays apps count, revenue, top apps, and pipeline count
+    - Test ZXMG card displays channels count, views, revenue, and top channels
+    - Test Zion Alpha card displays positions, P&L, win rate, and risk exposure
+    - Test WebSocket connection delivers real-time metric updates
+    - _Requirements: 46a.1-46a.3, 46b.4-46b.5, 46c.6-46c.8, 21.1_
+
+  - [x] 23.13 Implement Eretz Business Command Center — Synergy Map and Pattern Library
+    - Create `packages/dashboard/src/components/command-center/SynergyMapVisualization.tsx` — visual synergy map with connecting lines between subsidiaries, data flow direction, and revenue impact annotations
+    - Create `packages/dashboard/src/components/command-center/PatternLibraryBrowser.tsx` — searchable pattern list with name, category, source subsidiary, adoption count, and effectiveness score
+    - Implement pattern detail view on click: description, implementation examples, adoption history, measured impact
+    - Implement synergy revenue impact display: total additional revenue from cross-subsidiary synergies
+    - Connect to synergy-engine.ts and pattern-library.ts via WebSocket/REST
+    - _Requirements: 46d.9, 46d.10, 46e.11, 46e.12_
+
+  - [x] 23.14 Write unit tests for Synergy Map and Pattern Library
+    - Test synergy map renders active synergies with correct source/target subsidiaries
+    - Test synergy revenue impact displays total synergy-generated revenue
+    - Test pattern library browser renders searchable list with correct metrics
+    - Test pattern detail view shows full information on click
+    - Test search filters patterns by name and category
+    - Test data sourced from synergy-engine.ts and pattern-library.ts services
+    - _Requirements: 46d.9-46d.10, 46e.11-46e.12, 21.1_
+
+  - [x] 23.15 Implement Eretz Business Command Center — Training, Recommendations, and Alerts
+    - Create `packages/dashboard/src/components/command-center/TrainingCascadeChart.tsx` — per-subsidiary quality trend line charts showing before/after training, completion rates, and quality score improvements
+    - Create `packages/dashboard/src/components/command-center/RecommendationQueuePanel.tsx` — pending recommendations with summary, priority, source agent, date, and approve/reject/modify buttons
+    - Create `packages/dashboard/src/components/command-center/DeclineAlertsPanel.tsx` — real-time alerts with subsidiary, metric, severity, decline percentage, and intervention plan
+    - Implement recommendation approve action: trigger execution workflow, update queue display
+    - Implement recommendation reject action: mark rejected with optional reason, remove from pending
+    - Implement recommendation modify action: inline editor for parameter adjustment before approval
+    - Implement alert acknowledgment and full intervention plan view
+    - Connect to training-cascade.ts, RecommendationQueue, and portfolio-dashboard.ts via WebSocket
+    - _Requirements: 46f.13, 46f.14, 46g.15, 46g.16, 46g.17, 46g.18, 46h.19, 46h.20, 46h.21_
+
+  - [x] 23.16 Write unit tests for Training, Recommendations, and Alerts
+    - Test training cascade chart renders per-subsidiary quality trends correctly
+    - Test recommendation queue displays pending items with correct priority ordering
+    - Test approve action triggers execution and removes from pending queue
+    - Test reject action marks recommendation as rejected with reason
+    - Test modify action opens inline editor and submits adjusted parameters
+    - Test decline alerts display immediately via WebSocket push
+    - Test alert acknowledgment updates alert state
+    - Test intervention plan view shows full actionable steps
+    - _Requirements: 46f.13-46f.14, 46g.15-46g.18, 46h.19-46h.21, 21.1_
+
+  - [x] 23.17 Implement Eretz Business Command Center — Resource Allocation and Strategy
+    - Create `packages/dashboard/src/components/command-center/ResourceAllocationView.tsx` — visual budget breakdown (bar chart/treemap) with per-subsidiary percentage, actual spend, and recommended allocation
+    - Create `packages/dashboard/src/components/command-center/StrategicPrioritiesPanel.tsx` — portfolio thesis, top priorities list, per-subsidiary strategy (scale/maintain/optimize/deprecate), risk factors, and key actions with progress indicators
+    - Implement resource allocation adjustment: King can drag percentages or enter values, changes propagated to Eretz portfolio strategy
+    - Connect to portfolio-dashboard.ts for strategy and allocation data
+    - _Requirements: 46i.22, 46i.23, 46j.24, 46j.25_
+
+  - [x] 23.18 Write unit tests for Resource Allocation and Strategy
+    - Test resource allocation view renders correct budget distribution per subsidiary
+    - Test allocation adjustment propagates changes to portfolio strategy service
+    - Test strategic priorities panel displays portfolio thesis and per-subsidiary strategies
+    - Test risk factors and key actions render with correct priority ordering
+    - Test data sourced from portfolio-dashboard.ts service
+    - _Requirements: 46i.22-46i.23, 46j.24-46j.25, 21.1_
+
+  - [x] 23.19 Implement Eretz Command Center WebSocket Integration and Data Layer
+    - Create `packages/dashboard/src/services/command-center-ws.ts` with CommandCenterWebSocket interface
+    - Implement WebSocket subscriptions for: metrics updates, decline alerts, recommendation changes, synergy updates
+    - Implement action dispatchers: approveRecommendation, rejectRecommendation, modifyRecommendation, updateResourceAllocation
+    - Ensure all displayed data sources from existing Eretz services (no business logic duplication)
+    - Verify Command Center is presentation layer only (Requirement 46k.26, 46k.27)
+    - _Requirements: 46a.3, 46k.26, 46k.27_
+
+  - [x] 23.20 Write unit tests for Command Center WebSocket Integration
+    - Test WebSocket subscriptions receive and dispatch correct event types
+    - Test metrics update handler refreshes portfolio overview in real-time
+    - Test alert push handler displays new alerts without page refresh
+    - Test recommendation action dispatchers send correct payloads to backend
+    - Test resource allocation updates propagate through WebSocket
+    - Test no business logic duplication — all data from existing services
+    - _Requirements: 46a.3, 46k.26-46k.27, 21.1_
+
+  - [x] 23.21 Deploy updated dashboard to S3
+    - Build the dashboard package (`packages/dashboard`) with production configuration
+    - Upload built assets to the existing S3 bucket (from Phase 4, task 7.5 CloudFront/S3 hosting)
+    - Invalidate CloudFront distribution cache to serve updated dashboard immediately
+    - Verify new ZionX Studio pipeline view and Eretz Command Center tab are accessible via CloudFront URL
+    - _Requirements: 45e.16, 46a.1_
+
+  - [x] 23.22 Write integration tests for Phase 11 end-to-end
+    - Test full ideation flow: market research → niche scoring → idea generation → pipeline ranking → King clicks Generate → app enters ZionX Studio flow → King clicks Publish
+    - Test manual idea flow: King creates idea via chat → idea added to pipeline → same Generate → Publish flow
+    - Test pipeline maintenance: stale ideas pruned after 30 days, re-scoring updates rankings
+    - Test learning loop: published app performance → outcome stored → scoring weights updated → next cycle uses learnings
+    - Test Eretz Command Center loads all sections with live data from Eretz services
+    - Test Command Center real-time updates: metric change → WebSocket push → dashboard updates without refresh
+    - Test recommendation workflow: recommendation submitted → appears in queue → King approves → execution triggered
+    - Test decline alert flow: metric drops below threshold → alert generated → pushed to Command Center → King acknowledges
+    - Test resource allocation: King adjusts allocation → change propagated to portfolio strategy
+    - Test hook integration: `app.idea.researched`, `app.idea.ranked`, `app.pipeline.updated` emit correctly through Event Bus
+    - _Requirements: 45a-45f, 46a-46k, 21.2_
+
+- [x] 24. Checkpoint — Phase 11 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Market Research Engine scans App Store and Play Store categories and stores findings in Zikaron, Niche Scoring Algorithm produces normalized 0-100 scores with per-factor breakdown and learning-based weight adjustment, App Idea Pipeline Manager maintains ranked ideas from both autonomous and manual sources with correct status transitions, Ideation Learning tracks outcomes and calibrates scoring weights, ZionX Studio UI shows pipeline view alongside chat with Generate buttons and filters, Eretz Business Command Center renders as full-page dedicated tab with portfolio overview and per-subsidiary cards, Synergy Map visualizes active synergies with revenue impact, Pattern Library Browser provides searchable patterns with adoption metrics, Training Cascade shows per-subsidiary quality trends, Recommendation Queue supports approve/reject/modify actions, Decline Alerts display in real-time via WebSocket push, Resource Allocation view allows King to adjust budget distribution, Strategic Priorities display portfolio thesis and per-subsidiary strategies, all hooks emit through Event Bus, dashboard deployed to S3 with CloudFront cache invalidation
+
+- [x] 25. Phase 12 — Dashboard UX Enhancements (Original Seraphim Integration)
+
+  - [x] 25.1 Implement King's Briefing Card on King's View tab
+    - Create `packages/dashboard/src/components/kings-view/BriefingCard.tsx` with KingsBriefingCard interface
+    - Implement instant state recovery card showing: current top 3 priorities, active blockers (count + severity), revenue status (MRR + trend), and key events since last login
+    - Implement session continuity indicator showing when the system lost context and recovered (gap detection)
+    - Implement "since last login" timestamp with relative time display
+    - Pull data from portfolio-dashboard.ts (revenue), recommendation queue (blockers), and Event Bus (recent events)
+    - Auto-refresh via WebSocket on `portfolio.metrics_updated` events
+    - Place as the first/top component on the King's View tab
+    - _Requirements: 46a.1, 9.1_
+
+  - [x] 25.2 Write unit tests for King's Briefing Card
+    - Test briefing card renders priorities, blockers, revenue, and recent events
+    - Test session continuity indicator shows gap when detected
+    - Test "since last login" displays correct relative time
+    - Test WebSocket updates refresh the card in real-time
+    - Test empty states (no blockers, no events since last login)
+
+  - [x] 25.3 Implement Visual Pipeline Progress on ZionX Pipeline tab
+    - Create `packages/dashboard/src/components/app-studio/VisualPipelineBoard.tsx` with VisualPipelineBoard interface
+    - Implement horizontal Kanban-style pipeline visualization with columns: Ideation → Market Research → Development → Testing → Gate Review → Submission → In Review → Live → Marketing → Revenue Optimizing
+    - Implement app cards that move between columns showing: app name, days in stage, gate check status (e.g., "67/70 passed, 3 warnings"), and health indicator
+    - Implement gate checkpoint markers between columns showing pass/fail counts per gate
+    - Implement click-to-expand on any app card for full detail view
+    - Implement drag-and-drop reordering within columns (priority ordering)
+    - Connect to ZionX agent program state machine for real-time position data
+    - Place on the existing `zionx-pipeline` nav view
+    - _Requirements: 11.1, 11.2, 2.1_
+
+  - [x] 25.4 Write unit tests for Visual Pipeline Progress
+    - Test pipeline renders all stage columns with correct app cards
+    - Test gate checkpoint markers show pass/fail counts
+    - Test app card click expands to detail view
+    - Test cards move between columns on state transition events
+    - Test drag-and-drop reorders within a column
+
+  - [x] 25.5 Implement Rejection Crisis View on ZionX Pipeline tab
+    - Create `packages/dashboard/src/components/app-studio/RejectionCrisisPanel.tsx` with RejectionCrisisPanel interface
+    - Implement crisis panel that activates when any app enters "rejected" state
+    - Display: rejection reason (from App Store/Play Store driver), root cause analysis, fix status checklist, resubmission timeline estimate
+    - Implement fix progress tracker: each rejection issue as a checklist item with status (pending → in progress → fixed → verified)
+    - Implement "Resubmit" action button (requires King approval via Mishmar)
+    - Show historical rejections with resolution time for pattern learning
+    - Integrate below the Visual Pipeline Board on the same `zionx-pipeline` view — only visible when an app is in rejected state
+    - _Requirements: 11.3, 11.4, 2.3_
+
+  - [x] 25.6 Write unit tests for Rejection Crisis View
+    - Test crisis panel appears when app enters rejected state
+    - Test rejection reason and root cause display correctly
+    - Test fix checklist tracks progress per issue
+    - Test resubmission timeline estimate calculates from fix progress
+    - Test panel hides when no apps are in rejected state
+    - Test historical rejections display with resolution times
+
+  - [x] 25.7 Implement Market Opportunity Heatmap on ZionX Pipeline tab
+    - Create `packages/dashboard/src/components/app-studio/MarketHeatmap.tsx` with MarketOpportunityHeatmap interface
+    - Implement bubble chart heatmap: X-axis = app categories, Y-axis = revenue potential tier, bubble size = gap opportunity score (inverse competition × review gap)
+    - Implement color coding: green = high opportunity, yellow = moderate, red = saturated
+    - Implement click-on-bubble to drill into specific niche details (competitors, review gaps, estimated downloads)
+    - Implement filter controls: minimum revenue threshold, maximum competition level, category filter
+    - Pull data from Market Research Engine and Niche Scoring Algorithm
+    - Place as a collapsible section on the `zionx-pipeline` view below the pipeline board
+    - _Requirements: 45a.1, 45b.5_
+
+  - [x] 25.8 Write unit tests for Market Opportunity Heatmap
+    - Test heatmap renders bubbles with correct positioning (category × revenue tier)
+    - Test bubble size correlates with opportunity score
+    - Test color coding reflects opportunity level
+    - Test click-on-bubble shows niche detail drill-down
+    - Test filters narrow displayed bubbles correctly
+    - Test empty state when no opportunities match filters
+
+  - [x] 25.9 Implement Content Diversity Dashboard on ZXMG Content Pipeline tab
+    - Create `packages/dashboard/src/components/video-studio/ContentDiversityDashboard.tsx` with ContentDiversityDashboard interface
+    - Implement visual grid showing usage history: avatars used (with thumbnail), voices used (with sample label), styles/backgrounds used, and music tracks used
+    - Implement duplicate detection highlighting: if an avatar/voice/background was used in the last 5 videos, highlight it in red with "Used X videos ago" label
+    - Implement diversity score per channel (0-100) based on variety across last 20 videos
+    - Implement "Suggest Alternative" button that recommends unused combinations
+    - Pull data from Zikaron procedural memory (video production history)
+    - Place on the existing `zxmg-content-pipeline` nav view as a collapsible panel
+    - _Requirements: 44b.7, 44f.30_
+
+  - [x] 25.10 Write unit tests for Content Diversity Dashboard
+    - Test grid renders all used avatars, voices, styles, and music
+    - Test duplicate detection highlights recently-used elements in red
+    - Test diversity score calculates correctly from last 20 videos
+    - Test "Suggest Alternative" returns unused combinations
+    - Test per-channel diversity tracking (each channel independent)
+
+  - [x] 25.11 Implement Pre-Generation Compliance Check on ZXMG Video Production tab
+    - Create `packages/dashboard/src/components/video-studio/PreGenerationCheck.tsx` with PreGenerationComplianceCheck interface
+    - Implement modal/panel that appears before any video render is triggered
+    - Display checklist: avatar diversity check (✓/✗), voice diversity check (✓/✗), background diversity check (✓/✗), style diversity check (✓/✗)
+    - If any check fails, show warning with suggestion: "This avatar was used 2 videos ago. Suggested alternatives: [list]"
+    - Implement "Override" button (King can proceed anyway) and "Accept Suggestion" button (auto-swap)
+    - Integrate with the existing Video Production Pipeline — fires before scene rendering begins
+    - Place on the existing `zxmg-video-production` nav view as a pre-render gate
+    - _Requirements: 44b.7, 44c.12_
+
+  - [x] 25.12 Write unit tests for Pre-Generation Compliance Check
+    - Test compliance check appears before render trigger
+    - Test all diversity checks display pass/fail correctly
+    - Test failed check shows specific suggestion with alternative
+    - Test "Override" proceeds with original selection
+    - Test "Accept Suggestion" swaps to recommended alternative
+    - Test all-pass state shows green confirmation and auto-proceeds
+
+  - [x] 25.13 Implement End-to-End Production Tracker on ZXMG Video Production tab
+    - Create `packages/dashboard/src/components/video-studio/ProductionTracker.tsx` with EndToEndProductionTracker interface
+    - Implement horizontal timeline per video showing journey: Script → Scenes → Render → Assemble → Review → Publish → Distribute → Live
+    - Implement status dots per stage: gray (pending), blue (in progress), green (complete), red (failed)
+    - Implement time-in-stage display showing how long each step took
+    - Implement upload queue view showing pending platform uploads with connection health per platform (YouTube, TikTok, Instagram, etc.)
+    - Implement platform connection status indicators (connected/disconnected/rate-limited)
+    - Note: Production uses our own Multi-Model Video Router (not HeyGen) — reflect internal pipeline stages
+    - Place on the existing `zxmg-video-production` nav view alongside the existing timeline editor
+    - _Requirements: 44b.7, 44g.35, 44g.36_
+
+  - [x] 25.14 Write unit tests for End-to-End Production Tracker
+    - Test timeline renders all stages with correct status dots
+    - Test time-in-stage calculates duration correctly
+    - Test upload queue shows pending uploads per platform
+    - Test platform connection health indicators reflect driver status
+    - Test failed stage shows red dot with error details on hover
+    - Test completed videos show full green timeline
+
+  - [x] 25.15 Implement Intelligence Feed on Eretz Command Center
+    - Create `packages/dashboard/src/components/command-center/IntelligenceFeed.tsx` with IntelligenceFeed interface
+    - Implement real-time scrolling feed of agent-generated insights: problems detected, improvement suggestions, and observations from all subsidiaries
+    - Implement priority badges (critical/high/medium/low) with color coding
+    - Implement source agent label showing which agent generated the insight
+    - Implement King actions per insight: approve (trigger execution), dismiss, bookmark for later
+    - Implement "Compounding Intelligence Score" — total insights generated, acted on, and measured impact over time
+    - Pull from Event Bus events and Zikaron procedural memory
+    - Place on the Eretz Command Center page as a new section between Recommendations and Decline Alerts
+    - _Requirements: 46g.15, 46a.1_
+
+  - [x] 25.16 Write unit tests for Intelligence Feed
+    - Test feed renders insights with priority badges and source agent
+    - Test approve action triggers execution workflow
+    - Test dismiss removes from feed
+    - Test bookmark persists for later review
+    - Test compounding score calculates correctly (generated vs acted on vs impact)
+    - Test real-time updates via WebSocket push new insights to feed
+
+  - [x] 25.17 Implement Standing Orders Panel on Eretz Command Center
+    - Create `packages/dashboard/src/components/command-center/StandingOrdersPanel.tsx` with StandingOrdersPanel interface
+    - Implement persistent directives display: order text, assigned agent, status (active/completed/cancelled), creation date, completion date
+    - Implement King actions: add new order (text input + agent assignment), modify existing order, cancel order
+    - Implement completion tracking: show progress percentage and last activity timestamp per order
+    - Store orders in Zikaron working memory with XO_Audit logging for all changes
+    - Place on the Eretz Command Center page in the strategy section (alongside Strategic Priorities)
+    - _Requirements: 46j.24, 46g.15_
+
+  - [x] 25.18 Write unit tests for Standing Orders Panel
+    - Test panel renders active orders with correct status and assigned agent
+    - Test add new order creates entry with correct metadata
+    - Test modify updates order text and logs to audit
+    - Test cancel marks order as cancelled (not deleted)
+    - Test completion tracking shows progress percentage
+    - Test completed orders move to history section
+
+  - [x] 25.19 Build dashboard and deploy to S3
+    - Build the dashboard package with production configuration
+    - Upload built assets to `seraphim-dashboard-live` S3 bucket
+    - Verify all new components render correctly on their respective tabs
+    - _Requirements: 15.1_
+
+  - [x] 25.20 Write integration tests for Phase 12 end-to-end
+    - Test King's View tab loads briefing card with live data
+    - Test ZionX Pipeline tab shows visual pipeline + rejection crisis + market heatmap
+    - Test ZXMG Content Pipeline tab shows diversity dashboard
+    - Test ZXMG Video Production tab shows compliance check + production tracker
+    - Test Eretz Command Center shows intelligence feed + standing orders
+    - Test all new components integrate with existing WebSocket infrastructure
+    - Test all new components source data from existing services (no business logic duplication)
+
+- [x] 26. Checkpoint — Phase 12 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: King's Briefing Card shows priorities/blockers/revenue/events on King's View tab, Visual Pipeline Board displays Kanban-style app progression with gate checkpoints on ZionX Pipeline tab, Rejection Crisis Panel activates on rejected apps with fix tracking, Market Opportunity Heatmap shows clickable bubble chart on ZionX Pipeline tab, Content Diversity Dashboard tracks avatar/voice/style usage with duplicate detection on ZXMG Content Pipeline tab, Pre-Generation Compliance Check gates video renders with diversity verification, End-to-End Production Tracker shows full video journey from script to live, Intelligence Feed displays real-time agent insights with King actions on Eretz Command Center, Standing Orders Panel manages persistent directives, dashboard deployed to S3
+
+
+- [x] 27. Phase 13 — Seraphim Core Architecture Views (Dashboard Integration)
+
+  - [x] 27.1 Implement Diagram Renderer (SVG generation engine)
+    - Create `packages/dashboard/src/views/seraphim-core/diagram-renderer.ts` with DiagramRenderer class
+    - Implement SVG generation from structured diagram definitions (nodes, connections, layers, labels)
+    - Implement WCAG 2.1 AA compliant color palette: Interface (#DBEAFE/#1E3A5F), Kernel (#7C3AED/#FFF), System Services (#059669/#FFF), Application (#F59E0B/#451A03), Driver (#475569/#FFF), Data (#4338CA/#FFF)
+    - Implement connection line rendering with distinct colors per flow type: Command (#DC2626 solid), Data (#2563EB solid), Event (#16A34A dashed), Information (#9333EA dotted)
+    - Implement responsive SVG scaling (viewBox-based) to fit available content area width
+    - _Requirements: 47b.4, 47c.8, 47i.33, 47i.34, 47i.35, 47i.36, 47j.37_
+
+  - [x] 27.2 Write unit tests for Diagram Renderer
+    - Test SVG output contains correct color values for each architectural layer
+    - Test connection lines use correct colors and styles per flow type
+    - Test text labels meet WCAG 2.1 AA contrast ratio (4.5:1)
+    - Test SVG scales proportionally via viewBox without horizontal scrolling
+    - Test all nodes and connections from diagram definitions are rendered
+    - _Requirements: 47i.33, 47i.34, 47i.35, 47i.36, 19.1_
+
+  - [x] 27.3 Implement OV-1 Operational View diagram definition and view
+    - Create `packages/dashboard/src/views/seraphim-core/diagram-definitions/ov1-definition.ts` with INCOSE OV-1 structure: King actor, Seraphim orchestrator, operational pillars (Eretz, ZionX, ZXMG, Zion Alpha, Otzar), external systems, and information flows
+    - Create `packages/dashboard/src/views/seraphim-core/ov1-view.ts` extending base view class
+    - Render OV-1 diagram using DiagramRenderer with all actors, pillars, and flows
+    - Ensure text labels are legible at default zoom level
+    - _Requirements: 47b.4, 47b.5, 47b.6, 47b.7_
+
+  - [x] 27.4 Implement SV-1 System View diagram definition and view
+    - Create `packages/dashboard/src/views/seraphim-core/diagram-definitions/sv1-definition.ts` with INCOSE SV-1 structure: 6 architectural layers with all components, inter-layer connections with directional indicators and labels
+    - Create `packages/dashboard/src/views/seraphim-core/sv1-view.ts` extending base view class
+    - Render SV-1 diagram using DiagramRenderer with layered layout, component boxes, and labeled connections
+    - Ensure text labels are legible at default zoom level
+    - _Requirements: 47c.8, 47c.9, 47c.10, 47c.11, 47c.12_
+
+  - [x] 27.5 Implement Diagram Modal with Pan/Zoom Controller
+    - Create `packages/dashboard/src/views/seraphim-core/diagram-modal.ts` with full-viewport overlay
+    - Create `packages/dashboard/src/views/seraphim-core/pan-zoom-controller.ts` with PanZoomController class
+    - Implement zoom: mouse wheel (centered on cursor), pinch gesture, +/- buttons, range 0.25x–4x
+    - Implement pan: click-and-drag, touch-and-drag
+    - Implement zoom percentage indicator display
+    - Implement close: Escape key, close button, backdrop click
+    - Implement smooth open/close animations (200ms)
+    - _Requirements: 47d.13, 47d.14, 47d.15, 47d.16, 47d.17, 47d.18_
+
+  - [x] 27.6 Write unit tests for Diagram Modal and Pan/Zoom
+    - Test modal opens on diagram click with correct SVG content
+    - Test zoom in/out via mouse wheel stays within 0.25x–4x bounds
+    - Test pan via drag updates translate values
+    - Test Escape key closes modal
+    - Test close button closes modal
+    - Test zoom percentage indicator updates on zoom change
+    - Test pinch gesture triggers zoom (touch events)
+    - _Requirements: 47d.13, 47d.14, 47d.15, 47d.16, 47d.17, 47d.18, 19.1_
+
+  - [x] 27.7 Implement Markdown Renderer
+    - Create `packages/dashboard/src/views/seraphim-core/markdown-renderer.ts` with MarkdownRenderer class
+    - Integrate `marked` library for markdown → HTML parsing
+    - Integrate `highlight.js` for code block syntax highlighting
+    - Integrate `mermaid` library for mermaid diagram block rendering (design.md)
+    - Apply dashboard-consistent styling: headings, lists, tables (striped), bold, code blocks (rounded with copy button)
+    - Constrain content width to max 900px centered in available space
+    - _Requirements: 47e.20, 47f.23, 47g.26, 47j.40_
+
+  - [x] 27.8 Implement Requirements, Design, and Capabilities document views
+    - Create `packages/dashboard/src/views/seraphim-core/requirements-view.ts` extending base view class
+    - Create `packages/dashboard/src/views/seraphim-core/design-view.ts` extending base view class
+    - Create `packages/dashboard/src/views/seraphim-core/capabilities-view.ts` extending base view class
+    - Each view: fetch markdown from Document API on mount, render via MarkdownRenderer, display error message if unavailable
+    - _Requirements: 47e.19, 47e.21, 47f.22, 47f.24, 47g.25, 47g.27_
+
+  - [x] 27.9 Implement Document API endpoint
+    - Create `GET /api/specs/:documentType` endpoint in Shaar API layer
+    - Serve raw markdown content from `.kiro/specs/seraphim-os-core/` directory
+    - Include `lastModified` timestamp and SHA-256 content hash in response
+    - Support `documentType` values: `requirements`, `design`, `capabilities`
+    - _Requirements: 47e.19, 47f.22, 47g.25_
+
+  - [x] 27.10 Implement Auto-Sync Service (WebSocket-based real-time updates)
+    - Create `packages/dashboard/src/views/seraphim-core/auto-sync-handler.ts` with AutoSyncHandler class
+    - Implement backend file watcher on `.kiro/specs/seraphim-os-core/` directory (chokidar/fs.watch)
+    - On file change: compute content hash → publish `spec.document.updated` event to Event Bus → push via WebSocket
+    - Frontend: listen for `spec.document.updated` WebSocket messages → compare hash → re-fetch if changed → re-render active view
+    - Target: < 5 seconds from file save to dashboard update
+    - _Requirements: 47h.28, 47h.29, 47h.30, 47h.31, 47h.32_
+
+  - [x] 27.11 Write unit tests for Auto-Sync and Document Views
+    - Test document views fetch and render markdown content on mount
+    - Test error state displays when document is unavailable
+    - Test WebSocket `spec.document.updated` message triggers re-fetch
+    - Test re-render occurs without navigation change
+    - Test content hash comparison prevents unnecessary re-renders
+    - _Requirements: 47e.19, 47e.21, 47h.28, 47h.31, 47h.32, 19.1_
+
+  - [x] 27.12 Implement Navigation Integration
+    - Register 5 new navigation items under Seraphim Core section in sidebar: "OV-1 Operational", "SV-1 System", "Requirements", "Design", "Capabilities"
+    - Position after existing items (Command Center, Governance, Memory, Resources, Audit Trail, Learning, Self-Improvement, Decisions)
+    - Implement active tab highlighting on navigation click
+    - Implement responsive layout: vertical stacking below 768px viewport width
+    - _Requirements: 47a.1, 47a.2, 47a.3, 47j.38_
+
+  - [x] 27.13 Write integration tests for Phase 13 end-to-end
+    - Test all 5 navigation items appear under Seraphim Core section in correct order
+    - Test OV-1 view renders color SVG with all actors, pillars, and flows
+    - Test SV-1 view renders color SVG with 6 layers and connections
+    - Test clicking diagram opens modal with pan/zoom functionality
+    - Test Requirements view renders markdown from requirements.md
+    - Test Design view renders markdown with mermaid diagrams from design.md
+    - Test Capabilities view renders markdown from capabilities.md
+    - Test auto-sync updates active view when source document changes
+    - Test responsive layout stacks vertically below 768px
+    - _Requirements: 47a-47j, 19.2_
+
+  - [x] 27.14 Build dashboard and deploy to S3
+    - Build the dashboard package with production configuration
+    - Upload built assets to `seraphim-dashboard-live` S3 bucket
+    - Verify all 5 new views render correctly on the Seraphim Core section
+    - _Requirements: 15.1_
+
+- [x] 28. Checkpoint — Phase 13 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: OV-1 Operational View renders INCOSE-standard color SVG with King/Seraphim/Pillars/External Systems and labeled flows, SV-1 System View renders INCOSE-standard color SVG with 6 architectural layers and component connections, Diagram Modal opens on click with pan/zoom (0.25x–4x) and percentage indicator, Requirements/Design/Capabilities views render live markdown with proper styling, Design view renders mermaid diagrams, Auto-Sync propagates document changes to active views within 5 seconds via WebSocket, all color combinations meet WCAG 2.1 AA contrast ratio, responsive layout works on mobile, navigation items positioned correctly under Seraphim Core section, dashboard deployed to S3
+
+- [x] 29. Phase 14 — Persistent Agent Identity and Memory-Backed Conversations
+  - [x] 29.1 Define AgentIdentityProfile interface and update AgentProgram type
+    - Add `identityProfile` field to the `AgentProgram` interface in `packages/core/src/types/agent.ts`
+    - Define `AgentIdentityProfile` interface with: name, role, hierarchyPosition, personality (tone, verbosity, proactivity, formality), expertise, domainLanguage, decisionPrinciples, relationships, neverBreakCharacter, identityReinforcement
+    - Update all existing agent program definitions in `production-server.ts` with full identity profiles for: Seraphim, Eretz, ZionX, ZXMG, Zion Alpha, Mishmar, Otzar
+    - _Requirements: 48a.1, 48a.2, 48g.26, 48g.27_
+
+  - [x] 29.2 Implement conversation persistence in the Agent Runtime execute flow
+    - Modify `executeChatTask()` in `packages/core/src/agent-runtime/runtime.ts` to store every user message + agent response as an episodic memory entry in Zikaron with tags: `conversation`, `dashboard`, `{agentId}`, `{userId}`
+    - Before calling the LLM, query Zikaron for the last 20 conversation exchanges for this agent-user pair
+    - Format loaded conversation history as alternating user/assistant messages in the LLM messages array
+    - If conversation history exceeds context window budget, use vector search for most semantically relevant past conversations
+    - _Requirements: 48b.5, 48b.6, 48b.7, 48b.8, 48b.9_
+
+  - [x] 29.3 Implement identity-aware system prompt assembly
+    - Create `packages/core/src/agent-runtime/prompt-builder.ts` that assembles the full system prompt from: identity profile + personality directives + decision principles + character enforcement
+    - The system prompt MUST include: "You ARE {name}. You NEVER identify as Claude, GPT, or any generic AI assistant. You NEVER break character."
+    - Include the agent's relationships to other agents and its position in the hierarchy
+    - Include relevant procedural memory (top 5 patterns by success rate) as "institutional knowledge"
+    - _Requirements: 48a.2, 48a.3, 48g.27, 48d.14_
+
+  - [x] 29.4 Implement working memory persistence (60-second interval + task completion)
+    - Add a periodic persistence timer (60s) to the Agent Runtime that serializes each agent's working memory and stores it in Zikaron
+    - On task completion, immediately persist working memory with updated context (topics discussed, recent decisions, active goals)
+    - On agent startup, call `Zikaron.loadAgentContext(agentId)` and verify the loaded state matches the last persisted hash
+    - Add `session_continuity` record tracking: last active timestamp, persistence hash, session transitions
+    - _Requirements: 48c.10, 48c.11, 48c.12, 48c.13_
+
+  - [x] 29.5 Implement memory-backed decision support
+    - Before any agent decision/recommendation, query Zikaron procedural memory for past decisions in similar contexts
+    - After each decision, store the decision context, reasoning, and (later) outcome in episodic memory with `decision` tag
+    - Track decision patterns in procedural memory with success rates (updated when outcomes are known)
+    - When a decision contradicts a stored successful pattern, include acknowledgment in the response
+    - _Requirements: 48d.14, 48d.15, 48d.16, 48d.17_
+
+  - [x] 29.6 Implement governance-compliant memory access
+    - Add Mishmar authorization checks to all Zikaron read/write operations in the runtime
+    - Enforce: own memories = L4 (autonomous), cross-agent reads = L3, shared semantic writes = L3, identity modifications = L1
+    - Log all memory access operations to XO Audit (key/tag only, never full content for privacy)
+    - Store King's conversations with L1 authority metadata, making them accessible to all agents within the tenant
+    - Enforce append-only policy: attempted deletions are blocked and logged as security events
+    - _Requirements: 48e.18, 48e.19, 48e.20, 48e.21_
+
+  - [x] 29.7 Implement inter-agent knowledge sharing via Event Bus
+    - When an agent stores a new procedural pattern or semantic fact, publish `memory.knowledge_shared` event to Event Bus with relevance tags
+    - Create a Lambda handler that processes `memory.knowledge_shared` events and indexes them for cross-agent retrieval
+    - When an agent loads context, include relevant shared knowledge from other agents (filtered by pillar/domain tags)
+    - When responding about a topic another agent has expertise in, query cross-agent semantic memory and acknowledge the source
+    - _Requirements: 48f.22, 48f.23, 48f.24, 48f.25_
+
+  - [x] 29.8 Write unit tests for persistent identity and memory-backed conversations
+    - Test identity profile is loaded into system prompt and character is maintained
+    - Test conversation history is stored and retrieved correctly (last 20 exchanges)
+    - Test working memory persistence at 60s intervals and on task completion
+    - Test cross-session continuity (simulate container restart, verify context restored)
+    - Test memory-backed decisions query procedural memory before responding
+    - Test governance enforcement (L4 own access, L3 cross-agent, L1 identity changes)
+    - Test inter-agent knowledge sharing publishes and consumes events correctly
+    - Test append-only enforcement (deletion attempts blocked and logged)
+    - _Requirements: 48a-48g, 19.1_
+
+  - [x] 29.9 Write integration tests for end-to-end conversation flow
+    - Test full flow: user sends message → history loaded → LLM called with context → response stored → next message includes previous exchange
+    - Test agent maintains character across 10+ consecutive messages
+    - Test conversation persists across simulated container restart
+    - Test cross-agent memory query returns relevant results with proper authorization
+    - Test knowledge sharing event propagates to subscribing agents
+    - _Requirements: 48a-48g, 19.2_
+
+  - [x] 29.10 Update production server with full identity profiles and deploy
+    - Update all 7 agent program definitions with comprehensive identity profiles
+    - Build Docker image with all changes
+    - Push to ECR and force ECS redeployment
+    - Verify agents respond in character with conversation continuity on the live dashboard
+    - _Requirements: 48a.1, 48a.2, 15.1_
+
+  - [x] 29.11 Add agent detail panel to Command Center dashboard
+    - Create a clickable agent card in the Command Center that opens a detail panel/modal
+    - Display full agent identity: name, role, personality traits, expertise areas, decision principles, authority level, relationships to other agents
+    - Show agent status: current state, last heartbeat, active tasks, memory stats (episodic count, procedural patterns, working memory utilization)
+    - Show recent activity: last 5 conversations, last 5 decisions, last 5 governance events
+    - Include a "Chat with Agent" button that navigates to the agent's pillar chat view
+    - Style consistently with the existing dashboard dark theme
+    - _Requirements: 48a.1, 48g.26, 18.1, 18.5_
+
+- [ ] 30. Checkpoint — Phase 14 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Each agent responds in character and never breaks identity, conversation history persists across messages, working memory survives container restarts, agents reference past conversations naturally, governance controls memory access appropriately, knowledge sharing propagates between agents, King's interactions are accessible to all agents as institutional knowledge
+
+
+- [x] 31. Phase 15 — Agentic Execution Core
+  - [x] 31.1 Implement Cognition Envelope Builder
+    - Create `packages/core/src/agent-runtime/cognition-envelope.ts` implementing the `CognitionEnvelope` interface
+    - Assemble full context before every LLM call: identity, authority, memory, tools, workflow state, goals, delegation policy
+    - Modify `executeChatTask()` to use the Cognition Envelope instead of raw system prompt assembly
+    - Add validation that blocks LLM calls without a complete envelope (log violation to XO_Audit)
+    - _Requirements: 49.1, 49.2, 49.3, 49.4, 55.1_
+
+  - [x] 31.2 Implement Planning Engine
+    - Create `packages/core/src/agent-runtime/planning-engine.ts` implementing the `ExecutionPlan` interface
+    - When an agent receives a complex directive, generate a structured plan with subtasks, tools, agents, dependencies, gates, and budget
+    - Persist plans in Zikaron working memory for resumability
+    - Implement dynamic plan revision when steps fail
+    - Submit plans requiring L1/L2 actions to Mishmar for pre-approval
+    - _Requirements: 50.1, 50.2, 50.3, 50.4, 50.5_
+
+  - [x] 31.3 Implement MCP Tool Registry and Dynamic Selection
+    - Create `packages/core/src/mcp/tool-registry.ts` with the `MCPToolDescriptor` interface
+    - Implement semantic tool discovery (match task needs to tool capabilities)
+    - Implement tool selection engine: cost, reliability, permissions, availability
+    - Implement automatic fallback on tool failure
+    - Integrate with Mishmar (authorization) and Otzar (cost tracking) before every tool invocation
+    - _Requirements: 51.1, 51.2, 51.3, 51.4, 51.5, 51.6, 51.7_
+
+  - [x] 31.4 Implement A2A Delegation Engine
+    - Create `packages/core/src/agent-runtime/delegation-engine.ts` implementing `DelegationRequest` and `DelegationResult`
+    - Implement delegation dispatch: initiating agent publishes request, target agent processes and returns result
+    - Implement result aggregation and conflict resolution
+    - Enforce Mishmar authorization on all delegation flows
+    - Log all delegation steps to XO_Audit with full traceability
+    - _Requirements: 52.1, 52.2, 52.3, 52.4, 52.5, 52.7_
+
+  - [x] 31.5 Implement Autonomy Mode Configuration
+    - Create `packages/core/src/agent-runtime/autonomy-config.ts` implementing `AutonomyConfig`
+    - Support Crawl/Walk/Run modes per agent and per workflow type
+    - Implement human gate pausing in Crawl and Walk modes (publish approval request to Shaar)
+    - Implement dynamic autonomy escalation based on success history
+    - Configure ZionX default=Walk (gated submission) and ZXMG default=Walk (gated publishing)
+    - _Requirements: 53.1, 53.2, 53.3, 53.4, 53.5, 53.6, 53.7, 53.8_
+
+  - [x] 31.6 Implement Execution Trace System
+    - Create `packages/core/src/agent-runtime/execution-trace.ts` implementing `ExecutionTrace`
+    - Capture full trace for every agent action: plan, tools, delegations, memory, governance, budget, actions, synthesis
+    - Persist traces in XO_Audit (DynamoDB) for retrieval
+    - Make traces machine-readable (JSON) for Learning Engine analysis
+    - _Requirements: 54.1, 54.2, 54.4, 54.5_
+
+  - [x] 31.7 Implement Anti-Chatbot Enforcement Guards
+    - Add runtime guards that block direct LLM calls without Cognition Envelope
+    - Add guards that warn/block when memory retrieval is skipped
+    - Add guards that block tool invocations without Mishmar/Otzar checks
+    - Add CI test that verifies different agent envelopes produce different behavior from same LLM key
+    - _Requirements: 55.1, 55.2, 55.3, 55.5, 55.6_
+
+  - [x] 31.8 Add Execution Trace view to Shaar dashboard
+    - Create execution trace timeline component showing each step with inputs/outputs/duration
+    - Display active plans with current execution state in the agent detail panel
+    - Show delegation chains (which agents are working on what)
+    - Show autonomy mode indicator per agent
+    - _Requirements: 49.4, 50.6, 52.6, 54.3_
+
+  - [x] 31.9 Write unit tests for Agentic Execution Core
+    - Test Cognition Envelope assembly includes all required components
+    - Test Planning Engine generates valid plans with dependencies
+    - Test MCP tool selection picks optimal tool by cost/reliability
+    - Test A2A delegation dispatches and aggregates correctly
+    - Test autonomy modes gate appropriately (Crawl pauses, Walk gates, Run executes)
+    - Test execution traces capture all steps
+    - Test anti-chatbot guards block direct LLM calls
+    - _Requirements: 49-55, 19.1_
+
+  - [x] 31.10 Write integration tests for end-to-end agentic workflows
+    - Test: Seraphim receives directive → creates plan → delegates to ZionX → ZionX invokes MCP tools → returns result → Seraphim synthesizes
+    - Test: ZionX plans app build → selects tools → persists workflow state → resumes after simulated restart
+    - Test: MCP tool fails → agent attempts fallback → logs decision
+    - Test: Same LLM key produces different behavior through different agent envelopes
+    - _Requirements: 49-55, 19.2_
+
+- [ ] 32. Checkpoint — Phase 15 complete
+  - Ensure all tests pass, ask the user if questions arise.
+  - Verify: Cognition Envelope assembled before every LLM call, Planning Engine generates structured plans, MCP tools selected dynamically with fallback, A2A delegation works end-to-end, autonomy modes gate correctly, execution traces visible in Shaar, anti-chatbot guards prevent degradation
+
+- [x] 33. Phase 16 — Persistent Chat Sessions with History
+  - [x] 33.1 Add conversation session endpoints to the backend
+    - Add `GET /api/agents/:id/conversations` — returns list of all sessions (id, startedAt, messageCount, preview) + current session messages
+    - Add `GET /api/agents/:id/conversations/:sessionId` — returns all messages for a specific past session
+    - Add `POST /api/agents/:id/conversations/new` — archives current session, creates new one
+    - Store sessions in Zikaron with tags: `session`, `{agentId}`, `{sessionId}`
+    - Each message stored with `sessionId` metadata for retrieval
+    - _Requirements: 56.7, 56.8_
+
+  - [x] 33.2 Update executeChatTask to tag messages with session IDs
+    - Maintain a current sessionId per agent (stored in working memory)
+    - When storing conversation exchanges in Zikaron, include `sessionId` in metadata
+    - On agent deploy, create initial session ID
+    - _Requirements: 56.3, 56.7_
+
+  - [x] 33.3 Implement conversation loading on dashboard mount
+    - Modify `BasePillarView.mount()` to call `GET /api/agents/:id/conversations` on load
+    - Parse response and populate the messages array with the current session's messages
+    - Display all messages immediately (no "welcome" message if history exists)
+    - _Requirements: 56.1, 56.2_
+
+  - [x] 33.4 Add conversation history sidebar to the chat UI
+    - Add a collapsible sidebar to the left of the chat area showing past sessions
+    - Each entry shows: date, first message preview (truncated), message count
+    - Clicking a past session loads it in read-only mode (grayed input, "Viewing archived chat" label)
+    - "Back to current" button returns to the active session
+    - "New Chat" button at the top archives current and starts fresh
+    - _Requirements: 56.4, 56.5, 56.6_
+
+  - [x] 33.5 Implement auto-archival at 100 messages
+    - When a session reaches 100 messages, automatically archive and start new session
+    - Copy last 5 messages as context into the new session for continuity
+    - Show a system message: "Previous conversation archived. Continuing with context."
+    - _Requirements: 56.9_
+
+  - [x] 33.6 Write tests and deploy
+    - Test: conversation loads on mount from backend
+    - Test: messages persist across simulated refresh
+    - Test: new chat archives current session
+    - Test: past sessions are browsable
+    - Test: auto-archive at 100 messages
+    - Build dashboard and Docker image
+    - Push to ECR, update ECS, sync S3
+    - _Requirements: 56.1-56.9, 19.1_
+
+- [ ] 34. Checkpoint — Phase 16 complete
+  - Verify: conversations persist across refresh/tab switch, history sidebar shows past sessions, new chat archives correctly, auto-archive works at 100 messages, all data stored in Zikaron
+
+- [ ] 35. Phase 17 — Agent-to-Kiro Execution Bridge
+  - [x] 35.1 Create .kiro/agent-tasks/ directory structure and README
+    - Created directories: agent-tasks/, agent-tasks/completed/, agent-tasks/failed/
+    - Created TEMPLATE.md showing the task file format
+    - _Requirements: 57b.5, 57b.7_
+
+  - [x] 35.2 Create Kiro hook for task file detection
+    - Created `agent-task-dispatch` hook watching `.kiro/agent-tasks/*.md` for new files
+    - Hook triggers askAgent to read and execute the task
+    - _Requirements: 57b.6_
+
+  - [x] 35.3 Add task dispatch endpoint to backend
+    - Added `POST /api/agent-tasks/dispatch` endpoint that writes task files
+    - Accepts: title, description, agent, instructions, criteria
+    - Writes structured markdown to .kiro/agent-tasks/
+    - _Requirements: 57b.5, 57b.7_
+
+  - [x] 35.4 Update agent system prompts with Kiro dispatch awareness
+    - Seraphim knows it can dispatch tasks to Kiro after King approval
+    - _Requirements: 57a.1_
+
+  - [ ] 35.5 Add "Dispatch to Kiro" button in dashboard chat
+    - When an agent proposes work, show a "Dispatch to Kiro" button
+    - Button calls POST /api/agent-tasks/dispatch with the task details
+    - Show confirmation: "Task dispatched — Kiro will execute in IDE"
+    - _Requirements: 57a.2, 57d.13_
+
+  - [ ] 35.6 Implement MCP bridge (future evolution)
+    - Create MCP server that exposes Kiro capabilities to SeraphimOS agents
+    - Enable bidirectional communication: agents can query codebase, request changes, trigger builds
+    - Enforce Mishmar governance on all MCP bridge operations
+    - _Requirements: 57c.10, 57c.11, 57c.12_
+
+- [ ] 36. Checkpoint — Phase 17 complete
+  - Verify: agents can propose work, King approves, task file written, Kiro hook triggers, execution happens in IDE
+
+
+- [x] 37. Phase 18 — Shaar Agent (Human Interface Intelligence)
+  - [x] 37.1 Define Shaar Agent Program and deploy
+    - Create Shaar Guardian agent program with full identity profile, system prompt, and state machine
+    - Add to production server agent deployments
+    - Deploy and verify agent responds in character
+    - _Requirements: 58a.1, 48a.1_
+
+  - [x] 37.2 Implement browser observation service (Playwright)
+    - Create `packages/services/src/shaar-agent/browser-observer.ts` using Playwright
+    - Implement: openDashboard, captureScreenshot, inspectDOM, getConsoleErrors, navigateTo, clickElement
+    - Store screenshots in S3 for reference
+    - _Requirements: 58a.1, 58a.2_
+
+  - [x] 37.3 Implement UX friction detector
+    - Analyze DOM for: missing labels, dead-end workflows, hidden status, missing loading feedback, unclear navigation
+    - Compare observed workflows against expected ideal flows
+    - Score cognitive load and information hierarchy per page
+    - _Requirements: 58b.4, 58b.5, 58b.6_
+
+  - [x] 37.4 Implement UI/UX design evaluator
+    - Evaluate: layout quality, visual hierarchy, spacing, typography, color, CTAs, navigation, empty/loading/error states
+    - Score each page against design principles
+    - Generate specific redesign recommendations with evidence
+    - _Requirements: 58c.7, 58c.8, 58c.9_
+
+  - [x] 37.5 Implement data truth auditor
+    - Check every metric/chart for: real data source, freshness, mock data indicators, placeholder values
+    - Flag disconnected or stale data
+    - _Requirements: 58d.10, 58d.11_
+
+  - [x] 37.6 Implement agentic behavior visibility auditor
+    - Verify execution traces, memory indicators, tool usage, delegation status are visible on agent screens
+    - Flag screens where agents appear as chatbots without agentic context
+    - _Requirements: 58e.12, 58e.13_
+
+  - [x] 37.7 Implement revenue workflow auditor
+    - Inspect ZionX screens: app preview, screenshots, ads, payments, store readiness
+    - Inspect ZXMG screens: video generation, thumbnails, publish gates, analytics
+    - Evaluate whether screens help make money
+    - _Requirements: 58f.14, 58f.15, 58f.16_
+
+  - [x] 37.8 Implement Shaar Readiness Score
+    - Composite score across all dimensions (UX, design, data truth, agentic visibility, revenue, permissions, mobile, cost)
+    - Generate Top 5 improvements to reach next threshold
+    - _Requirements: 58h.19, 58h.20_
+
+  - [x] 37.9 Implement recommendation generator and Kiro task dispatcher
+    - Generate structured recommendations with evidence, acceptance criteria, implementation guidance
+    - Convert approved recommendations to Kiro tasks via Agent-to-Kiro bridge
+    - _Requirements: 58i.21, 58i.22_
+
+  - [x] 37.10 Implement post-implementation verification
+    - After Kiro implements changes, retest affected page with Playwright
+    - Compare before/after screenshots
+    - Mark task verified or reopen with failure evidence
+    - _Requirements: 58i.23_
+
+  - [x] 37.11 Create Shaar Agent dashboard tab
+    - Add "Shaar Agent" tab to dashboard navigation
+    - Build overview page with readiness score cards
+    - Build page review queue
+    - Build recommendation viewer
+    - Build before/after comparison viewer
+    - Build Kiro task status tracker
+    - _Requirements: 58j.24, 58j.25_
+
+  - [x] 37.12 Implement scheduled reviews
+    - Run after dashboard deployments (hook on S3 sync)
+    - Run daily during active development
+    - Run before multi-user rollout
+    - Run after any failed user-facing workflow
+    - _Requirements: 58a.3_
+
+- [x] 38. Checkpoint — Phase 18 complete
+  - Verify: Shaar Agent observes dashboard via Playwright, generates readiness score, detects UX friction, evaluates visual design, audits data truth, generates Kiro tasks, verifies implementations, has its own dashboard tab

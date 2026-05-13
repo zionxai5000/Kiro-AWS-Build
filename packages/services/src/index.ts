@@ -12,3 +12,6 @@ export * from './zikaron/index.js';
 export * from './credentials/index.js';
 export * from './handlers/index.js';
 export * from './reference-ingestion/index.js';
+export * from './parallel/index.js';
+export * from './mcp/index.js';
+export * from './communication/index.js';

@@ -22,13 +22,15 @@ import { StandingOrdersPanel, type StandingOrdersPanelData } from '../components
 
 abstract class BasePillarView {
   protected container: HTMLElement;
-  protected messages: { role: string; text: string }[] = [];
+  protected messages: { role: string; text: string; timestamp?: string }[] = [];
+  protected sessions: Array<{ id: string; messageCount: number; startedAt: string; preview: string; isCurrent: boolean }> = [];
+  protected viewingSessionId: string | null = null; // null = current session
+  protected currentSessionId: string = `session-${Date.now()}`; // stable ID for current chat
   protected abstract title: string;
   protected abstract agentName: string;
   protected abstract agentProgramId: string;
   protected abstract welcomeMessage: string;
 
-  // Agent ID mapping (resolved from backend on first message)
   private static agentIdCache: Map<string, string> = new Map();
   private static readonly API_BASE = (window as any).__SERAPHIM_API_URL__?.replace(/\/api$/, '') || 'http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com';
 
@@ -37,38 +39,212 @@ abstract class BasePillarView {
   }
 
   async mount(): Promise<void> {
-    this.messages = [{ role: 'agent', text: this.welcomeMessage }];
+    this.messages = [];
+    
+    // Restore current session ID from localStorage if available
+    try {
+      const sessionKey = `seraphim-current-session-${this.agentProgramId}`;
+      const savedSessionId = localStorage.getItem(sessionKey);
+      if (savedSessionId) {
+        this.currentSessionId = savedSessionId;
+      } else {
+        localStorage.setItem(sessionKey, this.currentSessionId);
+      }
+    } catch { /* ignore */ }
+    
+    this.render();
+
+    // Load conversation history — try backend first, fall back to localStorage
+    await this.loadConversationHistory();
+
+    // If backend returned nothing, try localStorage cache
+    if (this.messages.length === 0) {
+      this.loadFromLocalStorage();
+    }
+
+    if (this.messages.length === 0) {
+      this.messages = [{ role: 'agent', text: this.welcomeMessage }];
+    }
+
     this.render();
     this.attachListeners();
   }
 
   unmount(): void {
+    // Save to localStorage before unmounting so it persists across tab switches
+    this.saveToLocalStorage();
     this.container.innerHTML = '';
     this.messages = [];
   }
 
-  /** Send a message to the real backend agent and return the response */
-  protected async sendToAgent(message: string): Promise<string> {
+  /** Save current conversation to localStorage for persistence across tab switches */
+  private saveToLocalStorage(): void {
     try {
-      // Resolve agent ID from program ID
+      const key = `seraphim-chat-${this.agentProgramId}`;
+      const sessions = this.loadAllSessions();
+      // Update current session
+      const currentIdx = sessions.findIndex(s => s.id === this.currentSessionId);
+      if (currentIdx >= 0) {
+        sessions[currentIdx].messages = this.messages;
+        sessions[currentIdx].updatedAt = new Date().toISOString();
+      } else if (this.messages.length > 0 && this.messages[0]?.text !== this.welcomeMessage) {
+        // Create new session entry
+        sessions.unshift({
+          id: this.currentSessionId,
+          title: this.generateTitle(this.messages),
+          messages: this.messages,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      localStorage.setItem(key, JSON.stringify(sessions));
+    } catch { /* localStorage unavailable or full */ }
+  }
+
+  /** Load all sessions from localStorage */
+  private loadAllSessions(): Array<{ id: string; title: string; messages: typeof this.messages; createdAt: string; updatedAt: string }> {
+    try {
+      const key = `seraphim-chat-${this.agentProgramId}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      // Handle old format (single session with {messages, savedAt})
+      if (data.messages && !Array.isArray(data[0])) {
+        const msgs = data.messages as typeof this.messages;
+        const firstUserMsg = msgs.find((m: any) => m.role === 'user');
+        const title = firstUserMsg ? firstUserMsg.text.substring(0, 50) + (firstUserMsg.text.length > 50 ? '...' : '') : `Chat ${new Date(data.savedAt || Date.now()).toLocaleDateString()}`;
+        return [{ id: 'migrated-' + Date.now(), title, messages: msgs, createdAt: data.savedAt || new Date().toISOString(), updatedAt: data.savedAt || new Date().toISOString() }];
+      }
+      return Array.isArray(data) ? data : [];
+    } catch { return []; }
+  }
+
+  /** Load conversation from localStorage cache (current session) */
+  private loadFromLocalStorage(): void {
+    try {
+      const sessions = this.loadAllSessions();
+      const current = sessions.find(s => s.id === this.currentSessionId);
+      if (current && current.messages.length > 0) {
+        this.messages = current.messages;
+      }
+      // Populate sidebar sessions
+      this.sessions = sessions.map(s => ({
+        id: s.id,
+        messageCount: s.messages.length,
+        startedAt: s.createdAt,
+        preview: s.title,
+        isCurrent: s.id === this.currentSessionId,
+      }));
+    } catch { /* parse error or unavailable */ }
+  }
+
+  /** Generate a title from the first user message in a conversation */
+  private generateTitle(messages: typeof this.messages): string {
+    const firstUserMsg = messages.find(m => m.role === 'user');
+    if (firstUserMsg) {
+      return firstUserMsg.text.substring(0, 50) + (firstUserMsg.text.length > 50 ? '...' : '');
+    }
+    return `Chat ${new Date().toLocaleDateString()}`;
+  }
+
+  /** Archive current session and start a new one */
+  private archiveAndStartNew(): void {
+    // Save current session first
+    this.saveToLocalStorage();
+    // Generate new session ID
+    this.currentSessionId = `session-${Date.now()}`;
+    try { localStorage.setItem(`seraphim-current-session-${this.agentProgramId}`, this.currentSessionId); } catch { /* ignore */ }
+    // Start fresh
+    this.messages = [{ role: 'agent', text: this.welcomeMessage }];
+    this.viewingSessionId = null;
+    // Reload sessions list for sidebar
+    this.loadFromLocalStorage();
+    // Re-render
+    this.render();
+    this.attachListeners();
+  }
+
+  /** Load a specific session by ID — switch to it as the active conversation */
+  private loadArchivedSession(sessionId: string): void {
+    // Save current session first
+    this.saveToLocalStorage();
+    // Switch to the selected session (it becomes the active one)
+    this.currentSessionId = sessionId;
+    try { localStorage.setItem(`seraphim-current-session-${this.agentProgramId}`, this.currentSessionId); } catch { /* ignore */ }
+    // Load its messages
+    const sessions = this.loadAllSessions();
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      this.messages = session.messages;
+    } else {
+      this.messages = [{ role: 'agent', text: this.welcomeMessage }];
+    }
+    this.viewingSessionId = null; // Not "viewing" — it's now the active session
+    this.loadFromLocalStorage(); // Refresh sidebar
+    this.render();
+    this.attachListeners();
+  }
+
+  /** Load conversation history from the backend (Zikaron episodic memory). */
+  protected async loadConversationHistory(): Promise<void> {
+    try {
       let agentId = BasePillarView.agentIdCache.get(this.agentProgramId);
       if (!agentId) {
         const agentsRes = await fetch(`${BasePillarView.API_BASE}/api/agents`);
         if (agentsRes.ok) {
           const data = await agentsRes.json();
-          for (const agent of data.agents || []) {
+          for (const agent of (data.agents || [])) {
             BasePillarView.agentIdCache.set(agent.programId, agent.id);
           }
           agentId = BasePillarView.agentIdCache.get(this.agentProgramId);
         }
       }
+      if (!agentId) return;
 
-      if (!agentId) {
-        return `[${this.agentName} is not currently reachable. Agent "${this.agentProgramId}" not found in registry.]`;
+      const res = await fetch(`${BasePillarView.API_BASE}/api/agents/${agentId}/conversations`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      this.sessions = data.sessions || [];
+
+      // Load current session messages
+      const currentMessages: Array<{ role: string; content: string; timestamp?: string }> = data.currentMessages || [];
+      this.messages = currentMessages.map((m) => ({
+        role: m.role === 'assistant' ? 'agent' : 'user',
+        text: m.content,
+        timestamp: m.timestamp,
+      }));
+    } catch {
+      // Failed to load — start fresh
+    }
+  }
+
+  /** Send a message to the agent via the backend API */
+  protected async sendToAgent(message: string): Promise<string> {
+    try {
+      const API_BASE = (window as any).__SERAPHIM_API_URL__?.replace(/\/api$/, '') || 'http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com';
+
+      // Resolve agent ID from program ID
+      const agentsRes = await fetch(`${API_BASE}/api/agents`);
+      if (!agentsRes.ok) {
+        return `[Backend unreachable: ${agentsRes.status}. Is the ECS service running?]`;
       }
 
-      // Execute task on the agent
-      const res = await fetch(`${BasePillarView.API_BASE}/api/agents/${agentId}/execute`, {
+      const agentsData = await agentsRes.json();
+      let agentId: string | undefined;
+      for (const agent of agentsData.agents || []) {
+        if (agent.programId === this.agentProgramId) {
+          agentId = agent.id;
+          break;
+        }
+      }
+
+      if (!agentId) {
+        return `[Agent "${this.agentProgramId}" not found in registry. ${(agentsData.agents || []).length} agents available.]`;
+      }
+
+      // Execute chat task on the agent
+      const res = await fetch(`${API_BASE}/api/agents/${agentId}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -81,7 +257,8 @@ abstract class BasePillarView {
       });
 
       if (!res.ok) {
-        return `[Error communicating with ${this.agentName}: ${res.status}]`;
+        const errText = await res.text();
+        return `[Backend error ${res.status}: ${errText.slice(0, 150)}]`;
       }
 
       const result = await res.json();
@@ -93,9 +270,11 @@ abstract class BasePillarView {
       if (output?.message) {
         return output.message;
       }
+      if (output?.error) {
+        return `[Agent error: ${output.error}]`;
+      }
 
-      // Fallback: return the raw output as a string
-      return `Acknowledged. Task processed via ${output?.model || 'LLM'}. (Configure API keys in Secrets Manager for full responses)`;
+      return `[${this.agentName}] Received response but no text content found.`;
     } catch (err) {
       return `[Connection error: ${err instanceof Error ? err.message : 'Unknown error'}. Ensure backend is reachable.]`;
     }
@@ -111,11 +290,24 @@ abstract class BasePillarView {
           <div class="presence-indicator"><span class="presence-dot"></span> ${this.agentName} Online</div>
         </div>
         <div class="view-content">${this.renderContent()}</div>
-        <div class="view-chat">
-          <div class="chat-messages" role="log" aria-live="polite" aria-label="Conversation with ${this.agentName}">${this.renderMessages()}</div>
-          <div class="chat-input-area">
-            <textarea class="chat-input" placeholder="Message ${this.agentName}... (Ctrl+Enter to send)" rows="2"></textarea>
-            <button class="chat-send-btn">Send</button>
+        <div class="chat-container">
+          <div class="chat-sidebar">
+            <button class="chat-new-btn">+ New Chat</button>
+            <div class="chat-history-list">
+              ${this.sessions.map(s => `
+                <div class="chat-history-item${s.id === this.currentSessionId ? ' chat-history-item--active' : ''}" data-session-id="${s.id}">
+                  <span class="chat-history-preview">${s.preview}</span>
+                  <span class="chat-history-date">${new Date(s.startedAt).toLocaleDateString()} · ${s.messageCount} msgs</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="view-chat">
+            <div class="chat-messages" role="log" aria-live="polite" aria-label="Conversation with ${this.agentName}">${this.renderMessages()}</div>
+            <div class="chat-input-area">
+              <textarea class="chat-input" placeholder="Message ${this.agentName}... (Enter to send)" rows="2"></textarea>
+              <button class="chat-send-btn">Send</button>
+            </div>
           </div>
         </div>
       </div>
@@ -153,6 +345,7 @@ abstract class BasePillarView {
         // Remove thinking indicator and add real response
         this.messages = this.messages.filter((m) => m.text !== '⏳ Thinking...');
         this.messages.push({ role: 'agent', text: response });
+        this.saveToLocalStorage(); // Persist after every exchange
         this.render();
         this.attachListeners();
         const chatEl = this.container.querySelector('.chat-messages');
@@ -169,6 +362,59 @@ abstract class BasePillarView {
       }
     });
 
+    // Dispatch to Kiro button
+    const dispatchBtn = this.container.querySelector('.chat-dispatch-btn');
+    dispatchBtn?.addEventListener('click', async () => {
+      // Get the last agent message as the task
+      const lastAgentMsg = [...this.messages].reverse().find(m => m.role === 'agent' && m.text !== '⏳ Thinking...' && !m.text.startsWith('['));
+      if (!lastAgentMsg) return;
+
+      try {
+        const API_BASE = (window as any).__SERAPHIM_API_URL__?.replace(/\/api$/, '') || 'http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com';
+        const res = await fetch(`${API_BASE}/api/agent-tasks/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: lastAgentMsg.text.substring(0, 60),
+            description: lastAgentMsg.text,
+            agent: this.agentName,
+            instructions: [lastAgentMsg.text],
+            criteria: ['Task completed successfully'],
+          }),
+        });
+
+        if (res.ok) {
+          this.messages.push({ role: 'agent', text: '✅ Task dispatched to Kiro for execution. Monitor progress in the IDE.' });
+        } else {
+          this.messages.push({ role: 'agent', text: '❌ Failed to dispatch task to Kiro.' });
+        }
+      } catch {
+        this.messages.push({ role: 'agent', text: '❌ Could not reach backend to dispatch task.' });
+      }
+
+      this.saveToLocalStorage();
+      this.render();
+      this.attachListeners();
+    });
+
+    // New Chat button — archive current and start fresh
+    const newChatBtn = this.container.querySelector('.chat-new-btn');
+    newChatBtn?.addEventListener('click', () => {
+      this.archiveAndStartNew();
+    });
+
+    // History items — view archived sessions
+    const historyItems = this.container.querySelectorAll('.chat-history-item');
+    historyItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const sessionId = (item as HTMLElement).dataset.sessionId;
+        if (sessionId) {
+          this.loadArchivedSession(sessionId);
+        }
+      });
+    });
+
+    // Back to current button
     // Focus the textarea for immediate typing
     textarea?.focus();
 
@@ -1464,6 +1710,63 @@ export class ZionAlphaJournalView extends BasePillarView {
           <div class="pipeline-item"><span class="pipeline-item-status pipeline-item-status--info">🔍</span><span class="pipeline-item-text">Pattern: Higher win rate on economic markets (76%) vs political (58%)</span><span class="pipeline-item-time">Insight</span></div>
           <div class="pipeline-item"><span class="pipeline-item-status pipeline-item-status--info">🔍</span><span class="pipeline-item-text">Pattern: Positions held > 14 days have better outcomes (+22% vs +8%)</span><span class="pipeline-item-time">Insight</span></div>
           <div class="pipeline-item"><span class="pipeline-item-status pipeline-item-status--info">🔍</span><span class="pipeline-item-text">Pattern: Confidence > 70% correlates with 82% win rate</span><span class="pipeline-item-time">Insight</span></div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shaar Agent
+// ---------------------------------------------------------------------------
+
+export class ShaarAgentView extends BasePillarView {
+  protected title = 'Shaar Guardian';
+  protected agentName = 'Shaar Guardian';
+  protected agentProgramId = 'shaar-guardian';
+  protected welcomeMessage = 'Shaar Guardian online. I autonomously observe and evaluate the dashboard from the human perspective. I detect UX friction, evaluate visual design quality, audit data truth, verify agentic behavior visibility, and assess revenue workflow effectiveness.\n\nI generate a Readiness Score (0-100) across all dimensions and provide specific, evidence-based improvement recommendations.\n\nTry asking me:\n• "Review the King\'s View tab"\n• "What\'s the current readiness score?"\n• "What are the top UX issues?"\n• "How can we improve revenue workflows?"';
+
+  protected renderContent(): string {
+    return `
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-label">Readiness Score</div>
+          <div class="metric-value" id="shaar-readiness-score">—</div>
+          <div class="metric-trend metric-trend--neutral" id="shaar-readiness-grade">Ask me to run a review</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">UX Quality</div>
+          <div class="metric-value" id="shaar-ux-score">—</div>
+          <div class="metric-trend metric-trend--neutral">Friction detection</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Data Truth</div>
+          <div class="metric-value" id="shaar-data-score">—</div>
+          <div class="metric-trend metric-trend--neutral">Mock data detection</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Revenue Readiness</div>
+          <div class="metric-value" id="shaar-revenue-score">—</div>
+          <div class="metric-trend metric-trend--neutral">Workflow completeness</div>
+        </div>
+      </div>
+      <div class="data-section">
+        <h3 class="data-section-title">Evaluation Dimensions</h3>
+        <div class="pipeline-list">
+          <div class="pipeline-item"><span class="pipeline-item-status">🔍</span><span class="pipeline-item-text"><strong>UX Friction</strong> — Missing labels, dead-ends, hidden status, cognitive overload</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">🎨</span><span class="pipeline-item-text"><strong>Visual Design</strong> — Layout, hierarchy, spacing, typography, color, CTAs</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">📊</span><span class="pipeline-item-text"><strong>Data Truth</strong> — Mock data, placeholders, stale metrics, disconnected sources</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">🤖</span><span class="pipeline-item-text"><strong>Agentic Visibility</strong> — Execution traces, memory, tools, delegation status</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">💰</span><span class="pipeline-item-text"><strong>Revenue Workflows</strong> — Pipeline completeness, monetization, conversion paths</span></div>
+        </div>
+      </div>
+      <div class="data-section">
+        <h3 class="data-section-title">Quick Commands</h3>
+        <div class="pipeline-list">
+          <div class="pipeline-item"><span class="pipeline-item-status">📋</span><span class="pipeline-item-text">"Review the [tab name] tab" — Full page analysis</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">📊</span><span class="pipeline-item-text">"What's the readiness score?" — Overall system readiness</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">🚨</span><span class="pipeline-item-text">"What are the top issues?" — Critical improvements needed</span></div>
+          <div class="pipeline-item"><span class="pipeline-item-status">📤</span><span class="pipeline-item-text">"Send that to Kiro" — Dispatch approved recommendation</span></div>
         </div>
       </div>
     `;

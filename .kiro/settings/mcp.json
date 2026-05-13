@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "seraphim-bridge": {
+      "command": "node",
+      "args": [".kiro/mcp-bridge/server.mjs"],
+      "env": {
+        "AWS_REGION": "us-east-1"
+      },
+      "disabled": false,
+      "autoApprove": ["check_agent_tasks", "get_task_details", "complete_task", "fail_task"]
+    }
+  }
+}

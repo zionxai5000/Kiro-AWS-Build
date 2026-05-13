@@ -53,6 +53,50 @@ export interface ModelPreference {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Identity Profile
+// ---------------------------------------------------------------------------
+
+/**
+ * Comprehensive identity profile for an agent. Defines personality, expertise,
+ * communication style, and hierarchical relationships. Loaded into the system
+ * prompt on every LLM call to ensure persistent character.
+ *
+ * Requirements: 48a.1, 48g.26, 48g.27
+ */
+export interface AgentIdentityProfile {
+  // Core Identity (immutable per version)
+  name: string;
+  role: string;
+  hierarchyPosition: string;
+
+  // Personality Traits
+  personality: {
+    tone: 'authoritative' | 'collaborative' | 'analytical' | 'creative' | 'protective';
+    verbosity: 'concise' | 'balanced' | 'detailed';
+    proactivity: 'reactive' | 'balanced' | 'proactive';
+    formality: 'casual' | 'professional' | 'formal';
+  };
+
+  // Domain Expertise
+  expertise: string[];
+  domainLanguage: string[];
+
+  // Decision Principles
+  decisionPrinciples: string[];
+
+  // Relationships to other agents
+  relationships: Array<{
+    agentId: string;
+    relationship: 'commands' | 'reports_to' | 'collaborates_with' | 'monitors';
+    description: string;
+  }>;
+
+  // Character Enforcement
+  neverBreakCharacter: true;
+  identityReinforcement: string;
+}
+
+// ---------------------------------------------------------------------------
 // Agent Program
 // ---------------------------------------------------------------------------
 
@@ -72,6 +116,9 @@ export interface AgentProgram {
   tools: ToolDefinition[];
   stateMachine: StateMachineDefinition;
   completionContracts: CompletionContract[];
+
+  // Identity (Requirement 48a)
+  identityProfile?: AgentIdentityProfile;
 
   // Permissions
   authorityLevel: AuthorityLevel;

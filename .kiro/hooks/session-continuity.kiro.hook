@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Update Session Summary",
+  "description": "After a task completes, update the session summary file so the next Kiro instance has full context.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A task just completed. Update .kiro/context/session-summary.md with what was done, current state, and any new pending items. This ensures cross-machine continuity."
+  }
+}

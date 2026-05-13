@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Deployment Safety Reminder",
+  "description": "After deployment scripts or Dockerfile are edited, remind to verify backend health before and after any deployment. Does NOT block shell commands.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "scripts/deploy*.ps1",
+      "scripts/deploy*.sh",
+      "Dockerfile"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A deployment file was modified. Before deploying: 1) Test locally first, 2) Never do rapid successive deploys, 3) After deploy verify target group IP matches task IP. See .kiro/steering/deployment-safety.md for full checklist."
+  }
+}

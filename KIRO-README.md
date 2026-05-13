@@ -64,17 +64,41 @@ scripts/      — Deploy, health check, and utility scripts
   hooks/      — Automated triggers
 ```
 
-## Key Commands
+## Hooks (Auto-Active on Clone)
 
-| Command | Purpose |
-|---------|---------|
-| `npm run build` | Build all packages |
-| `npm test` | Run all tests (Vitest) |
-| `npx vitest run packages/services/src/shaar-agent/` | Run Shaar Agent tests |
-| `npx vite build` (in packages/dashboard) | Build dashboard for S3 |
-| `docker build -t seraphim-runtime:latest .` | Build backend container |
-| `powershell -File scripts/check-health.ps1` | Verify backend health |
-| `powershell -File scripts/deploy.sh` | Full deploy (dashboard + backend) |
+All hooks are stored in `.kiro/hooks/` and activate automatically when you open the workspace in Kiro. No manual activation needed — they're part of the repo.
+
+### Active Hooks:
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `verify-deployment-health` | File edited (deploy scripts, Dockerfile, production-server.ts) | Reminds to verify backend health before/after deployments |
+| `deployment-safety-check` | File edited (deploy scripts, Dockerfile) | Deployment safety checklist reminder |
+| `check-secrets-before-giving-up` | Agent stop | Forces checking AWS Secrets Manager for credentials before reporting failure |
+| `session-continuity` | Post task execution | Updates session summary for cross-machine continuity |
+| `push-to-git-after-task` | Post task execution | Prompts to push changes to git after successful tasks |
+
+### How Hooks Work:
+- Hooks are JSON files in `.kiro/hooks/*.kiro.hook`
+- They fire automatically based on their trigger event
+- No manual setup required — cloning the repo activates them
+- To disable a hook: set `"enabled": false` in the hook file
+
+### Steering Files (Auto-Loaded):
+
+| File | Purpose |
+|------|---------|
+| `.kiro/steering/credentials-access.md` | Lists all AWS Secrets Manager credentials and how to use them (auto-included in every session) |
+| `.kiro/steering/deployment-safety.md` | Deployment rules, checklist, and recovery procedures (loaded when editing deploy files) |
+
+### First Session on a New Machine:
+When Kiro opens this workspace for the first time, it will:
+1. Read `KIRO-README.md` (this file) for project overview
+2. Auto-load `.kiro/steering/credentials-access.md` (knows about all API keys)
+3. Read `.kiro/context/session-summary.md` for current state and recent work
+4. Have all hooks active immediately
+
+No manual hook activation or configuration needed.
 
 ## Deployment Rules (CRITICAL)
 
@@ -105,3 +129,16 @@ The full specification is in `.kiro/specs/seraphim-os-core/`:
 
 Every commit includes a session summary update in `.kiro/context/session-summary.md`
 so the next person (or Kiro instance) can pick up exactly where work left off.
+
+
+## Key Commands
+
+| Command | Purpose |
+|---------|---------|
+| `npm run build` | Build all packages |
+| `npm test` | Run all tests (Vitest) |
+| `npx vitest run packages/services/src/shaar-agent/` | Run Shaar Agent tests |
+| `npx vite build` (in packages/dashboard) | Build dashboard for S3 |
+| `docker build -t seraphim-runtime:latest .` | Build backend container |
+| `powershell -File scripts/check-health.ps1` | Verify backend health |
+| `powershell -File scripts/deploy.sh` | Full deploy (dashboard + backend) |

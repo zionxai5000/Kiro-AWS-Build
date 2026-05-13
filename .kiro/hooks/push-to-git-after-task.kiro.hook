@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Push to Git After Task",
+  "description": "After a task completes successfully, prompt the user to push changes to git so the other machine stays in sync. Offers to commit and push using the GitHub token from Secrets Manager.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Task completed successfully. Ask the user: \"Would you like me to commit and push these changes to git so they're available on your other machine?\"\n\nIf the user says yes:\n1. Update .kiro/context/session-summary.md with what was just done\n2. git add -A\n3. git commit -m \"descriptive message of what was done\"\n4. Retrieve GitHub token: aws secretsmanager get-secret-value --secret-id \"seraphim/github-token\" --region us-east-1 --query \"SecretString\" --output text\n5. git remote set-url origin \"https://zionxai5000:<TOKEN>@github.com/zionxai5000/Kiro-AWS-Build.git\"\n6. git push origin main\n7. git remote set-url origin \"https://github.com/zionxai5000/Kiro-AWS-Build.git\" (remove token)\n\nKeep the commit message descriptive so the other Kiro instance knows what changed."
+  }
+}

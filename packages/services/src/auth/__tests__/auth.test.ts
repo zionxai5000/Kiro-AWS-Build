@@ -336,3 +336,33 @@ describe('AuthMiddleware — authorization', () => {
     expect(middleware.authorizeForAction(ctx, 'create')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CognitoAuthService — principalType claim (human-origin guard support)
+// ---------------------------------------------------------------------------
+
+describe('CognitoAuthService — principalType claim', () => {
+  let auth: CognitoAuthService;
+
+  beforeEach(() => {
+    auth = new CognitoAuthService();
+  });
+
+  it('should include principalType: "human" in validated token user', async () => {
+    await auth.register('king@example.com', 'tenant-1', 'king');
+    const loginResult = await auth.login('king@example.com');
+    const user = await auth.validateToken(loginResult.token!.accessToken);
+    expect(user).not.toBeNull();
+    expect(user!.principalType).toBe('human');
+  });
+
+  it('should include principalType: "human" after token refresh', async () => {
+    await auth.register('king@example.com', 'tenant-1', 'king');
+    const loginResult = await auth.login('king@example.com');
+    const refreshResult = await auth.refreshToken(loginResult.token!.refreshToken);
+    expect(refreshResult.success).toBe(true);
+    const user = await auth.validateToken(refreshResult.token!.accessToken);
+    expect(user).not.toBeNull();
+    expect(user!.principalType).toBe('human');
+  });
+});

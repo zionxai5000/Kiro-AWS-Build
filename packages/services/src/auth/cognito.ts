@@ -25,6 +25,8 @@ export interface AuthUser {
   tenantId: string;
   role: 'king' | 'queen';
   email: string;
+  /** Positive identification of token origin. Human users always have 'human'. */
+  principalType?: 'human' | 'agent';
 }
 
 export interface AuthToken {
@@ -215,6 +217,10 @@ export class CognitoAuthService {
     const accessToken = randomUUID();
     const refreshTokenValue = randomUUID();
 
+    // All tokens issued through CognitoAuthService are for human users.
+    // Agents execute internally via the runtime and never authenticate via JWT.
+    const userWithPrincipal: AuthUser = { ...user, principalType: 'human' };
+
     const scopes: TokenScopes = {
       tenantId: user.tenantId,
       role: user.role,
@@ -224,8 +230,8 @@ export class CognitoAuthService {
     const accessExpiresAt = new Date(Date.now() + this.accessTokenExpirySec * 1000);
     const refreshExpiresAt = new Date(Date.now() + this.refreshTokenExpirySec * 1000);
 
-    this.tokens.set(accessToken, { user, expiresAt: accessExpiresAt, scopes });
-    this.refreshTokens.set(refreshTokenValue, { user, expiresAt: refreshExpiresAt, used: false });
+    this.tokens.set(accessToken, { user: userWithPrincipal, expiresAt: accessExpiresAt, scopes });
+    this.refreshTokens.set(refreshTokenValue, { user: userWithPrincipal, expiresAt: refreshExpiresAt, used: false });
 
     return {
       accessToken,

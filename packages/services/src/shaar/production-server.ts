@@ -1259,6 +1259,36 @@ async function main() {
 
   router = new ShaarAPIRouter(agentRuntime as any, auditService as any, otzarService as any, mishmarService as any);
 
+  // Register App Development route group (plugin pattern)
+  try {
+    const { createAppDevRoutes } = await import('@seraphim/app/zionx/app-development/api/routes.js');
+    const { WatcherSupervisor } = await import('@seraphim/app/zionx/app-development/events/watcher-supervisor.js');
+    const { Workspace } = await import('@seraphim/app/zionx/app-development/workspace/workspace.js');
+
+    const appDevWorkspace = new Workspace();
+    const appDevSupervisor = new WatcherSupervisor({
+      eventBus: eventBusService as any,
+      stabilityThresholdMs: 300,
+    });
+
+    // Start watcher (non-blocking — don't fail server boot if watcher can't start)
+    appDevSupervisor.start().catch((err: unknown) => {
+      console.warn('[AppDev] Watcher supervisor failed to start:', (err as Error).message);
+    });
+
+    const appDevRoutes = createAppDevRoutes({
+      eventBus: eventBusService as any,
+      watcherSupervisor: appDevSupervisor,
+      workspace: appDevWorkspace,
+      auditService: auditService as any,
+    });
+
+    router.registerRouteGroup(appDevRoutes);
+    console.log(`✅ App Development routes registered (${appDevRoutes.length} endpoints)`);
+  } catch (err) {
+    console.warn('[AppDev] Failed to register app-dev routes (non-fatal):', (err as Error).message);
+  }
+
   // Initialize PostgreSQL persistence layer if Aurora is connected
   let pgLayer: PgPersistenceLayer | null = null;
   if (dbResult.mode === 'aurora') {

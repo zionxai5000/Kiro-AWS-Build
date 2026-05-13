@@ -45,6 +45,8 @@ export interface RouteHandler {
   method: string;
   path: string;
   handler: (req: APIRequest) => Promise<APIResponse>;
+  /** If true, the route requires positive proof of human origin (rejects agent tokens). */
+  requireHumanOrigin?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +138,20 @@ export class ShaarAPIRouter {
       return { statusCode: 403, body: { error: 'Unauthorized', reason: mishmarResult.reason } };
     }
 
+    // Step 4b: Human-origin check for protected routes
+    if (route.requireHumanOrigin) {
+      const principalType = (authResult.context?.user as unknown as { principalType?: string })?.principalType;
+      if (principalType !== 'human') {
+        return {
+          statusCode: 403,
+          body: {
+            error: 'Human origin required',
+            message: 'This endpoint requires positive proof of human origin. Agent tokens are not permitted.',
+          },
+        };
+      }
+    }
+
     // Step 5: Handle request
     try {
       return await route.handler(req);
@@ -152,6 +168,15 @@ export class ShaarAPIRouter {
    */
   getRoutes(): RouteHandler[] {
     return [...this.routes];
+  }
+
+  /**
+   * Register an external route group (plugin pattern).
+   * Domain packages (app-dev, zion-alpha, zxmg, eretz) use this to add
+   * their routes without modifying this file.
+   */
+  registerRouteGroup(routes: RouteHandler[]): void {
+    this.routes.push(...routes);
   }
 
   // ---------------------------------------------------------------------------

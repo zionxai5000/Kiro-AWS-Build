@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@aws-sdk/s3-request-presigner": "^3.1047.0",
     "chokidar": "^4.0.3",
     "dotenv": "^17.4.2",
     "semver": "^7.8.0"

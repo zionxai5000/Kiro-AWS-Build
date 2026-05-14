@@ -61,3 +61,24 @@ The `as any` cast on getSignedUrl in artifact-storage-client.ts is a known AWS S
 ## Phase 6 — artifact download retry path untested (2026-05-15)
 
 The artifact-storage-client.test.ts network error test was changed from "real fetch failure" to "ECONNREFUSED" (non-retryable error) to avoid timeout from real retry backoff delays. This means the actually-retryable failure path (real network outage during artifact download) is currently untested. Fix: use vi.useFakeTimers() in those tests so retry backoff doesn't consume real wall-clock time, then test a real "fetch failed" / "ETIMEDOUT" scenario through full retry exhaustion. Coverage hole, not a behavior bug.
+
+
+---
+
+## Phase 7 — Notification icon generated at 1024x1024 (2026-05-14)
+
+OpenAI Images API only supports 1024x1024, 1536x1024, and 1024x1536. The notification icon ideally should be 96x96 monochrome. Currently generated at 1024x1024 — Expo/Android handles resizing at build time. For pixel-perfect control, add `sharp` in a future pass to resize to 96x96 after generation.
+
+
+---
+
+## Phase 7 — Daily budget enforcement for asset generation (2026-05-14)
+
+At $0.044/project with the "generate once, skip if exists" idempotency check, daily budget enforcement is not a real risk. The existing `dailyBudgetUsd` ($10/day) in limits.ts would require 227 projects/day to hit. Add enforcement if a force-regen endpoint is built in a future phase.
+
+
+---
+
+## Phase 7 — Force-regen endpoint for assets (2026-05-14)
+
+Currently Hook 7 generates assets once and skips if `assets/icon.png` exists. There is no way to force regeneration (e.g., after app name change). Add a manual-trigger API endpoint (`POST /app-dev/assets/regenerate`) in a future phase if needed. Would need to delete existing assets first, then re-trigger Hook 7.

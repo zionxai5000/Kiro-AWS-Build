@@ -86,13 +86,13 @@ describe('NpmRegistryClient', () => {
     it('throws on 500 server error', async () => {
       mockFetch.mockResolvedValue({ ok: false, status: 500 });
 
-      await expect(client.checkPackage('some-pkg')).rejects.toThrow();
+      await expect(client.checkPackage('some-pkg')).rejects.toThrow('500');
     });
 
-    it('throws on network error', async () => {
+    it('throws on network error (retried, then exhausted)', async () => {
       mockFetch.mockRejectedValue(new Error('fetch failed: network error'));
 
-      await expect(client.checkPackage('some-pkg')).rejects.toThrow();
+      await expect(client.checkPackage('some-pkg')).rejects.toThrow('Retry exhausted');
     });
 
     it('throws on malformed JSON response', async () => {
@@ -102,7 +102,7 @@ describe('NpmRegistryClient', () => {
         json: async () => ({ name: 'pkg' }), // missing 'versions' field
       });
 
-      await expect(client.checkPackage('some-pkg')).rejects.toThrow();
+      await expect(client.checkPackage('some-pkg')).rejects.toThrow('Malformed');
     });
 
     it('sets User-Agent header', async () => {

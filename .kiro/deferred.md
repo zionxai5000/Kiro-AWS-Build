@@ -13,6 +13,8 @@ Items identified during development that are intentionally deferred. Review peri
 
 ## Phase 3 — retry utility default behavior (2026-05-14)
 
+STATUS: RESOLVED in commit 42e8868 on 2026-05-15. See commit for details.
+
 Phase 1 retry utility (retry.ts) assumes all errors are retryable by default. Should be inverted: retry only known-transient error classes (network errors, HTTP 5xx, HTTP 429). Auth, validation, and permission errors should never retry. Currently each caller has to remember to pass a custom shouldRetry predicate. Re-evaluate during a future quality pass.
 
 UPDATE FROM PHASE 5: The retry utility's RetryExhaustedError wrapping behavior is incorrect. When shouldRetry returns false on the first attempt (signaling a terminal error), the utility still wraps the error in RetryExhaustedError with a misleading "Retry exhausted after N attempts" message. The underlying error is preserved as lastError but tests must either catch RetryExhaustedError or unwrap to assert on the actual cause. The 500 server error test in Phase 5 ran for 4 seconds going through full exponential backoff because the utility didn't short-circuit on non-retryable errors. Correct behavior: shouldRetry returning false on attempt 1 should throw the original error immediately, NOT wrap in RetryExhaustedError. The "exhausted" framing should only apply when all retries were actually attempted.

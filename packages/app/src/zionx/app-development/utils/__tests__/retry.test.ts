@@ -37,7 +37,7 @@ describe('retryWithBackoff', () => {
     expect(attempt).toBe(3); // initial + 2 retries
   });
 
-  it('respects shouldRetry predicate', async () => {
+  it('respects shouldRetry predicate — throws original error directly', async () => {
     let attempt = 0;
     await expect(
       retryWithBackoff(
@@ -51,8 +51,44 @@ describe('retryWithBackoff', () => {
           shouldRetry: () => false,
         },
       ),
-    ).rejects.toThrow(RetryExhaustedError);
+    ).rejects.toThrow('non-retryable');
     expect(attempt).toBe(1); // no retries because shouldRetry returned false
+  });
+
+  it('shouldRetry false on first attempt throws original error, NOT RetryExhaustedError', async () => {
+    const originalError = new Error('auth failed: invalid key');
+    try {
+      await retryWithBackoff(
+        () => Promise.reject(originalError),
+        {
+          maxRetries: 3,
+          backoffMs: [10, 20, 30],
+          shouldRetry: () => false,
+        },
+      );
+    } catch (err) {
+      // Should be the original error, not wrapped
+      expect(err).toBe(originalError);
+      expect(err).not.toBeInstanceOf(RetryExhaustedError);
+    }
+  });
+
+  it('all retries exhausted throws RetryExhaustedError with lastError', async () => {
+    const lastErr = new Error('still failing');
+    try {
+      await retryWithBackoff(
+        () => Promise.reject(lastErr),
+        {
+          maxRetries: 2,
+          backoffMs: [10, 20],
+          shouldRetry: () => true,
+        },
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(RetryExhaustedError);
+      expect((err as RetryExhaustedError).lastError).toBe(lastErr);
+      expect((err as RetryExhaustedError).attempts).toBe(3);
+    }
   });
 
   it('aborts via AbortSignal', async () => {

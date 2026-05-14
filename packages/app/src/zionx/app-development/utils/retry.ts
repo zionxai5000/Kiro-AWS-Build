@@ -85,7 +85,9 @@ export async function retryWithBackoff<T>(
 
       // Check if we should retry this error
       if (!shouldRetry(error, attempt)) {
-        break;
+        // Terminal error — throw directly without wrapping in RetryExhaustedError.
+        // The "exhausted" framing only applies when retries were genuinely used up.
+        throw error;
       }
 
       // Wait with backoff before next attempt

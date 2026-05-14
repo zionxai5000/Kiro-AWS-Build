@@ -39,6 +39,12 @@ export interface APIResponse {
   statusCode: number;
   body: unknown;
   headers?: Record<string, string>;
+  /**
+   * If set, the production server calls this function with the raw HTTP response
+   * instead of writing body as JSON. Used for SSE streaming responses.
+   * The function is responsible for writing headers, body, and ending the response.
+   */
+  streamHandler?: (res: import('node:http').ServerResponse) => void;
 }
 
 export interface RouteHandler {

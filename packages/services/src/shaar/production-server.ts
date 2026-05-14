@@ -1046,8 +1046,13 @@ async function main() {
 
     try {
       const apiRes: APIResponse = await router.handleRequest(apiReq);
-      res.writeHead(apiRes.statusCode, { 'Content-Type': 'application/json', ...(apiRes.headers ?? {}) });
-      res.end(JSON.stringify(apiRes.body, null, 2));
+      if (apiRes.streamHandler) {
+        // SSE or other streaming response — handler manages the response directly
+        apiRes.streamHandler(res);
+      } else {
+        res.writeHead(apiRes.statusCode, { 'Content-Type': 'application/json', ...(apiRes.headers ?? {}) });
+        res.end(JSON.stringify(apiRes.body, null, 2));
+      }
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal server error', message: (err as Error).message }));
@@ -1277,11 +1282,12 @@ async function main() {
     });
 
     const appDevRoutes = createAppDevRoutes({
-      eventBus: eventBusService as any,
+      eventBus: eventBusService,
       watcherSupervisor: appDevSupervisor,
       workspace: appDevWorkspace,
-      auditService: auditService as any,
-    });
+      auditService: auditService,
+      credentialManager: credentialManager,
+    } as any);
 
     router.registerRouteGroup(appDevRoutes);
     console.log(`✅ App Development routes registered (${appDevRoutes.length} endpoints)`);

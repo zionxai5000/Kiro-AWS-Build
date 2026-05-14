@@ -38,6 +38,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "chokidar": "^4.0.3",
     "dotenv": "^17.4.2"
   }

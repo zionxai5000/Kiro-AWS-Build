@@ -139,7 +139,7 @@ describe('App Dev Handlers', () => {
   });
 
   describe('generateCode', () => {
-    it('returns 202 accepted', async () => {
+    it('returns 200 with streamHandler for SSE', async () => {
       const handlers = createHandlers({
         eventBus,
         watcherSupervisor: createMockSupervisor(true),
@@ -153,8 +153,9 @@ describe('App Dev Handlers', () => {
       });
       const res = await handlers.generateCode(req);
 
-      expect(res.statusCode).toBe(202);
-      expect((res.body as { status: string }).status).toBe('accepted');
+      expect(res.statusCode).toBe(200);
+      expect(res.streamHandler).toBeDefined();
+      expect(typeof res.streamHandler).toBe('function');
     });
 
     it('returns 400 when prompt is missing', async () => {

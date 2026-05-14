@@ -13,11 +13,16 @@
 
 import type { APIRequest, APIResponse } from '@seraphim/services/shaar/api-routes.js';
 import type { EventBusService } from '@seraphim/core';
+import type { CredentialManager } from '@seraphim/core/interfaces/credential-manager.js';
 import type { WatcherSupervisor } from '../events/watcher-supervisor.js';
 import type { XOAuditService } from '@seraphim/core/interfaces/xo-audit-service.js';
 import { Workspace } from '../workspace/workspace.js';
 import { createAppDevEvent, APPDEV_EVENTS } from '../events/event-types.js';
 import { randomUUID } from 'node:crypto';
+import { run as runSanitizer } from '../pipeline/01-prompt-sanitizer.js';
+import { LLMService } from '../services/llm-service.js';
+import { isHookDryRun } from '../config/hooks.config.js';
+import type { ServerResponse } from 'node:http';
 
 // ---------------------------------------------------------------------------
 // Dependencies
@@ -28,6 +33,7 @@ export interface AppDevHandlerDeps {
   watcherSupervisor: WatcherSupervisor;
   workspace: Workspace;
   auditService?: XOAuditService;
+  credentialManager?: CredentialManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +56,7 @@ export interface AppDevHandlers {
 // ---------------------------------------------------------------------------
 
 export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
-  const { eventBus, watcherSupervisor, workspace, auditService } = deps;
+  const { eventBus, watcherSupervisor, workspace, auditService, credentialManager } = deps;
 
   return {
     // -----------------------------------------------------------------------
@@ -101,7 +107,11 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
     },
 
     // -----------------------------------------------------------------------
-    // POST /app-dev/projects/:id/generate
+    // POST /app-dev/projects/:id/generate — SSE streaming response
+    //
+    // SSE RECONNECTION SEMANTICS (Refinement 2):
+    // Every connection is a fresh generation. Clients track generation IDs
+    // and discard duplicate output. Last-Event-ID resumption not supported in v1.
     // -----------------------------------------------------------------------
     async generateCode(req: APIRequest): Promise<APIResponse> {
       const projectId = req.params.id;
@@ -114,22 +124,134 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 400, body: { error: 'prompt is required' } };
       }
 
-      // Publish hook started event
-      const executionId = randomUUID();
-      await eventBus.publish(createAppDevEvent(
-        APPDEV_EVENTS.HOOK_STARTED,
-        { projectId, hookId: 'code-generator', executionId, dryRun: true },
-        req.tenantId,
-      ));
+      const prompt = body.prompt;
+      const dryRun = isHookDryRun('code-generator');
 
-      // TODO Phase 3: delegate to pipeline/02-code-generator.run()
+      // Return a streamHandler that writes SSE to the raw response
       return {
-        statusCode: 202,
-        body: {
-          projectId,
-          executionId,
-          status: 'accepted',
-          message: 'Code generation queued (pipeline stub — Phase 3)',
+        statusCode: 200,
+        body: null,
+        streamHandler: (res: ServerResponse) => {
+          // Set SSE headers
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Generation-Id': randomUUID(),
+          });
+
+          const sendEvent = (data: Record<string, unknown>) => {
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          };
+
+          // Dry-run path (Refinement 5)
+          if (dryRun) {
+            sendEvent({
+              type: 'dry_run',
+              wouldGenerateFor: projectId,
+              promptLength: prompt.length,
+              timestamp: new Date().toISOString(),
+            });
+            res.end();
+            return;
+          }
+
+          // Run sanitizer (Hook 1) synchronously
+          const sanitizerCtx = {
+            executionId: randomUUID(),
+            dryRun: false,
+            startedAt: new Date().toISOString(),
+            log: (msg: string) => { /* silent in SSE context */ },
+          };
+
+          runSanitizer({ promptId: randomUUID(), raw: prompt, projectId }, sanitizerCtx)
+            .then(async (sanitizerResult) => {
+              // Check for halt-severity secrets
+              if (!sanitizerResult.success || (sanitizerResult.data && !sanitizerResult.data.passed)) {
+                sendEvent({
+                  type: 'error',
+                  reason: 'secrets_detected',
+                  warnings: sanitizerResult.data?.warnings ?? [],
+                });
+                res.end();
+                return;
+              }
+
+              const sanitizedPrompt = sanitizerResult.data?.sanitized ?? prompt;
+
+              // Set up LLM service
+              if (!credentialManager) {
+                sendEvent({ type: 'error', message: 'Credential manager not configured' });
+                res.end();
+                return;
+              }
+
+              const llmService = new LLMService({
+                credentialManager,
+                recentWrites: watcherSupervisor.getWatcher()?.getRecentWrites(),
+              });
+
+              try {
+                const result = await llmService.streamGeneration(sanitizedPrompt, {
+                  onToken: (text) => {
+                    sendEvent({ type: 'token', content: text });
+                  },
+                  onFileStart: (path) => {
+                    sendEvent({ type: 'file_start', path });
+                  },
+                  onFileEnd: async (path, content) => {
+                    // Write completed file to workspace
+                    await workspace.writeFile(projectId, path, content);
+                    sendEvent({ type: 'file_end', path });
+                  },
+                  onComplete: (files) => {
+                    sendEvent({ type: 'done', files });
+                  },
+                  onError: (error) => {
+                    sendEvent({ type: 'error', message: error.message });
+                  },
+                });
+
+                // Publish hook completed event
+                await eventBus.publish(createAppDevEvent(
+                  APPDEV_EVENTS.HOOK_COMPLETED,
+                  {
+                    projectId,
+                    hookId: 'code-generator',
+                    executionId: sanitizerCtx.executionId,
+                    success: true,
+                    dryRun: false,
+                    durationMs: result.durationMs,
+                    files: result.files,
+                    tokensUsed: result.tokensUsed,
+                  },
+                  req.tenantId,
+                ));
+              } catch (error) {
+                sendEvent({ type: 'error', message: (error as Error).message });
+
+                // Publish hook failed event
+                await eventBus.publish(createAppDevEvent(
+                  APPDEV_EVENTS.HOOK_COMPLETED,
+                  {
+                    projectId,
+                    hookId: 'code-generator',
+                    executionId: sanitizerCtx.executionId,
+                    success: false,
+                    dryRun: false,
+                    durationMs: Date.now() - Date.parse(sanitizerCtx.startedAt),
+                    error: (error as Error).message,
+                  },
+                  req.tenantId,
+                ));
+              } finally {
+                res.end();
+              }
+            })
+            .catch((error) => {
+              sendEvent({ type: 'error', message: (error as Error).message });
+              res.end();
+            });
         },
       };
     },

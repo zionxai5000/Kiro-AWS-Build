@@ -1290,9 +1290,28 @@ async function main() {
     } as any);
 
     router.registerRouteGroup(appDevRoutes);
-    console.log(`✅ App Development routes registered (${appDevRoutes.length} endpoints)`);
+    console.log(`✅ [app-dev] Route group registered (${appDevRoutes.length} endpoints)`);
+
+    // Register hook subscribers (hooks 3, 4, 7 react to file change events)
+    try {
+      const { registerHookSubscribers } = await import('@seraphim/app/zionx/app-development/events/hook-subscribers.js');
+      await registerHookSubscribers({ eventBus: eventBusService as any, workspace: appDevWorkspace });
+      console.log('✅ [app-dev] Hook subscribers registered');
+    } catch (subErr) {
+      console.warn('[app-dev] Hook subscribers registration failed (non-fatal):', (subErr as Error).message);
+    }
+
+    // Start WebSocket broadcaster (forwards display-worthy events to dashboard)
+    try {
+      const broadcasterModule = await import('@seraphim/app/zionx/app-development/events/websocket-broadcaster.js' as string);
+      const broadcaster = new broadcasterModule.WebSocketBroadcaster(eventBusService as any, wsHandler as any);
+      await broadcaster.start();
+      console.log('✅ [app-dev] WebSocket broadcaster started');
+    } catch (bcErr) {
+      console.warn('[app-dev] WebSocket broadcaster failed (non-fatal):', (bcErr as Error).message);
+    }
   } catch (err) {
-    console.warn('[AppDev] Failed to register app-dev routes (non-fatal):', (err as Error).message);
+    console.warn('[app-dev] Startup FAILED:', (err as Error).message);
   }
 
   // Initialize PostgreSQL persistence layer if Aurora is connected

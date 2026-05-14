@@ -48,3 +48,16 @@ InMemoryEventBusService casts SystemEvent to SeraphimEvent without transforming 
 ## Phase 5 — Hook 3 halt without enforcer (2026-05-15)
 
 Phase 5 implements Hook 3 with halt severity but no enforcer. Hook 3 emits appdev.hook.completed with success: false on validation failure. Phase 6 (Build Pipeline) is responsible for reading Hook 3's last completion event for a project and refusing to build if success was false. Until Phase 6 lands, bad dependencies are detected and reported but do not block any downstream action.
+
+
+---
+
+## Phase 6 — getSignedUrl as-any cast (2026-05-15)
+
+The `as any` cast on getSignedUrl in artifact-storage-client.ts is a known AWS SDK type-compatibility workaround between @aws-sdk/client-s3 and @aws-sdk/s3-request-presigner (private handlers property has separate declarations). Functional behavior is correct. Re-evaluate when SDK versions converge or AWS publishes typing fix.
+
+---
+
+## Phase 6 — artifact download retry path untested (2026-05-15)
+
+The artifact-storage-client.test.ts network error test was changed from "real fetch failure" to "ECONNREFUSED" (non-retryable error) to avoid timeout from real retry backoff delays. This means the actually-retryable failure path (real network outage during artifact download) is currently untested. Fix: use vi.useFakeTimers() in those tests so retry backoff doesn't consume real wall-clock time, then test a real "fetch failed" / "ETIMEDOUT" scenario through full retry exhaustion. Coverage hole, not a behavior bug.

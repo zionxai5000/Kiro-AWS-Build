@@ -20,6 +20,8 @@ import { Workspace } from '../workspace/workspace.js';
 import { createAppDevEvent, APPDEV_EVENTS } from '../events/event-types.js';
 import { randomUUID } from 'node:crypto';
 import { run as runSanitizer } from '../pipeline/01-prompt-sanitizer.js';
+import { run as runBuildPreparer } from '../pipeline/05-build-preparer.js';
+import { run as runBuildRunner } from '../pipeline/06-build-runner.js';
 import { LLMService } from '../services/llm-service.js';
 import { isHookDryRun } from '../config/hooks.config.js';
 import type { ServerResponse } from 'node:http';
@@ -50,6 +52,12 @@ export interface AppDevHandlers {
   getProject: (req: APIRequest) => Promise<APIResponse>;
   listProjectFiles: (req: APIRequest) => Promise<APIResponse>;
 }
+
+// ---------------------------------------------------------------------------
+// Per-project build rate limiter (in-memory)
+// ---------------------------------------------------------------------------
+
+const buildRateTracker = new Map<string, number[]>();
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -258,6 +266,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
 
     // -----------------------------------------------------------------------
     // POST /app-dev/projects/:id/build
+    // Requires human origin. Per-project rate limit: 3 builds/hour.
     // -----------------------------------------------------------------------
     async buildProject(req: APIRequest): Promise<APIResponse> {
       const projectId = req.params.id;
@@ -266,16 +275,90 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       }
 
       const body = req.body as { platform?: string } | null;
-      const platform = (body?.platform as 'ios' | 'android') || 'ios';
+      const platform = body?.platform as 'ios' | 'android' | undefined;
+      if (platform !== 'ios' && platform !== 'android') {
+        return { statusCode: 400, body: { error: 'platform must be "ios" or "android"' } };
+      }
 
-      // TODO Phase 6: delegate to pipeline/06-build-preparer.run()
-      return {
-        statusCode: 202,
-        body: {
+      // Per-project rate limit
+      const rateKey = `build:${projectId}`;
+      const now = Date.now();
+      const hourAgo = now - 3600_000;
+      if (!buildRateTracker.has(rateKey)) buildRateTracker.set(rateKey, []);
+      const timestamps = buildRateTracker.get(rateKey)!.filter(t => t > hourAgo);
+      buildRateTracker.set(rateKey, timestamps);
+
+      const maxPerHour = parseInt(process.env.SERAPHIM_BUILD_RATE_LIMIT_PER_HOUR ?? '3', 10);
+      if (timestamps.length >= maxPerHour) {
+        return {
+          statusCode: 429,
+          body: { error: 'Rate limit exceeded', message: `Max ${maxPerHour} builds per project per hour` },
+          headers: { 'Retry-After': '3600' },
+        };
+      }
+
+      // Check watcher health
+      if (!watcherSupervisor.isHealthy()) {
+        return {
+          statusCode: 503,
+          body: { error: 'Service unavailable', message: 'File watcher is down — builds paused.' },
+        };
+      }
+
+      if (!credentialManager) {
+        return { statusCode: 500, body: { error: 'Credential manager not configured' } };
+      }
+
+      const ctx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: (msg: string) => console.log(msg),
+      };
+
+      // Hook 5: Build Preparer
+      const prepResult = await runBuildPreparer(
+        { projectId, platform, credentialManager },
+        ctx,
+      );
+
+      if (!prepResult.success) {
+        return {
+          statusCode: 400,
+          body: { error: 'Build preparation failed', details: prepResult.error, errors: prepResult.data?.errors },
+        };
+      }
+
+      // Hook 6: Build Runner
+      const buildResult = await runBuildRunner(
+        {
           projectId,
           platform,
-          status: 'accepted',
-          message: 'Build preparation queued (pipeline stub — Phase 6)',
+          credentialManager,
+          credentialInfo: prepResult.data?.credentialInfo,
+          eventBus,
+          tenantId: req.tenantId,
+        },
+        ctx,
+      );
+
+      if (!buildResult.success) {
+        return {
+          statusCode: 500,
+          body: { error: 'Build submission failed', details: buildResult.error },
+        };
+      }
+
+      // Record rate limit
+      timestamps.push(now);
+
+      return {
+        statusCode: 200,
+        body: {
+          buildId: buildResult.data!.buildId,
+          projectId,
+          platform,
+          status: 'queued',
         },
       };
     },

@@ -60,6 +60,9 @@ const ENV_MAPPINGS: Record<string, Record<string, string>> = {
     'client-id': 'GOOGLE_ADS_CLIENT_ID',
     'client-secret': 'GOOGLE_ADS_CLIENT_SECRET',
   },
+  expo: {
+    'access-token': 'EXPO_TOKEN',
+  },
 };
 
 // ---------------------------------------------------------------------------

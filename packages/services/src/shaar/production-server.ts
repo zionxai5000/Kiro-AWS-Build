@@ -1228,6 +1228,32 @@ async function main() {
       }
     } catch (e) { console.warn(`   ⚠️ Could not load seraphim/openai: ${(e as Error).message}`); }
 
+    // Load Expo token for EAS Build
+    try {
+      const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/expo' }));
+      if (resp.SecretString) {
+        try {
+          const parsed = JSON.parse(resp.SecretString);
+          process.env.EXPO_TOKEN = parsed.accessToken || resp.SecretString;
+        } catch {
+          process.env.EXPO_TOKEN = resp.SecretString;
+        }
+      }
+    } catch (e) { console.warn(`   ⚠️ Could not load seraphim/expo: ${(e as Error).message}`); }
+
+    // Load App Store Connect credentials for iOS builds
+    try {
+      const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/appstoreconnect' }));
+      if (resp.SecretString) {
+        try {
+          const parsed = JSON.parse(resp.SecretString);
+          if (parsed.apiKey) process.env.APPSTORE_CONNECT_API_KEY = parsed.apiKey;
+          if (parsed.keyId) process.env.APPSTORE_CONNECT_KEY_ID = parsed.keyId;
+          if (parsed.issuerId) process.env.APPSTORE_CONNECT_ISSUER_ID = parsed.issuerId;
+        } catch { /* non-JSON secret, skip */ }
+      }
+    } catch (e) { console.warn(`   ⚠️ Could not load seraphim/appstoreconnect: ${(e as Error).message}`); }
+
   } catch (e) {
     console.warn(`   ⚠️ Secrets Manager SDK not available: ${(e as Error).message}`);
   }

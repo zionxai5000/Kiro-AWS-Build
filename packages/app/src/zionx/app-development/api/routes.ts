@@ -33,6 +33,7 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
     {
       method: 'POST',
       path: '/app-dev/projects/:id/build',
+      requireHumanOrigin: true,
       handler: h.buildProject,
     },
     {

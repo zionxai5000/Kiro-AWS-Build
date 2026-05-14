@@ -72,7 +72,8 @@ describe('createAppDevRoutes', () => {
 
   it('other routes do not have requireHumanOrigin', () => {
     const routes = createAppDevRoutes(createMockDeps());
-    const otherRoutes = routes.filter(r => r.path !== '/app-dev/projects/:id/confirm-submit');
+    const humanOnlyPaths = ['/app-dev/projects/:id/confirm-submit', '/app-dev/projects/:id/build'];
+    const otherRoutes = routes.filter(r => !humanOnlyPaths.includes(r.path));
     for (const route of otherRoutes) {
       expect(route.requireHumanOrigin).toBeUndefined();
     }

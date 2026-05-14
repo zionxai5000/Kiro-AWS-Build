@@ -195,11 +195,13 @@ async function invokeHook7(projectId: string, filePath: string, workspace: Works
 
   // Read app.json to check for valid name field
   let appName: string | undefined;
+  let appDescription: string | undefined;
   try {
     const content = await workspace.readFile(projectId, filePath);
     const parsed = JSON.parse(content);
     // Support both { name: "..." } and { expo: { name: "..." } }
     appName = parsed?.expo?.name ?? parsed?.name;
+    appDescription = parsed?.expo?.description ?? parsed?.description;
   } catch {
     // Can't read or parse — skip
     return;
@@ -217,7 +219,7 @@ async function invokeHook7(projectId: string, filePath: string, workspace: Works
   };
 
   try {
-    await runAssetGenerator({ projectId, appName }, ctx);
+    await runAssetGenerator({ projectId, appName, appDescription }, ctx);
     cb.recordSuccess();
   } catch (error) {
     cb.recordFailure();

@@ -24,6 +24,7 @@
  */
 
 import { WorkspaceWatcher, type WorkspaceWatcherOptions } from './workspace-watcher.js';
+import { WatcherSnapshot } from './watcher-snapshot.js';
 import { createAppDevEvent, APPDEV_EVENTS } from './event-types.js';
 import type { EventBusService, SystemEvent } from '@seraphim/core';
 
@@ -55,6 +56,7 @@ export class WatcherSupervisor {
   private readonly restartDelayMs: number;
   private readonly watcherOpts: WorkspaceWatcherOptions;
   private readonly eventBus: EventBusService;
+  private readonly snapshot: WatcherSnapshot;
 
   constructor(opts: WatcherSupervisorOptions) {
     this.maxCrashes = opts.maxCrashes ?? 3;
@@ -62,6 +64,9 @@ export class WatcherSupervisor {
     this.restartDelayMs = opts.restartDelayMs ?? 1000;
     this.watcherOpts = opts;
     this.eventBus = opts.eventBus;
+    this.snapshot = new WatcherSnapshot({
+      workspaceRoot: opts.workspaceRoot,
+    });
   }
 
   get state(): SupervisorState {
@@ -78,17 +83,25 @@ export class WatcherSupervisor {
 
   /**
    * Start the supervisor and its managed watcher.
+   * Runs snapshot recovery on start to emit events for changes missed while down.
    */
   async start(): Promise<void> {
     if (this._state === 'healthy') return;
     this._state = 'restarting';
     await this.startWatcher();
+
+    // Run snapshot recovery after watcher is ready
+    if ((this._state as SupervisorState) === 'healthy') {
+      await this.runRecovery();
+    }
   }
 
   /**
    * Stop the supervisor and its managed watcher.
+   * Flushes all pending snapshot writes before stopping.
    */
   async stop(): Promise<void> {
+    this.snapshot.flushAll();
     if (this.watcher) {
       await this.watcher.stop();
       this.watcher = null;
@@ -134,9 +147,102 @@ export class WatcherSupervisor {
     return this.watcher;
   }
 
+  /**
+   * Get the snapshot instance (for external access if needed).
+   */
+  getSnapshot(): WatcherSnapshot {
+    return this.snapshot;
+  }
+
+  /**
+   * Notify the supervisor of a file event (for snapshot updates).
+   * Called by the watcher or externally after file changes.
+   */
+  onFileEvent(projectId: string, projectPath: string): void {
+    // Queue a debounced snapshot update
+    const state = this.snapshot.buildState(projectPath);
+    this.snapshot.queueSave(projectId, state);
+  }
+
   // -------------------------------------------------------------------------
   // Private
   // -------------------------------------------------------------------------
+
+  /**
+   * Run snapshot recovery: compute diff for known projects, emit events.
+   */
+  private async runRecovery(): Promise<void> {
+    const workspaceRoot = this.watcherOpts.workspaceRoot;
+    if (!workspaceRoot) return;
+
+    try {
+      const { existsSync, readdirSync, statSync } = await import('node:fs');
+      const { join } = await import('node:path');
+
+      if (!existsSync(workspaceRoot)) return;
+
+      const entries = readdirSync(workspaceRoot, { withFileTypes: true });
+      const tenantId = this.watcherOpts.tenantId ?? 'system';
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith('.')) continue;
+
+        const projectId = entry.name;
+        const projectPath = join(workspaceRoot, projectId);
+
+        const diff = this.snapshot.computeDiff(projectId, projectPath);
+        const totalChanges = diff.added.length + diff.modified.length + diff.deleted.length;
+
+        if (totalChanges === 0) continue;
+
+        if (diff.bulk) {
+          // Bulk fallback — emit single bulk event, don't fire individual hooks
+          console.warn(`[WatcherSupervisor] Recovery bulk mode for "${projectId}": ${totalChanges} changes`);
+          await this.eventBus.publish({
+            source: 'seraphim.app-development',
+            type: 'appdev.watcher.recovery.bulk',
+            detail: {
+              projectId,
+              addedCount: diff.added.length,
+              modifiedCount: diff.modified.length,
+              deletedCount: diff.deleted.length,
+            },
+            metadata: { tenantId, correlationId: `recovery-${projectId}-${Date.now()}`, timestamp: new Date() },
+          }).catch(() => {});
+        } else {
+          // Emit individual synthetic events
+          for (const filePath of diff.added) {
+            await this.eventBus.publish(createAppDevEvent(
+              APPDEV_EVENTS.WORKSPACE_FILE_CHANGED,
+              { projectId, filePath, changeType: 'add' },
+              tenantId,
+            )).catch(() => {});
+          }
+          for (const filePath of diff.modified) {
+            await this.eventBus.publish(createAppDevEvent(
+              APPDEV_EVENTS.WORKSPACE_FILE_CHANGED,
+              { projectId, filePath, changeType: 'change' },
+              tenantId,
+            )).catch(() => {});
+          }
+          for (const filePath of diff.deleted) {
+            await this.eventBus.publish(createAppDevEvent(
+              APPDEV_EVENTS.WORKSPACE_FILE_CHANGED,
+              { projectId, filePath, changeType: 'unlink' },
+              tenantId,
+            )).catch(() => {});
+          }
+        }
+
+        // Update snapshot to current state
+        const newState = this.snapshot.buildState(projectPath);
+        this.snapshot.save(projectId, newState);
+      }
+    } catch (error) {
+      console.error('[WatcherSupervisor] Recovery failed:', (error as Error).message);
+    }
+  }
 
   private async startWatcher(): Promise<void> {
     this.watcher = new WorkspaceWatcher(this.watcherOpts);

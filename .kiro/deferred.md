@@ -21,3 +21,17 @@ Phase 1 retry utility (retry.ts) assumes all errors are retryable by default. Sh
 ## Phase 3 — production-server as-any cast (2026-05-14)
 
 production-server.ts → app-dev route registration uses `as any` to bypass type checking because the services package consumes the app package via compiled .d.ts files, not source. New fields on AppDevHandlerDeps won't fail compilation until something explicitly imports the type at source level. Re-evaluate when adjusting the monorepo build pipeline — consider using project references or TypeScript path mappings to share source types.
+
+
+---
+
+## Phase 4 — Workspace class module-load-time root resolution (2026-05-14)
+
+Workspace class resolves WORKSPACE_ROOT at module load time from process.env.SERAPHIM_WORKSPACE_ROOT. This caused test friction in Phase 1 and again in Phase 4 hook-subscribers tests. Each test that wants its own root must use workspace.getProjectPath() to discover the actual configured root. Consider making the root a constructor parameter (with env var as default) for cleaner test isolation. Re-evaluate during a future quality pass.
+
+
+---
+
+## Phase 4 — InMemoryEventBusService tenantId inconsistency (2026-05-14)
+
+InMemoryEventBusService casts SystemEvent to SeraphimEvent without transforming metadata.tenantId → tenantId. Production EventBusServiceImpl likely converts properly via EventBridge, so local dev and production may behave differently. Currently code that needs tenantId must check both locations: event.tenantId ?? event.metadata?.tenantId. Re-evaluate during a future consistency pass — either fix InMemoryEventBusService to transform on dispatch, or normalize the SystemEvent/SeraphimEvent type relationship.

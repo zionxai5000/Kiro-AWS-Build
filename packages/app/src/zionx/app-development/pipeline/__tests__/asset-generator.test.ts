@@ -172,7 +172,7 @@ describe('Hook 07: Asset Generator', () => {
       expect(result.success).toBe(true);
       expect(result.data!.generatedFiles).toHaveLength(4);
       expect(result.data!.generatedFiles).toContain('assets/icon.png');
-      expect(result.data!.generatedFiles).toContain('assets/splash-icon.png');
+      expect(result.data!.generatedFiles).toContain('assets/splash.png');
       expect(result.data!.generatedFiles).toContain('assets/adaptive-icon.png');
       expect(result.data!.generatedFiles).toContain('assets/notification-icon.png');
       expect(mockGenerateImage).toHaveBeenCalledTimes(4);
@@ -196,7 +196,7 @@ describe('Hook 07: Asset Generator', () => {
 
       // icon.png — opaque
       expect(mockGenerateImage.mock.calls[0]![0].background).toBe('opaque');
-      // splash-icon.png — transparent
+      // splash.png — transparent
       expect(mockGenerateImage.mock.calls[1]![0].background).toBe('transparent');
       // adaptive-icon.png — opaque
       expect(mockGenerateImage.mock.calls[2]![0].background).toBe('opaque');

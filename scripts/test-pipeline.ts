@@ -282,7 +282,7 @@ async function main(): Promise<void> {
 
   if (appName) {
     const result = await runAssetGenerator(
-      { projectId, appName, appDescription: prompt.slice(0, 100) },
+      { projectId, appName, appDescription: prompt.slice(0, 100), credentialManager },
       createCtx(dryRun),
     );
     summary.hooksRun++;

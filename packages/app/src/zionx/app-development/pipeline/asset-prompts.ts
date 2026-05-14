@@ -35,7 +35,7 @@ export const ASSET_SPECS: readonly AssetSpec[] = [
     purpose: 'App icon (iOS + Android)',
   },
   {
-    filename: 'splash-icon.png',
+    filename: 'splash.png',
     size: '1024x1024',
     background: 'transparent',
     purpose: 'Splash screen icon',
@@ -134,7 +134,7 @@ export function buildPromptForAsset(
   switch (spec.filename) {
     case 'icon.png':
       return buildIconPrompt(appName, appDescription);
-    case 'splash-icon.png':
+    case 'splash.png':
       return buildSplashIconPrompt(appName, appDescription);
     case 'adaptive-icon.png':
       return buildAdaptiveIconPrompt(appName, appDescription);

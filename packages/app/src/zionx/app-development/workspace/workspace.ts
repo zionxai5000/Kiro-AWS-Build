@@ -169,6 +169,18 @@ export class Workspace {
   }
 
   /**
+   * Read binary content from a project's workspace.
+   * @param projectId - The project identifier.
+   * @param relativePath - Path relative to the project directory.
+   * @returns The file contents as a Buffer.
+   */
+  async readBinaryFile(projectId: string, relativePath: string): Promise<Buffer> {
+    validateRelativePath(relativePath);
+    const filePath = join(this.getProjectPath(projectId), relativePath);
+    return readFileAsync(filePath);
+  }
+
+  /**
    * Write a file to a project's workspace.
    * Creates parent directories as needed.
    * @param projectId - The project identifier.
@@ -181,6 +193,21 @@ export class Workspace {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     await writeFileAsync(filePath, content, 'utf-8');
+  }
+
+  /**
+   * Write binary content (Buffer) to a project's workspace.
+   * Creates parent directories as needed.
+   * @param projectId - The project identifier.
+   * @param relativePath - Path relative to the project directory.
+   * @param content - The binary content to write (Buffer).
+   */
+  async writeBinaryFile(projectId: string, relativePath: string, content: Buffer): Promise<void> {
+    validateRelativePath(relativePath);
+    const filePath = join(this.getProjectPath(projectId), relativePath);
+    const dir = dirname(filePath);
+    await mkdir(dir, { recursive: true });
+    await writeFileAsync(filePath, content);
   }
 
   /**

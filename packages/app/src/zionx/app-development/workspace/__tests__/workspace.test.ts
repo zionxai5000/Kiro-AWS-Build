@@ -108,6 +108,55 @@ describe('Workspace', () => {
     });
   });
 
+  describe('writeBinaryFile + readBinaryFile', () => {
+    it('writes and reads binary content (PNG-like bytes)', async () => {
+      await workspace.ensureProjectDir(testProjectId);
+      // PNG magic bytes + some random data
+      const pngMagic = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+      const payload = Buffer.alloc(256);
+      for (let i = 0; i < 256; i++) payload[i] = i;
+      const content = Buffer.concat([pngMagic, payload]);
+
+      await workspace.writeBinaryFile(testProjectId, 'assets/icon.png', content);
+      const readBack = await workspace.readBinaryFile(testProjectId, 'assets/icon.png');
+
+      expect(Buffer.isBuffer(readBack)).toBe(true);
+      expect(readBack.length).toBe(content.length);
+      expect(readBack.equals(content)).toBe(true);
+    });
+
+    it('creates parent directories automatically', async () => {
+      await workspace.ensureProjectDir(testProjectId);
+      const content = Buffer.from([0x01, 0x02, 0x03]);
+      await workspace.writeBinaryFile(testProjectId, 'deep/nested/image.png', content);
+      const readBack = await workspace.readBinaryFile(testProjectId, 'deep/nested/image.png');
+      expect(readBack.equals(content)).toBe(true);
+    });
+
+    it('rejects directory traversal in writeBinaryFile', async () => {
+      await expect(
+        workspace.writeBinaryFile(testProjectId, '../../etc/evil.bin', Buffer.from([0x00])),
+      ).rejects.toThrow(DirectoryTraversalError);
+    });
+
+    it('rejects directory traversal in readBinaryFile', async () => {
+      await expect(
+        workspace.readBinaryFile(testProjectId, '../../etc/passwd'),
+      ).rejects.toThrow(DirectoryTraversalError);
+    });
+
+    it('preserves exact bytes (no encoding corruption)', async () => {
+      await workspace.ensureProjectDir(testProjectId);
+      // All possible byte values 0x00-0xFF
+      const allBytes = Buffer.alloc(256);
+      for (let i = 0; i < 256; i++) allBytes[i] = i;
+
+      await workspace.writeBinaryFile(testProjectId, 'all-bytes.bin', allBytes);
+      const readBack = await workspace.readBinaryFile(testProjectId, 'all-bytes.bin');
+      expect(readBack.equals(allBytes)).toBe(true);
+    });
+  });
+
   describe('directory traversal protection', () => {
     it('rejects "../etc/passwd" in readFile', async () => {
       await expect(

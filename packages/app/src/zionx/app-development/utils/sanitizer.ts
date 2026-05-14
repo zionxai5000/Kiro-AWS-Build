@@ -44,7 +44,7 @@ export interface SanitizeResult {
 // Detector Definitions
 // ---------------------------------------------------------------------------
 
-interface Detector {
+export interface Detector {
   type: string;
   severity: 'halt' | 'warn';
   regex: RegExp;
@@ -52,7 +52,7 @@ interface Detector {
   validate?: (match: string) => boolean;
 }
 
-const DETECTORS: Detector[] = [
+export const DETECTORS: Detector[] = [
   // Order matters: more specific patterns first to avoid partial matches
   {
     type: 'anthropic_key',
@@ -252,4 +252,57 @@ function deduplicateMatches(matches: RawMatch[]): RawMatch[] {
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Detection Only (no redaction) — for file content scanning
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect secrets in arbitrary content without modifying it.
+ *
+ * Used by Hook 4 (secret-scanner) to scan generated file contents.
+ * Returns warnings with positions in the ORIGINAL content (no replacement).
+ *
+ * @param content - The file content to scan.
+ * @returns Array of warnings. Empty if no secrets found.
+ */
+export function detectSecrets(content: string): SanitizeWarning[] {
+  if (!content) return [];
+
+  const matches: RawMatch[] = [];
+
+  for (const detector of DETECTORS) {
+    detector.regex.lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = detector.regex.exec(content)) !== null) {
+      const candidate = match[0];
+
+      if (detector.validate && !detector.validate(candidate)) {
+        continue;
+      }
+
+      matches.push({
+        type: detector.type,
+        severity: detector.severity,
+        start: match.index,
+        end: match.index + candidate.length,
+        original: candidate,
+      });
+    }
+  }
+
+  if (matches.length === 0) return [];
+
+  // Deduplicate overlapping matches
+  const deduped = deduplicateMatches(matches);
+
+  // Return warnings with original positions (no offset calculation needed)
+  return deduped.map(m => ({
+    type: m.type,
+    severity: m.severity,
+    position: m.start,
+    length: m.end - m.start,
+  }));
 }

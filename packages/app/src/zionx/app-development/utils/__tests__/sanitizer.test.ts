@@ -245,3 +245,107 @@ describe('sanitizePrompt', () => {
     });
   });
 });
+
+
+// ===========================================================================
+// detectSecrets — file content scanning (no redaction)
+// ===========================================================================
+
+import { detectSecrets } from '../sanitizer.js';
+
+describe('detectSecrets', () => {
+  describe('detects secrets in file content', () => {
+    it('detects API key in a TypeScript file', () => {
+      const content = `import { config } from './config';\nconst key = "sk-ant-api03-4xESCuJ_FMOCYNDU7EYXGQ";\nexport default key;`;
+      const warnings = detectSecrets(content);
+      expect(warnings.length).toBeGreaterThanOrEqual(1);
+      expect(warnings.some(w => w.type === 'anthropic_key')).toBe(true);
+    });
+
+    it('detects JWT in a config file', () => {
+      const content = `{\n  "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"\n}`;
+      const warnings = detectSecrets(content);
+      expect(warnings.some(w => w.type === 'jwt')).toBe(true);
+    });
+
+    it('detects AWS key in environment config', () => {
+      const content = `AWS_ACCESS_KEY_ID=AKIAYGDVRECH55QALWEQ\nAWS_SECRET_ACCESS_KEY=someSecret`;
+      const warnings = detectSecrets(content);
+      expect(warnings.some(w => w.type === 'aws_key')).toBe(true);
+    });
+
+    it('detects multiple secrets in one file', () => {
+      const content = `const api = "sk-abcdefghijklmnopqrstuvwxyz123";\nconst aws = "AKIAYGDVRECH55QALWEQ";`;
+      const warnings = detectSecrets(content);
+      expect(warnings.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('does NOT modify the input', () => {
+    it('returns warnings without changing content', () => {
+      const content = `const key = "AKIAYGDVRECH55QALWEQ";`;
+      const warnings = detectSecrets(content);
+      // detectSecrets doesn't return sanitized text — just warnings
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]!.type).toBe('aws_key');
+      // Position points to the original location in the unchanged content
+      const extracted = content.slice(warnings[0]!.position, warnings[0]!.position + warnings[0]!.length);
+      expect(extracted).toBe('AKIAYGDVRECH55QALWEQ');
+    });
+  });
+
+  describe('false positive avoidance in file content', () => {
+    it('does NOT flag normal import statements', () => {
+      const content = `import { useState } from 'react';\nimport { StyleSheet } from 'react-native';`;
+      const warnings = detectSecrets(content);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does NOT flag short variable names with sk- prefix', () => {
+      const content = `const taskId = "sk-123";\nconst skip = true;`;
+      const warnings = detectSecrets(content);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does NOT flag package versions', () => {
+      const content = `"dependencies": {\n  "react": "^18.2.0",\n  "expo": "~52.0.0"\n}`;
+      const warnings = detectSecrets(content);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does NOT flag base64 image data that looks like JWT segments', () => {
+      // Only 2 segments, not 3 — not a JWT
+      const content = `const img = "data:image/png;base64,eyJhbGciOiJIUzI1NiJ9.incomplete";`;
+      const warnings = detectSecrets(content);
+      expect(warnings.filter(w => w.type === 'jwt')).toHaveLength(0);
+    });
+  });
+
+  describe('multi-line file content', () => {
+    it('handles files with many lines', () => {
+      const lines = Array.from({ length: 100 }, (_, i) => `const line${i} = ${i};`);
+      lines[50] = `const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";`;
+      const content = lines.join('\n');
+
+      const warnings = detectSecrets(content);
+      expect(warnings.some(w => w.type === 'github_pat')).toBe(true);
+    });
+
+    it('handles files with backslashes (Windows paths in code)', () => {
+      const content = `const path = "C:\\\\Users\\\\admin\\\\project";\nconst x = 1;`;
+      const warnings = detectSecrets(content);
+      expect(warnings).toHaveLength(0);
+    });
+  });
+
+  describe('empty and clean content', () => {
+    it('returns empty array for empty string', () => {
+      expect(detectSecrets('')).toEqual([]);
+    });
+
+    it('returns empty array for clean code', () => {
+      const content = `export function hello() {\n  return "Hello, World!";\n}`;
+      expect(detectSecrets(content)).toEqual([]);
+    });
+  });
+});

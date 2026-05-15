@@ -53,8 +53,29 @@ Required files for every app:
 1. app/_layout.tsx (root layout with navigation)
 2. app/index.tsx (home screen)
 3. app.json (Expo config with name, slug, version, icon, splash)
-4. package.json (dependencies with exact versions)
+4. package.json (dependencies with exact versions — MUST include expo-asset, expo-font, expo-constants)
 5. tsconfig.json
+6. babel.config.js (MUST use babel-preset-expo)
+7. metro.config.js (MUST use expo/metro-config)
+
+CRITICAL: babel.config.js and metro.config.js are REQUIRED for production builds. Without them, EAS Build will fail.
+
+Example babel.config.js:
+--- FILE: babel.config.js ---
+module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ['babel-preset-expo'],
+  };
+};
+--- END FILE ---
+
+Example metro.config.js:
+--- FILE: metro.config.js ---
+const { getDefaultConfig } = require('expo/metro-config');
+const config = getDefaultConfig(__dirname);
+module.exports = config;
+--- END FILE ---
 
 Generate ONLY the files needed. Do not explain or narrate — just output the file blocks.
 Do not include API keys, secrets, or placeholder credentials in any file.` as const;

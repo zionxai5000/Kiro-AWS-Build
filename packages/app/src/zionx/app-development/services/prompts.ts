@@ -26,6 +26,8 @@ CONSTRAINTS:
 - Do not include external API calls (weather, AI APIs, etc.) without user consent. Network calls must be behind user-initiated actions.
 - All file paths must be relative. Never use absolute paths or paths containing ../
 
+IMPORTANT: Use the exact version ranges from the DEPENDENCY VERSIONS section below. Do not guess versions or use 'latest' — peer dependency conflicts will cause EAS Build to fail at npm ci.
+
 OUTPUT FORMAT:
 Respond with a series of file blocks. Each file block starts with:
 --- FILE: <relative-path> ---
@@ -67,10 +69,12 @@ dependencies:
   "expo-asset": "~12.0.0"
   "expo-constants": "~18.0.0"
   "expo-font": "~14.0.0"
+  "expo-linking": "~8.0.0"
   "expo-router": "~6.0.0"
   "expo-splash-screen": "~31.0.0"
   "expo-status-bar": "~3.0.0"
   "react": "19.1.0"
+  "react-dom": "19.1.0"
   "react-native": "0.81.4"
   "react-native-safe-area-context": "~5.4.0"
   "react-native-screens": "~4.16.0"

@@ -9,7 +9,8 @@
     "@seraphim/core": "*",
     "@seraphim/drivers": "*",
     "@seraphim/services": "*",
-    "node-forge": "^1.4.0"
+    "node-forge": "^1.4.0",
+    "sharp": "^0.34.5"
   },
   "scripts": {
     "build": "tsc --build",

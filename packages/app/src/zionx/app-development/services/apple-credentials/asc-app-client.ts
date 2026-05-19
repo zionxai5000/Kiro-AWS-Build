@@ -152,13 +152,16 @@ export async function createAscApp(
     name: string;
     sku: string;
     primaryLocale: string;
+    bundleIdentifier: string;
   },
 ): Promise<AscAppInfo> {
   // Idempotency: check if app already exists for this bundle ID
-  // We need the bundle identifier string, but we only have the resource ID.
-  // The caller should pass the bundle identifier separately if needed.
-  // For now, we proceed directly to creation and handle 409.
+  const existing = await getAscApp(jwt, input.bundleIdentifier);
+  if (existing) {
+    return existing;
+  }
 
+  // Not found — create
   const body = {
     data: {
       type: 'apps',

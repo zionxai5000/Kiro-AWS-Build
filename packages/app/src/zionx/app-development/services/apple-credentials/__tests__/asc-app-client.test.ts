@@ -101,9 +101,36 @@ describe('createAscApp', () => {
     name: 'FitTracker',
     sku: 'fittracker-001',
     primaryLocale: 'en-US',
+    bundleIdentifier: 'dev.zionxai.fittracker',
   };
 
-  it('POSTs new app and returns AscAppInfo', async () => {
+  it('returns existing app if getAscApp finds it (idempotent — no POST made)', async () => {
+    // getAscApp returns existing app
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, {
+      data: [{
+        id: '1111111111',
+        attributes: {
+          name: 'FitTracker',
+          bundleId: 'dev.zionxai.fittracker',
+          sku: 'fittracker-001',
+          primaryLocale: 'en-US',
+        },
+      }],
+    }));
+
+    const result = await createAscApp(FAKE_JWT, input);
+
+    expect(result.ascAppId).toBe('1111111111');
+    expect(result.name).toBe('FitTracker');
+    // Only 1 fetch call (the GET from getAscApp), no POST
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]![1]?.method ?? 'GET').toBe('GET');
+  });
+
+  it('POSTs new app and returns AscAppInfo when no existing', async () => {
+    // getAscApp returns empty (no existing app)
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { data: [] }));
+    // POST creates new app
     mockFetch.mockResolvedValueOnce(jsonResponse(201, {
       data: {
         id: '9876543210',
@@ -120,13 +147,15 @@ describe('createAscApp', () => {
 
     expect(result.ascAppId).toBe('9876543210');
     expect(result.name).toBe('FitTracker');
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0]!;
-    expect(url).toContain('/v1/apps');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [, opts] = mockFetch.mock.calls[1]!;
     expect(opts.method).toBe('POST');
   });
 
   it('throws AscAppNameTakenError on 409', async () => {
+    // getAscApp returns empty
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { data: [] }));
+    // POST returns 409
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 409,
@@ -138,6 +167,9 @@ describe('createAscApp', () => {
   });
 
   it('throws AscApiError on other failures (e.g. 422)', async () => {
+    // getAscApp returns empty
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { data: [] }));
+    // POST returns 422
     mockFetch.mockResolvedValueOnce(errorResponse(422, 'INVALID_ENTITY', 'Validation Error', 'SKU is invalid'));
 
     await expect(createAscApp(FAKE_JWT, input))

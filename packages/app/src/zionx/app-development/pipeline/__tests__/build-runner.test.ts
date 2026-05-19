@@ -27,6 +27,18 @@ vi.mock('../../utils/temp-credential-file.js', () => ({
   }),
 }));
 
+// Mock workspace so ensureEasProjectLinked finds a linked app.json
+vi.mock('../../workspace/workspace.js', () => ({
+  Workspace: class MockWorkspace {
+    getProjectPath(projectId: string) { return `/tmp/workspaces/${projectId}`; }
+    async readFile() {
+      return JSON.stringify({
+        expo: { name: 'Test', slug: 'test', extra: { eas: { projectId: 'mock-eas-id' } } },
+      });
+    }
+  },
+}));
+
 import { runEasCommand } from '../../services/eas-cli-wrapper.js';
 import { BuildStatusPoller } from '../../services/build-status-poller.js';
 import { withTempCredentialFile } from '../../utils/temp-credential-file.js';

@@ -60,6 +60,7 @@ Required files for every app:
 6. babel.config.js (MUST use babel-preset-expo)
 7. metro.config.js (MUST use expo/metro-config)
 8. eas.json (EAS Build configuration)
+9. .gitignore (MUST exclude node_modules, .expo, dist)
 
 CRITICAL: babel.config.js, metro.config.js, and eas.json are REQUIRED for production builds. Without them, EAS Build will fail.
 
@@ -113,6 +114,28 @@ Example eas.json:
     }
   }
 }
+--- END FILE ---
+
+Example .gitignore:
+--- FILE: .gitignore ---
+node_modules/
+.expo/
+dist/
+npm-debug.*
+*.tsbuildinfo
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# iOS
+*.pem
+*.orig.*
+
+# Native
+/android
+/ios
 --- END FILE ---
 
 Generate ONLY the files needed. Do not explain or narrate — just output the file blocks.

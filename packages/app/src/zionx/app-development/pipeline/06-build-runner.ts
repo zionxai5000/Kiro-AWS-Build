@@ -124,6 +124,28 @@ export async function run(
   const workspace = new Workspace();
   const projectPath = workspace.getProjectPath(projectId);
 
+  // Ensure EAS project is linked before attempting build
+  try {
+    await ensureEasProjectLinked({
+      projectPath,
+      workspace,
+      projectId,
+      expoToken,
+      log: ctx.log,
+    });
+  } catch (error) {
+    cb.recordFailure();
+    ctx.log(`[${HOOK_METADATA.id}] EAS project init failed: ${(error as Error).message}`);
+    return {
+      success: false,
+      hookId: HOOK_METADATA.id,
+      dryRun: false,
+      error: `EAS project init failed: ${(error as Error).message}`,
+      data: { buildId: '', projectId, platform, status: 'queued' },
+      durationMs: Date.now() - start,
+    };
+  }
+
   // Build submission — iOS needs temp .p8 file, Android doesn't
   let buildId: string;
   try {
@@ -212,4 +234,92 @@ async function submitBuild(
   }
 
   return builds[0].id;
+}
+
+// ---------------------------------------------------------------------------
+// EAS Project Linkage
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the workspace project is linked to an EAS project.
+ * Reads app.json to check for existing projectId. If missing, runs `eas project:init`.
+ *
+ * @returns The EAS project ID (existing or newly created)
+ * @throws If app.json is missing, malformed, or init fails
+ */
+export async function ensureEasProjectLinked(args: {
+  projectPath: string;
+  workspace: Workspace;
+  projectId: string;
+  expoToken: string;
+  log: (msg: string) => void;
+}): Promise<string> {
+  const { projectPath, workspace, projectId, expoToken, log } = args;
+  const hookId = HOOK_METADATA.id;
+
+  // Read app.json
+  let appJsonContent: string;
+  try {
+    appJsonContent = await workspace.readFile(projectId, 'app.json');
+  } catch (error) {
+    throw new Error(
+      `workspace missing app.json — regenerate or check workspace integrity: ${(error as Error).message}`,
+    );
+  }
+
+  // Parse app.json
+  let appJson: Record<string, unknown>;
+  try {
+    appJson = JSON.parse(appJsonContent);
+  } catch (error) {
+    throw new Error(
+      `workspace app.json is malformed: ${(error as Error).message}`,
+    );
+  }
+
+  // Check if already linked
+  const expo = appJson.expo as Record<string, unknown> | undefined;
+  const extra = expo?.extra as Record<string, unknown> | undefined;
+  const eas = extra?.eas as Record<string, unknown> | undefined;
+  const existingProjectId = eas?.projectId as string | undefined;
+
+  if (existingProjectId) {
+    log(`[${hookId}] Project already linked: ${existingProjectId}`);
+    return existingProjectId;
+  }
+
+  // Run eas project:init
+  log(`[${hookId}] No EAS project ID found — running eas project:init`);
+  try {
+    await runEasCommand(
+      ['project:init', '--non-interactive'],
+      { cwd: projectPath, expoToken, timeoutMs: 30_000 },
+    );
+  } catch (error) {
+    throw new Error(
+      `eas project:init failed: ${(error as Error).message}`,
+    );
+  }
+
+  // Verify app.json was updated with the new project ID
+  let updatedContent: string;
+  try {
+    updatedContent = await workspace.readFile(projectId, 'app.json');
+  } catch (error) {
+    throw new Error(
+      `Failed to re-read app.json after eas project:init: ${(error as Error).message}`,
+    );
+  }
+
+  const updatedJson = JSON.parse(updatedContent);
+  const newProjectId = updatedJson?.expo?.extra?.eas?.projectId as string | undefined;
+
+  if (!newProjectId) {
+    throw new Error(
+      'eas project:init reported success but app.json still has no projectId — possible eas-cli bug',
+    );
+  }
+
+  log(`[${hookId}] Project linked: ${newProjectId}`);
+  return newProjectId;
 }

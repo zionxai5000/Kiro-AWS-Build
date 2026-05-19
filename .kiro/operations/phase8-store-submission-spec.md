@@ -194,6 +194,8 @@ The first release of an Android app CANNOT be automated. Google requires:
 
 After the first release is approved, subsequent updates can be automated via EAS Submit.
 
+**Source**: Confirmed via https://docs.expo.dev/submit/android/ as of 2026-05-19. Worth re-verifying if Phase 8 implementation is delayed by more than a month — Google has been updating Play Developer API capabilities.
+
 ### Implication for Our Pipeline
 
 For the MVP (single-tenant, `dev.zionxai.workouttracker`):
@@ -220,6 +222,8 @@ For multi-tenant (future):
 | **Managed By** | CDK (Seraphim-dev-Secrets stack) |
 
 The secret exists and was recently accessed. Shape is likely a Google Service Account JSON (standard format: `{ type, project_id, private_key_id, private_key, client_email, ... }`). We'll need to verify the exact shape during implementation, but the secret is available.
+
+**IMPORTANT: shape verification pending.** `describe-secret` reveals metadata only — not contents. The description field says "Google Play Console service account credentials" but we know from `seraphim/expo` that descriptions don't guarantee standard format. Before implementing the Android submission path, fetch the secret value and confirm it matches Google's standard service-account JSON shape (`type`, `project_id`, `private_key`, `client_email`, etc.). If the format is non-standard, we'll need a parser similar to `parseAscSecret`.
 
 ---
 
@@ -256,13 +260,9 @@ Per current Apple guidelines:
 | **C** | AI image generation (OpenAI/DALL-E) | Fast, cheap ($0.04/image), already have the client | Not actual app screenshots — Apple may reject if they look too "generated". Less authentic. |
 | **D** | Placeholder screenshots for MVP | Generic "Coming Soon" or solid-color placeholders | Fastest to implement, but won't pass App Store review. Only useful for internal testing. |
 
-### Recommended Approach (for discussion)
+### Screenshot Decision (Pending)
 
-**Option C (AI generation) for MVP, Option A/B for production quality.**
-
-Rationale: We already have the OpenAI images client from Hook 7. We can generate promotional-style screenshots that show the app concept. For the first submission, this gets us through the door. For production quality, we'd need Option A or B — but that's significantly more infrastructure.
-
-**Open question**: Apple's guidelines say screenshots must be "actual app screenshots." AI-generated images that look like app screens may or may not pass review. This is a risk.
+Selection deferred to design phase. See Open Question #3 in Section 7.
 
 ---
 
@@ -282,6 +282,7 @@ Rationale: We already have the OpenAI images client from Hook 7. We can generate
    - For MVP: Option C (AI) or Option D (placeholder)?
    - For production: Option A (simulator) or Option B (render)?
    - Timeline impact: Option C adds ~1 day, Option A adds ~3-5 days
+   - **Known risk on Option C**: Apple's guidelines state screenshots must be "actual app screenshots." AI-generated images that look like app screens may or may not pass App Store review. This is a real rejection risk.
 
 4. **Multi-tenant: how does Phase 8 handle multiple Apple teams / Google Play accounts?**
    - Currently `apple-credentials-config.ts` is single-tenant

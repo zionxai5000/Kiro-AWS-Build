@@ -24,6 +24,7 @@ export const HOOKS_CONFIG: HooksConfigMap = {
     'secret-scanner':       { enabled: true, dryRun: true },
     'preview-refresher':    { enabled: true, dryRun: true },
     'build-preparer':       { enabled: true, dryRun: true },
+    'build-runner':         { enabled: true, dryRun: true },
     'asset-generator':      { enabled: true, dryRun: true },
     'store-listing-writer': { enabled: true, dryRun: true },
     'submission-prep':      { enabled: true, dryRun: true },

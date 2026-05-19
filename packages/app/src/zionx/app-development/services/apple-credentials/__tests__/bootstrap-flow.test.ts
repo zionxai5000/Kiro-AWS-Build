@@ -106,6 +106,7 @@ function setupDefaults(): void {
   mockAppleCreateProfile.mockResolvedValue({
     id: 'apple-prof-1', name: 'AppStore', profileContent: 'base64profile',
     profileState: 'ACTIVE', expirationDate: '2027-05-19',
+    bundleIdResourceId: 'apple-bid-1', certificateIds: ['apple-cert-1'],
   });
   mockEasCreateProfile.mockResolvedValue('eas-prof-1');
   mockBindCreds.mockResolvedValue('eas-build-cred-1');
@@ -148,9 +149,9 @@ describe('bootstrapIosCredentials', () => {
     mockListBundleIds.mockResolvedValue([
       { id: 'apple-bid-existing', identifier: 'dev.zionxai.workouttracker', name: 'WT', platform: 'IOS' },
     ]);
-    // Profile exists at Apple
+    // Profile exists at Apple — bound to our bundle ID + cert
     mockListProfiles.mockResolvedValue([
-      { id: 'apple-prof-existing', name: 'AppStore', profileContent: 'base64', profileState: 'ACTIVE', expirationDate: '2027-06-01T00:00:00Z' },
+      { id: 'apple-prof-existing', name: 'AppStore', profileContent: 'base64', profileState: 'ACTIVE', expirationDate: '2027-06-01T00:00:00Z', bundleIdResourceId: 'apple-bid-existing', certificateIds: ['apple-cert-existing'] },
     ]);
 
     const result = await bootstrapIosCredentials(baseConfig(), vi.fn());
@@ -270,5 +271,43 @@ describe('bootstrapIosCredentials', () => {
 
     expect(result.appleBundleIdResourceId).toBe('existing-bid');
     expect(mockCreateBundleId).not.toHaveBeenCalled();
+  });
+
+  // Profile filtering bug regression test
+  it('does not reuse profile bound to a different bundle ID', async () => {
+    // Apple has a profile but it's for a DIFFERENT bundle ID
+    mockListProfiles.mockResolvedValue([
+      {
+        id: 'wrong-prof', name: 'AppStore com.other.app', profileContent: 'base64',
+        profileState: 'ACTIVE', expirationDate: '2027-06-01T00:00:00Z',
+        bundleIdResourceId: 'other-bundle-resource-id', certificateIds: ['apple-cert-1'],
+      },
+    ]);
+
+    const result = await bootstrapIosCredentials(baseConfig(), vi.fn());
+
+    // Should NOT reuse the wrong profile — should create new
+    expect(result.appleProfileId).toBe('apple-prof-1');
+    expect(mockAppleCreateProfile).toHaveBeenCalled();
+  });
+
+  it('does not reuse profile bound to a different cert', async () => {
+    // Profile matches bundle ID but is bound to a different cert
+    mockListBundleIds.mockResolvedValue([
+      { id: 'our-bid', identifier: 'dev.zionxai.workouttracker', name: 'WT', platform: 'IOS' },
+    ]);
+    mockListProfiles.mockResolvedValue([
+      {
+        id: 'wrong-cert-prof', name: 'AppStore', profileContent: 'base64',
+        profileState: 'ACTIVE', expirationDate: '2027-06-01T00:00:00Z',
+        bundleIdResourceId: 'our-bid', certificateIds: ['different-cert-id'],
+      },
+    ]);
+
+    const result = await bootstrapIosCredentials(baseConfig(), vi.fn());
+
+    // Should NOT reuse — cert doesn't match
+    expect(result.appleProfileId).toBe('apple-prof-1');
+    expect(mockAppleCreateProfile).toHaveBeenCalled();
   });
 });

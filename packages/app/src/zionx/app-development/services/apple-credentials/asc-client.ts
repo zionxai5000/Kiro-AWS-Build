@@ -35,6 +35,8 @@ export interface AppleProfile {
   profileContent: string;
   profileState: string;
   expirationDate: string;
+  bundleIdResourceId: string | null;
+  certificateIds: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -250,15 +252,23 @@ export async function createBundleId(
 
 /**
  * List provisioning profiles at Apple.
+ * Includes bundleId and certificates relationships.
  */
 export async function listProfiles(jwt: string): Promise<AppleProfile[]> {
-  const response = await fetch(`${BASE_URL}/v1/profiles?limit=200`, {
+  const response = await fetch(`${BASE_URL}/v1/profiles?limit=200&include=bundleId,certificates`, {
     method: 'GET',
     headers: authHeaders(jwt),
   });
 
   const data = await handleResponse(response) as {
-    data: Array<{ id: string; attributes: Record<string, string> }>;
+    data: Array<{
+      id: string;
+      attributes: Record<string, string>;
+      relationships?: {
+        bundleId?: { data?: { id: string } };
+        certificates?: { data?: Array<{ id: string }> };
+      };
+    }>;
   };
 
   return data.data.map((p) => ({
@@ -267,6 +277,8 @@ export async function listProfiles(jwt: string): Promise<AppleProfile[]> {
     profileContent: p.attributes.profileContent,
     profileState: p.attributes.profileState,
     expirationDate: p.attributes.expirationDate,
+    bundleIdResourceId: p.relationships?.bundleId?.data?.id ?? null,
+    certificateIds: p.relationships?.certificates?.data?.map((c) => c.id) ?? [],
   }));
 }
 

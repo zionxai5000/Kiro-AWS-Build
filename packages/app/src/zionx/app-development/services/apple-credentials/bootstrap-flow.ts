@@ -317,15 +317,19 @@ export async function bootstrapIosCredentials(
 
   // Check Apple for existing profile bound to our cert + bundle ID
   const existingProfiles = await listProfiles(jwt);
-  // Filter: active, not expired, matching our needs
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
   const matchingProfile = existingProfiles.find(
-    (p) => p.profileState === 'ACTIVE' && new Date(p.expirationDate) > new Date(),
+    (p) =>
+      p.profileState === 'ACTIVE' &&
+      p.bundleIdResourceId === appleBundleIdResourceId &&
+      p.certificateIds.includes(appleCertId!) &&
+      new Date(p.expirationDate) > new Date(Date.now() + thirtyDaysMs),
   );
 
   if (matchingProfile) {
     appleProfileId = matchingProfile.id;
     reused.push(`Provisioning Profile at Apple (${appleProfileId})`);
-    log(`[Step 5] Existing profile found at Apple: ${appleProfileId}`);
+    log(`[Step 5] Existing profile found at Apple: ${appleProfileId} (bound to ${appleBundleIdResourceId} + cert ${appleCertId})`);
 
     if (config.dryRun) {
       easProfileId = dryId('EAS_PROF');
@@ -342,34 +346,38 @@ export async function bootstrapIosCredentials(
       );
       log(`[Step 5] Profile uploaded to EAS: ${easProfileId}`);
     }
-  } else if (config.dryRun) {
-    appleProfileId = dryId('APPLE_PROF');
-    easProfileId = dryId('EAS_PROF');
-    created.push(`Provisioning Profile (Apple: ${appleProfileId}, EAS: ${easProfileId})`);
-    log(`[Step 5] [DRY-RUN] Would create profile at Apple and upload to EAS`);
   } else {
-    const profileName = `AppStore ${config.bundleIdentifier}`;
-    const newProfile = await appleCreateProfile(
-      jwt,
-      profileName,
-      appleBundleIdResourceId,
-      appleCertId!,
-      'IOS_APP_STORE',
-    );
-    appleProfileId = newProfile.id;
-    log(`[Step 5] Profile created at Apple: ${appleProfileId}`);
+    log(`[Step 5] No matching profile for bundle ${config.bundleIdentifier} + cert ${appleCertId}`);
 
-    easProfileId = await easCreateProfile(
-      config.expoToken,
-      account.id,
-      easAppIdentifierId,
-      {
-        appleProvisioningProfile: newProfile.profileContent,
-        developerPortalIdentifier: newProfile.id,
-      },
-    );
-    log(`[Step 5] Profile uploaded to EAS: ${easProfileId}`);
-    created.push(`Provisioning Profile (Apple: ${appleProfileId}, EAS: ${easProfileId})`);
+    if (config.dryRun) {
+      appleProfileId = dryId('APPLE_PROF');
+      easProfileId = dryId('EAS_PROF');
+      created.push(`Provisioning Profile (Apple: ${appleProfileId}, EAS: ${easProfileId})`);
+      log(`[Step 5] [DRY-RUN] Would create profile at Apple and upload to EAS`);
+    } else {
+      const profileName = `AppStore ${config.bundleIdentifier}`;
+      const newProfile = await appleCreateProfile(
+        jwt,
+        profileName,
+        appleBundleIdResourceId,
+        appleCertId!,
+        'IOS_APP_STORE',
+      );
+      appleProfileId = newProfile.id;
+      log(`[Step 5] Profile created at Apple: ${appleProfileId}`);
+
+      easProfileId = await easCreateProfile(
+        config.expoToken,
+        account.id,
+        easAppIdentifierId,
+        {
+          appleProvisioningProfile: newProfile.profileContent,
+          developerPortalIdentifier: newProfile.id,
+        },
+      );
+      log(`[Step 5] Profile uploaded to EAS: ${easProfileId}`);
+      created.push(`Provisioning Profile (Apple: ${appleProfileId}, EAS: ${easProfileId})`);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════

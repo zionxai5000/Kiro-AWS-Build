@@ -280,7 +280,7 @@ describe('asc-client', () => {
   // -------------------------------------------------------------------------
 
   describe('listProfiles', () => {
-    it('returns parsed profiles', async () => {
+    it('returns parsed profiles with relationships', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(200, {
         data: [
           {
@@ -291,14 +291,32 @@ describe('asc-client', () => {
               profileState: 'ACTIVE',
               expirationDate: '2027-05-19T00:00:00.000+00:00',
             },
+            relationships: {
+              bundleId: { data: { id: 'bundle-res-1' } },
+              certificates: { data: [{ id: 'cert-1' }, { id: 'cert-2' }] },
+            },
+          },
+          {
+            id: 'prof-2',
+            attributes: {
+              name: 'Other Profile',
+              profileContent: 'base64other',
+              profileState: 'INVALID',
+              expirationDate: '2026-01-01T00:00:00.000+00:00',
+            },
           },
         ],
       }));
 
       const profiles = await listProfiles(TEST_JWT);
 
-      expect(profiles).toHaveLength(1);
+      expect(profiles).toHaveLength(2);
       expect(profiles[0]!.profileState).toBe('ACTIVE');
+      expect(profiles[0]!.bundleIdResourceId).toBe('bundle-res-1');
+      expect(profiles[0]!.certificateIds).toEqual(['cert-1', 'cert-2']);
+      // Profile without relationships
+      expect(profiles[1]!.bundleIdResourceId).toBeNull();
+      expect(profiles[1]!.certificateIds).toEqual([]);
     });
   });
 

@@ -81,7 +81,7 @@ export async function runEasCommand(
     const child: ChildProcess = spawn(npx, ['eas', ...args], {
       cwd: options.cwd,
       env: childEnv,
-      shell: false,
+      shell: platform() === 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

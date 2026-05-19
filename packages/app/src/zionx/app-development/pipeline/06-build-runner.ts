@@ -237,7 +237,7 @@ async function submitBuild(
 ): Promise<string> {
   const result = await runEasCommand(
     ['build', '--platform', platform, '--non-interactive', '--json', '--profile', 'production'],
-    { cwd, expoToken, env: extraEnv, timeoutMs: 120_000 },
+    { cwd, expoToken, env: extraEnv, timeoutMs: LIMITS.buildSubmissionTimeoutMs },
   );
 
   // EAS CLI --json returns an array of build objects

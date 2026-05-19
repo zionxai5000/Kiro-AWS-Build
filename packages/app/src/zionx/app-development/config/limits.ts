@@ -9,6 +9,15 @@ export const LIMITS = {
   /** Timeout for build preparation (ms) */
   buildPrepTimeoutMs: 60_000,
 
+  /**
+   * EAS build submission timeout (includes project upload +
+   * eas CLI subprocess time before --no-wait returns).
+   * Was 120s, increased to 300s during Phase 6 Group G
+   * verification — EAS CLI needs time to resolve config and
+   * upload the project tarball.
+   */
+  buildSubmissionTimeoutMs: 300_000,
+
   /** Timeout for asset generation (ms) — these are expensive */
   assetGenerationTimeoutMs: 300_000,
 

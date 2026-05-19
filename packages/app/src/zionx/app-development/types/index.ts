@@ -157,17 +157,15 @@ export interface AssetVariant {
 // ---------------------------------------------------------------------------
 
 export interface StoreListing {
-  id: string;
-  projectId: string;
-  title: string;
-  subtitle: string;
-  description: string;
-  keywords: string[];
-  promotionalText: string;
-  category: string;
+  name: string;              // 2-30 chars (App Store display name)
+  subtitle: string;          // max 30 chars
+  description: string;       // 10-4000 chars
+  keywords: string;          // max 100 chars, comma-separated
+  category: string;          // Apple category ID (e.g., "HEALTH_AND_FITNESS")
+  supportUrl: string;
   privacyPolicyUrl: string;
-  eulaUrl: string;
-  generatedAt: string;
+  marketingUrl?: string;
+  whatsNew?: string;         // For updates only
 }
 
 // ---------------------------------------------------------------------------
@@ -176,17 +174,28 @@ export interface StoreListing {
 
 export interface SubmissionChecklist {
   projectId: string;
-  items: SubmissionChecklistItem[];
-  allConfirmed: boolean;
-  confirmedAt?: string;
+  platform: 'ios' | 'android';
+  items: ChecklistItem[];
+  allPassed: boolean;
 }
 
-export interface SubmissionChecklistItem {
+export interface ChecklistItem {
   id: string;
   label: string;
-  description: string;
-  confirmed: boolean;
-  confirmedAt?: string;
+  status: 'pass' | 'fail' | 'warn';
+  detail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// App Store Connect — App Entity
+// ---------------------------------------------------------------------------
+
+export interface AscAppInfo {
+  ascAppId: string;          // Numeric Apple ID (the "Apple ID" in ASC)
+  bundleId: string;          // e.g., "dev.zionxai.workouttracker"
+  name: string;              // Display name as registered in ASC
+  sku: string;               // Internal SKU (not visible to users)
+  primaryLocale: string;     // e.g., "en-US"
 }
 
 // ---------------------------------------------------------------------------

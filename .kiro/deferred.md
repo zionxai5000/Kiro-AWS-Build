@@ -168,3 +168,27 @@ This is a real signal: a normal-complexity user prompt exceeded our default time
 3. Add streaming resumability (hard, complete current file on timeout signal)
 
 DEFER decision until we have Phase 9 metrics on prompt complexity vs generation time. Don't fix until then.
+
+
+---
+
+## BUNDLE ID PROMPT ISSUE (Phase 6.5 Group B finding, 2026-05-19)
+
+The system prompt generates "com.example.<slug>" as the default ios.bundleIdentifier and android.package. This is the create-expo-app placeholder pattern and is problematic for production:
+
+- Apple may reject com.example.* as a reserved/example prefix
+- Bundle IDs are immutable after first iOS submission
+- Polluted dev account with junk IDs that must be maintained
+- Collision risk if two apps have the same slug
+
+This is a generation-time defect that surfaces only at iOS build time. Android tolerates any unique ID.
+
+Three possible fixes:
+1. bundleIdPrefix passed into pipeline as config (caller specifies their org)
+2. Hook 5 rewrites com.example.* → ${configured}.* before submission (pipeline localization)
+3. New optional generation flag the API exposes
+
+DEFER decision until we have a multi-tenant story. For single-account use, Path 1 is simplest.
+
+WORKAROUND used in e2e-clean-001 for Build #9 (iOS):
+manually changed both ios.bundleIdentifier and android.package to dev.zionxai.workouttracker.

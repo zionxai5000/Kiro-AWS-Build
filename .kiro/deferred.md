@@ -192,3 +192,25 @@ DEFER decision until we have a multi-tenant story. For single-account use, Path 
 
 WORKAROUND used in e2e-clean-001 for Build #9 (iOS):
 manually changed both ios.bundleIdentifier and android.package to dev.zionxai.workouttracker.
+
+
+---
+
+## PRODUCTION PREP — zionx.ai domain hosting (2026-05-20)
+
+**Current state (verified 2026-05-20)**:
+- `https://zionx.ai` → 200, serves a 358-byte HTML frameset that embeds `https://zionx-ve9q2u7.gamma.site/` (Gamma.app landing page)
+- `https://www.zionx.ai` → DNS resolution failure (www subdomain not configured)
+- `https://zionx.ai/privacy` → 404
+- Server: EC2 instance (`ip-10-123-124-56.ec2.internal`), no CDN, no Vercel/Netlify/Cloudflare
+- Hosting: bare EC2 serving static HTML via frameset redirect to Gamma
+
+**Assessment**: The frameset-to-Gamma setup is a placeholder landing page, not production infrastructure. Before public launch, zionx.ai needs:
+1. Proper web hosting (static site on S3+CloudFront, or Vercel, or similar)
+2. www subdomain CNAME configured
+3. /privacy, /terms, /support routes serving real content
+4. The Gamma frameset replaced with an actual website
+
+**Phase 8 workaround**: Privacy policy hosted on GitHub Pages (`https://zionxai5000.github.io/privacy-policies/`) instead of zionx.ai. This is acceptable for App Store review but not for long-term production.
+
+**When to address**: Before public launch / marketing push. Not blocking Phase 8-9 development.

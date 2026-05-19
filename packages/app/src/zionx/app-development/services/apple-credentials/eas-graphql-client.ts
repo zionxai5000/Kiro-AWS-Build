@@ -460,14 +460,26 @@ export async function bindBuildCredentials(
   appleAppIdentifierId: string,
   input: BindBuildCredentialsInput,
 ): Promise<string> {
-  // 1. Combined query: get app ID + existing IosAppCredentials
+  // 1. Combined query: get app ID + existing IosAppCredentials + existing build credentials
+  //    Uses iosAppBuildCredentialsList(filter: { iosDistributionType }) to check for existing
+  //    binding in a single round-trip.
   const combinedQuery = `
-    query GetAppAndCredentials($projectFullName: String!, $appleAppIdentifierId: String!) {
+    query GetAppCredentialsAndBuildBindings(
+      $projectFullName: String!
+      $appleAppIdentifierId: String!
+      $iosDistributionType: IosDistributionType!
+    ) {
       app {
         byFullName(fullName: $projectFullName) {
           id
           iosAppCredentials(filter: { appleAppIdentifierId: $appleAppIdentifierId }) {
             id
+            iosAppBuildCredentialsList(filter: { iosDistributionType: $iosDistributionType }) {
+              id
+              iosDistributionType
+              distributionCertificate { id }
+              provisioningProfile { id }
+            }
           }
         }
       }
@@ -477,16 +489,31 @@ export async function bindBuildCredentials(
   const combinedData = await executeGraphQL(expoToken, combinedQuery, {
     projectFullName,
     appleAppIdentifierId,
+    iosDistributionType: input.iosDistributionType,
   });
   const app = (combinedData.app as any).byFullName;
   const appId: string = app.id;
-  const existingCreds: Array<{ id: string }> = app.iosAppCredentials ?? [];
+  const existingCreds: Array<{
+    id: string;
+    iosAppBuildCredentialsList?: Array<{
+      id: string;
+      iosDistributionType: string;
+      distributionCertificate?: { id: string } | null;
+      provisioningProfile?: { id: string } | null;
+    }>;
+  }> = app.iosAppCredentials ?? [];
 
   let iosAppCredentialsId: string;
+  let existingBuildCreds: Array<{
+    id: string;
+    distributionCertificate?: { id: string } | null;
+    provisioningProfile?: { id: string } | null;
+  }> = [];
 
   if (existingCreds.length > 0) {
-    // 2a. Reuse existing
+    // 2a. Reuse existing IosAppCredentials
     iosAppCredentialsId = existingCreds[0]!.id;
+    existingBuildCreds = existingCreds[0]!.iosAppBuildCredentialsList ?? [];
   } else {
     // 2b. Create new IosAppCredentials
     const createCredsQuery = `
@@ -514,7 +541,31 @@ export async function bindBuildCredentials(
     iosAppCredentialsId = (createData.iosAppCredentials as any).createIosAppCredentials.id;
   }
 
-  // 3. Create the build credentials binding
+  // 3. Check for existing build credentials binding
+  if (existingBuildCreds.length > 0) {
+    const existing = existingBuildCreds[0]!;
+    const existingCertId = existing.distributionCertificate?.id ?? null;
+    const existingProfileId = existing.provisioningProfile?.id ?? null;
+
+    if (existingCertId === input.distributionCertificateId &&
+        existingProfileId === input.provisioningProfileId) {
+      // Exact match — full reuse, no mutation needed
+      return existing.id;
+    }
+
+    // Mismatch — existing binding has different cert/profile.
+    // Return existing ID but surface the mismatch for operator awareness.
+    // EAS will use whatever is currently bound for the build.
+    console.warn(
+      `[bindBuildCredentials] WARNING: existing build credentials (${existing.id}) ` +
+      `have cert=${existingCertId}, profile=${existingProfileId} but bootstrap wants ` +
+      `cert=${input.distributionCertificateId}, profile=${input.provisioningProfileId}. ` +
+      `Returning existing binding — operator should verify credentials are current.`,
+    );
+    return existing.id;
+  }
+
+  // 4. No existing binding — create new
   const bindQuery = `
     mutation CreateIosAppBuildCredentials(
       $iosAppBuildCredentialsInput: IosAppBuildCredentialsInput!

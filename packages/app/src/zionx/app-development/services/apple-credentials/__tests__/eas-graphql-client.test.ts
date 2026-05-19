@@ -338,14 +338,23 @@ describe('eas-graphql-client', () => {
   // -------------------------------------------------------------------------
 
   describe('bindBuildCredentials', () => {
-    it('idempotent path — finds existing IosAppCredentials, binds (2 fetches)', async () => {
-      // Combined query returns app ID + existing credentials
+    it('existing build credentials with matching cert+profile — reuses (1 fetch, no mutation)', async () => {
+      // Combined query returns existing IosAppCredentials with matching build credentials
       mockFetch.mockResolvedValueOnce(gqlSuccess({
-        app: { byFullName: { id: 'app-1', iosAppCredentials: [{ id: 'existing-cred-1' }] } },
-      }));
-      // Bind mutation
-      mockFetch.mockResolvedValueOnce(gqlSuccess({
-        iosAppBuildCredentials: { createIosAppBuildCredentials: { id: 'build-cred-1' } },
+        app: {
+          byFullName: {
+            id: 'app-1',
+            iosAppCredentials: [{
+              id: 'existing-cred-1',
+              iosAppBuildCredentialsList: [{
+                id: 'build-cred-1',
+                iosDistributionType: 'APP_STORE',
+                distributionCertificate: { id: 'cert-1' },
+                provisioningProfile: { id: 'prof-1' },
+              }],
+            }],
+          },
+        },
       }));
 
       const id = await bindBuildCredentials(
@@ -360,11 +369,81 @@ describe('eas-graphql-client', () => {
       );
 
       expect(id).toBe('build-cred-1');
+      expect(mockFetch).toHaveBeenCalledTimes(1); // Only the query, no mutation
+    });
+
+    it('existing build credentials with different cert/profile — returns existing, logs warning', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      mockFetch.mockResolvedValueOnce(gqlSuccess({
+        app: {
+          byFullName: {
+            id: 'app-1',
+            iosAppCredentials: [{
+              id: 'existing-cred-1',
+              iosAppBuildCredentialsList: [{
+                id: 'build-cred-1',
+                iosDistributionType: 'APP_STORE',
+                distributionCertificate: { id: 'old-cert' },
+                provisioningProfile: { id: 'old-prof' },
+              }],
+            }],
+          },
+        },
+      }));
+
+      const id = await bindBuildCredentials(
+        TOKEN,
+        '@zionxai/workout-tracker',
+        'aid-1',
+        {
+          iosDistributionType: 'APP_STORE',
+          distributionCertificateId: 'new-cert',
+          provisioningProfileId: 'new-prof',
+        },
+      );
+
+      expect(id).toBe('build-cred-1');
+      expect(mockFetch).toHaveBeenCalledTimes(1); // Only the query, no mutation
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('WARNING'));
+      warnSpy.mockRestore();
+    });
+
+    it('no existing build credentials — creates new (2 fetches)', async () => {
+      // Combined query returns existing IosAppCredentials but empty build credentials list
+      mockFetch.mockResolvedValueOnce(gqlSuccess({
+        app: {
+          byFullName: {
+            id: 'app-1',
+            iosAppCredentials: [{
+              id: 'existing-cred-1',
+              iosAppBuildCredentialsList: [],
+            }],
+          },
+        },
+      }));
+      // Create mutation
+      mockFetch.mockResolvedValueOnce(gqlSuccess({
+        iosAppBuildCredentials: { createIosAppBuildCredentials: { id: 'build-cred-new' } },
+      }));
+
+      const id = await bindBuildCredentials(
+        TOKEN,
+        '@zionxai/workout-tracker',
+        'aid-1',
+        {
+          iosDistributionType: 'APP_STORE',
+          distributionCertificateId: 'cert-1',
+          provisioningProfileId: 'prof-1',
+        },
+      );
+
+      expect(id).toBe('build-cred-new');
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it('create-first path — no existing IosAppCredentials (3 fetches)', async () => {
-      // Combined query returns app ID + empty credentials
+    it('no existing IosAppCredentials — creates both (3 fetches)', async () => {
+      // Combined query returns empty credentials
       mockFetch.mockResolvedValueOnce(gqlSuccess({
         app: { byFullName: { id: 'app-1', iosAppCredentials: [] } },
       }));
@@ -372,7 +451,7 @@ describe('eas-graphql-client', () => {
       mockFetch.mockResolvedValueOnce(gqlSuccess({
         iosAppCredentials: { createIosAppCredentials: { id: 'new-cred-1' } },
       }));
-      // Bind mutation
+      // Create build credentials
       mockFetch.mockResolvedValueOnce(gqlSuccess({
         iosAppBuildCredentials: { createIosAppBuildCredentials: { id: 'build-cred-1' } },
       }));
@@ -390,27 +469,6 @@ describe('eas-graphql-client', () => {
 
       expect(id).toBe('build-cred-1');
       expect(mockFetch).toHaveBeenCalledTimes(3);
-    });
-
-    it('upsert semantics — calling twice succeeds both times', async () => {
-      for (let i = 0; i < 2; i++) {
-        mockFetch.mockResolvedValueOnce(gqlSuccess({
-          app: { byFullName: { id: 'app-1', iosAppCredentials: [{ id: 'cred-1' }] } },
-        }));
-        mockFetch.mockResolvedValueOnce(gqlSuccess({
-          iosAppBuildCredentials: { createIosAppBuildCredentials: { id: 'build-cred-1' } },
-        }));
-      }
-
-      const id1 = await bindBuildCredentials(TOKEN, '@zionxai/app', 'aid-1', {
-        iosDistributionType: 'APP_STORE', distributionCertificateId: 'c1', provisioningProfileId: 'p1',
-      });
-      const id2 = await bindBuildCredentials(TOKEN, '@zionxai/app', 'aid-1', {
-        iosDistributionType: 'APP_STORE', distributionCertificateId: 'c1', provisioningProfileId: 'p1',
-      });
-
-      expect(id1).toBe('build-cred-1');
-      expect(id2).toBe('build-cred-1');
     });
   });
 

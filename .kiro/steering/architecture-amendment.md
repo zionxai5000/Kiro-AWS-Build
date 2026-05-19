@@ -149,8 +149,7 @@ packages/app/src/zionx/app-development/
 | 3 | LLM Integration | ✅ Complete | Claude streaming, file parser, sanitizer, SSE |
 | 4 | Event Bus | ✅ Complete | Hook subscribers, watcher snapshots, WebSocket broadcaster |
 | 5 | Validation & Safety | ✅ Complete | Hook 3 (deps), Hook 4 (secrets), retry fix |
-| 6 | Build Pipeline | ✅ Complete | Hook 5 (prep), Hook 6 (runner), EAS, iOS bootstrap, .aab + .ipa verified |
-| 6.5 | Tighten (unplanned) | ✅ Complete | .gitignore, eas init, multi-prompt test, iOS creds, Hook 6 integration |
+| 6 | Build Pipeline | ✅ Complete (Build #10 verified end-to-end via Hook 6 — Phase 6.5 hardening pass included) | Hook 5 (prep), Hook 6 (runner), EAS, iOS bootstrap, .aab + .ipa verified. Hardening pass added .gitignore to prompt, eas project:init, multi-prompt regression tests, full iOS credential automation, Hook 6 integration. |
 | 7 | Asset Generation | ✅ Complete | Hook 7, OpenAI images, 4 assets, splash.png fix |
 | 8 | Store Listing | ❌ Pending | Hooks 8+9 stubs. Screenshots, metadata, submission. |
 | 9 | Observability | ❌ Pending | Hook 10 stub. Metrics, cost tracking, HookStatusPanel. |
@@ -159,9 +158,9 @@ packages/app/src/zionx/app-development/
 
 ## Section 6 — Remaining Work to "Done"
 
-### IMMEDIATE (Phase 6.5 final validation)
-- End-to-end iOS build via Hook 6 (authorized, ~$5, ~30 min)
-- After this, Phase 6.5 is DONE.
+### IMMEDIATE (Phase 6 final validation)
+- ✅ DONE — End-to-end iOS build via Hook 6 (Build #10, c91cef02, ~$3, ~4 min)
+- Phase 6 is COMPLETE.
 
 ### PHASE 7 GAPS (~1 day)
 - Per-user daily budget enforcement (not just global)
@@ -195,7 +194,8 @@ packages/app/src/zionx/app-development/
 | Artifact | Date | Proof |
 |----------|------|-------|
 | Android .aab (Build #8) | 2026-05-19 | 45 MB, magic bytes 50 4B 03 04, clean generation |
-| iOS .ipa (Build #9) | 2026-05-19 | 12.36 MB, magic bytes 50 4B 03 04, bootstrap + build |
+| iOS .ipa (Build #9) | 2026-05-19 | 12.36 MB, magic bytes 50 4B 03 04, bootstrap + build (standalone script) |
+| iOS .ipa (Build #10, c91cef02) | 2026-05-19 | 12.36 MB, magic bytes 50 4B 03 04, FULL pipeline via Hook 6 (not standalone bootstrap) — Phase 6.5 verified end-to-end |
 | Test suite | 2026-05-19 | 408 tests passing, 4 skipped (gated) |
 | tsc | 2026-05-19 | 1 known baseline error (autonomous-engine.ts:248) |
 | Commits on main | 2026-05-19 | 40+ commits, all pushed to origin |

@@ -14,13 +14,14 @@
 
 import { isHookEnabled, isHookDryRun } from '../config/hooks.config.js';
 import { LIMITS } from '../config/limits.js';
+import { APPLE_CREDENTIALS_CONFIG } from '../config/apple-credentials-config.js';
 import { getCircuitBreaker } from '../utils/circuit-breaker.js';
-import { withTempCredentialFile } from '../utils/temp-credential-file.js';
 import { runEasCommand } from '../services/eas-cli-wrapper.js';
 import { BuildStatusPoller, type BuildViewFn, type EasBuildInfo } from '../services/build-status-poller.js';
 import { ArtifactStorageClient } from '../services/artifact-storage-client.js';
 import { createAppDevEvent, APPDEV_EVENTS } from '../events/event-types.js';
 import { Workspace } from '../workspace/workspace.js';
+import { bootstrapIosCredentials, BootstrapMaxCertsError } from '../services/apple-credentials/bootstrap-flow.js';
 import type { EventBusService } from '@seraphim/core';
 import type { CredentialManager } from '@seraphim/core/interfaces/credential-manager.js';
 import type { HookContext, HookMetadata, HookResult } from './types.js';
@@ -146,26 +147,38 @@ export async function run(
     };
   }
 
-  // Build submission — iOS needs temp .p8 file, Android doesn't
+  // Ensure iOS credentials are bootstrapped (idempotent — safe on every build)
+  if (platform === 'ios') {
+    ctx.log(`[${HOOK_METADATA.id}] Ensuring iOS credentials are bootstrapped...`);
+    try {
+      await ensureIosCredentialsBootstrapped({
+        credentialManager,
+        workspace,
+        projectId,
+        expoToken,
+        log: ctx.log,
+      });
+    } catch (error) {
+      cb.recordFailure();
+      const msg = error instanceof BootstrapMaxCertsError
+        ? `iOS credential bootstrap failed: max certificates reached. ${(error as Error).message}`
+        : `iOS credential bootstrap failed: ${(error as Error).message}`;
+      ctx.log(`[${HOOK_METADATA.id}] ${msg}`);
+      return {
+        success: false,
+        hookId: HOOK_METADATA.id,
+        dryRun: false,
+        error: msg,
+        data: { buildId: '', projectId, platform, status: 'queued' },
+        durationMs: Date.now() - start,
+      };
+    }
+  }
+
+  // Build submission — after bootstrap, both platforms use the same path
   let buildId: string;
   try {
-    if (platform === 'ios' && credentialInfo) {
-      // iOS: write .p8 to temp file for the duration of EAS CLI submission
-      buildId = await withTempCredentialFile(
-        credentialInfo.p8Content,
-        async (p8Path) => {
-          return await submitBuild(projectPath, platform, expoToken, {
-            EXPO_APPLE_APP_STORE_CONNECT_API_KEY_PATH: p8Path,
-            EXPO_APPLE_APP_STORE_CONNECT_API_KEY_KEY_ID: credentialInfo.keyId,
-            EXPO_APPLE_APP_STORE_CONNECT_API_KEY_ISSUER_ID: credentialInfo.issuerId,
-          });
-        },
-        `AuthKey_${credentialInfo.keyId}.p8`,
-      );
-    } else {
-      // Android: no extra credentials needed
-      buildId = await submitBuild(projectPath, platform, expoToken, {});
-    }
+    buildId = await submitBuild(projectPath, platform, expoToken, {});
   } catch (error) {
     cb.recordFailure();
     ctx.log(`[${HOOK_METADATA.id}] EAS build submission failed: ${(error as Error).message}`);
@@ -234,6 +247,55 @@ async function submitBuild(
   }
 
   return builds[0].id;
+}
+
+// ---------------------------------------------------------------------------
+// iOS Credential Bootstrap
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure iOS credentials (cert, profile, bundle ID) are registered at EAS.
+ * Idempotent — safe to call on every iOS build (~1.5-2s overhead when creds exist).
+ */
+async function ensureIosCredentialsBootstrapped(args: {
+  credentialManager: CredentialManager;
+  workspace: Workspace;
+  projectId: string;
+  expoToken: string;
+  log: (msg: string) => void;
+}): Promise<void> {
+  const { credentialManager, workspace, projectId, expoToken, log } = args;
+
+  const appJsonContent = await workspace.readFile(projectId, 'app.json');
+  const appJson = JSON.parse(appJsonContent);
+  const bundleIdentifier = appJson?.expo?.ios?.bundleIdentifier;
+  if (!bundleIdentifier) {
+    throw new Error('app.json missing expo.ios.bundleIdentifier — cannot bootstrap iOS credentials');
+  }
+
+  const projectOwner = appJson?.expo?.owner ?? APPLE_CREDENTIALS_CONFIG.expoAccountName;
+  const slug = appJson?.expo?.slug ?? 'app';
+
+  const ascKeyId = await credentialManager.getCredential('appstore-connect', 'key-id');
+  const ascIssuerId = await credentialManager.getCredential('appstore-connect', 'issuer-id');
+  const ascKeyPem = await credentialManager.getCredential('appstore-connect', 'api-key');
+
+  if (!ascKeyId || !ascIssuerId || !ascKeyPem) {
+    throw new Error('App Store Connect credentials not available via CredentialManager');
+  }
+
+  await bootstrapIosCredentials({
+    ascKeyId,
+    ascIssuerId,
+    ascKeyPem,
+    appleTeamId: APPLE_CREDENTIALS_CONFIG.teamId,
+    appleTeamType: APPLE_CREDENTIALS_CONFIG.teamType,
+    expoToken,
+    easAccountName: APPLE_CREDENTIALS_CONFIG.expoAccountName,
+    bundleIdentifier,
+    projectFullName: `@${projectOwner}/${slug}`,
+    dryRun: false,
+  }, log);
 }
 
 // ---------------------------------------------------------------------------

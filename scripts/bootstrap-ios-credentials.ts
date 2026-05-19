@@ -24,6 +24,7 @@ import {
   BootstrapMaxCertsError,
   BootstrapError,
 } from '../packages/app/src/zionx/app-development/services/apple-credentials/bootstrap-flow.js';
+import { APPLE_CREDENTIALS_CONFIG } from '../packages/app/src/zionx/app-development/config/apple-credentials-config.js';
 
 // ---------------------------------------------------------------------------
 // CLI Argument Parsing
@@ -44,8 +45,8 @@ function parseArgs(): CliArgs {
   let revokeCertSerial: string | undefined;
   let dryRun = false;
   let verbose = false;
-  let appleTeamId = 'FBDY34F9DY';
-  let accountName = 'zionxai';
+  let appleTeamId = APPLE_CREDENTIALS_CONFIG.teamId;
+  let accountName = APPLE_CREDENTIALS_CONFIG.expoAccountName;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -172,7 +173,7 @@ async function main(): Promise<void> {
     ascIssuerId: secrets.ascIssuerId,
     ascKeyPem: secrets.ascKeyPem,
     appleTeamId: cliArgs.appleTeamId,
-    appleTeamType: 'INDIVIDUAL',
+    appleTeamType: APPLE_CREDENTIALS_CONFIG.teamType,
     expoToken: secrets.expoToken,
     easAccountName: cliArgs.accountName,
     bundleIdentifier,

@@ -21,30 +21,35 @@ vi.mock('../../services/build-status-poller.js', () => ({
   },
 }));
 
-vi.mock('../../utils/temp-credential-file.js', () => ({
-  withTempCredentialFile: vi.fn().mockImplementation(async (_content: string, fn: (path: string) => Promise<string>) => {
-    return fn('/tmp/fake-key.p8');
-  }),
-}));
-
 // Mock workspace so ensureEasProjectLinked finds a linked app.json
 vi.mock('../../workspace/workspace.js', () => ({
   Workspace: class MockWorkspace {
     getProjectPath(projectId: string) { return `/tmp/workspaces/${projectId}`; }
     async readFile() {
       return JSON.stringify({
-        expo: { name: 'Test', slug: 'test', extra: { eas: { projectId: 'mock-eas-id' } } },
+        expo: {
+          name: 'Test', slug: 'test', owner: 'zionxai',
+          ios: { bundleIdentifier: 'dev.zionxai.test' },
+          extra: { eas: { projectId: 'mock-eas-id' } },
+        },
       });
     }
   },
 }));
 
+// Mock the iOS bootstrap
+const mockBootstrapIos = vi.fn();
+vi.mock('../../services/apple-credentials/bootstrap-flow.js', () => ({
+  bootstrapIosCredentials: (...args: unknown[]) => mockBootstrapIos(...args),
+  BootstrapMaxCertsError: class BootstrapMaxCertsError extends Error {
+    constructor(certs: unknown[]) { super(`Max certs: ${certs.length}`); this.name = 'BootstrapMaxCertsError'; }
+  },
+}));
+
 import { runEasCommand } from '../../services/eas-cli-wrapper.js';
 import { BuildStatusPoller } from '../../services/build-status-poller.js';
-import { withTempCredentialFile } from '../../utils/temp-credential-file.js';
 
 const mockRunEas = vi.mocked(runEasCommand);
-const mockWithTempCred = vi.mocked(withTempCredentialFile);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +69,9 @@ function createCredentialManager(): CredentialManager {
   return {
     async getCredential(driverName: string, key: string) {
       if (driverName === 'expo' && key === 'access-token') return 'test-expo-token';
+      if (driverName === 'appstore-connect' && key === 'key-id') return 'TEST_KEY_ID';
+      if (driverName === 'appstore-connect' && key === 'issuer-id') return 'test-issuer-uuid';
+      if (driverName === 'appstore-connect' && key === 'api-key') return '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----';
       return '';
     },
     async rotateCredential() { return { success: true, driverName: '' }; },
@@ -94,6 +102,7 @@ describe('Hook 06: Build Runner', () => {
     resetAllCircuitBreakers();
     HOOKS_CONFIG.globalKillSwitch = false;
     HOOKS_CONFIG.hooks['build-runner'] = { enabled: true, dryRun: false };
+    mockBootstrapIos.mockResolvedValue({ created: [], reused: ['cert', 'profile'] });
   });
 
   describe('successful submission', () => {
@@ -144,40 +153,73 @@ describe('Hook 06: Build Runner', () => {
     });
   });
 
-  describe('iOS credential handling', () => {
-    it('writes .p8 to temp file and sets iOS env vars', async () => {
+  describe('iOS credential bootstrap', () => {
+    it('iOS bootstrap success → proceeds to eas build', async () => {
       mockRunEas.mockResolvedValueOnce({
         stdout: '', stderr: '', exitCode: 0,
         parsedJson: [{ id: 'ios-build-1' }],
       });
 
-      await run({
+      const result = await run({
         projectId: 'proj-1',
         platform: 'ios',
         credentialManager: createCredentialManager(),
-        credentialInfo: { keyId: 'KEY123', issuerId: 'issuer-uuid', p8Content: '-----BEGIN-----' },
         eventBus: createEventBus(),
       }, createCtx());
 
-      // withTempCredentialFile was called with the p8 content
-      expect(mockWithTempCred).toHaveBeenCalledWith(
-        '-----BEGIN-----',
-        expect.any(Function),
-        'AuthKey_KEY123.p8',
-      );
-
-      // EAS CLI was called with iOS env vars
-      const easCall = mockRunEas.mock.calls[0]!;
-      expect(easCall[1].env).toMatchObject({
-        EXPO_APPLE_APP_STORE_CONNECT_API_KEY_PATH: '/tmp/fake-key.p8',
-        EXPO_APPLE_APP_STORE_CONNECT_API_KEY_KEY_ID: 'KEY123',
-        EXPO_APPLE_APP_STORE_CONNECT_API_KEY_ISSUER_ID: 'issuer-uuid',
-      });
+      expect(result.success).toBe(true);
+      expect(result.data!.buildId).toBe('ios-build-1');
+      expect(mockBootstrapIos).toHaveBeenCalledTimes(1);
     });
-  });
 
-  describe('Android builds', () => {
-    it('does NOT write .p8 or set iOS env vars', async () => {
+    it('iOS bootstrap "all reused" → proceeds (most common case)', async () => {
+      mockBootstrapIos.mockResolvedValue({ created: [], reused: ['cert', 'profile', 'bundleId'] });
+      mockRunEas.mockResolvedValueOnce({
+        stdout: '', stderr: '', exitCode: 0,
+        parsedJson: [{ id: 'ios-build-2' }],
+      });
+
+      const result = await run({
+        projectId: 'proj-1',
+        platform: 'ios',
+        credentialManager: createCredentialManager(),
+        eventBus: createEventBus(),
+      }, createCtx());
+
+      expect(result.success).toBe(true);
+      expect(result.data!.buildId).toBe('ios-build-2');
+    });
+
+    it('iOS BootstrapMaxCertsError → fails with actionable error', async () => {
+      const { BootstrapMaxCertsError } = await import('../../services/apple-credentials/bootstrap-flow.js');
+      mockBootstrapIos.mockRejectedValue(new BootstrapMaxCertsError([{ serialNumber: 'SN1' }, { serialNumber: 'SN2' }]));
+
+      const result = await run({
+        projectId: 'proj-1',
+        platform: 'ios',
+        credentialManager: createCredentialManager(),
+        eventBus: createEventBus(),
+      }, createCtx());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('max certificates reached');
+    });
+
+    it('iOS bootstrap generic error → fails with technical error', async () => {
+      mockBootstrapIos.mockRejectedValue(new Error('Apple API timeout'));
+
+      const result = await run({
+        projectId: 'proj-1',
+        platform: 'ios',
+        credentialManager: createCredentialManager(),
+        eventBus: createEventBus(),
+      }, createCtx());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Apple API timeout');
+    });
+
+    it('Android build → bootstrap NOT called', async () => {
       mockRunEas.mockResolvedValueOnce({
         stdout: '', stderr: '', exitCode: 0,
         parsedJson: [{ id: 'android-build-1' }],
@@ -190,10 +232,45 @@ describe('Hook 06: Build Runner', () => {
         eventBus: createEventBus(),
       }, createCtx());
 
-      // withTempCredentialFile NOT called
-      expect(mockWithTempCred).not.toHaveBeenCalled();
+      expect(mockBootstrapIos).not.toHaveBeenCalled();
+    });
 
-      // No iOS env vars
+    it('iOS build with missing bundleIdentifier → fails clearly', async () => {
+      // Override the workspace mock to return app.json without bundleIdentifier
+      mockBootstrapIos.mockRejectedValue(
+        new Error('app.json missing expo.ios.bundleIdentifier — cannot bootstrap iOS credentials'),
+      );
+
+      const result = await run({
+        projectId: 'proj-1',
+        platform: 'ios',
+        credentialManager: createCredentialManager(),
+        eventBus: createEventBus(),
+      }, createCtx());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('bundleIdentifier');
+    });
+  });
+
+  describe('Android builds', () => {
+    it('does NOT call iOS bootstrap and submits with empty env', async () => {
+      mockRunEas.mockResolvedValueOnce({
+        stdout: '', stderr: '', exitCode: 0,
+        parsedJson: [{ id: 'android-build-1' }],
+      });
+
+      await run({
+        projectId: 'proj-1',
+        platform: 'android',
+        credentialManager: createCredentialManager(),
+        eventBus: createEventBus(),
+      }, createCtx());
+
+      // Bootstrap NOT called for Android
+      expect(mockBootstrapIos).not.toHaveBeenCalled();
+
+      // No extra env vars
       const easCall = mockRunEas.mock.calls[0]!;
       expect(easCall[1].env).toEqual({});
     });

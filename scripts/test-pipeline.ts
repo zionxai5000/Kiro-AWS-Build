@@ -29,6 +29,7 @@ import { run as runBuildPreparer } from '../packages/app/src/zionx/app-developme
 import { run as runBuildRunner } from '../packages/app/src/zionx/app-development/pipeline/06-build-runner.js';
 import { run as runAssetGenerator } from '../packages/app/src/zionx/app-development/pipeline/07-asset-generator.js';
 import { Workspace } from '../packages/app/src/zionx/app-development/workspace/workspace.js';
+import { parseAscSecret } from '../packages/app/src/zionx/app-development/utils/parse-asc-secret.js';
 import type { CredentialManager } from '../packages/core/src/interfaces/credential-manager.js';
 import type { HookContext } from '../packages/app/src/zionx/app-development/pipeline/types.js';
 
@@ -136,9 +137,29 @@ class CLICredentialManager implements CredentialManager {
         this.cache.set(cacheKey, resp.SecretString);
         return resp.SecretString;
       } catch {
-        // Not JSON — plain string (e.g., expo token)
-        this.cache.set(cacheKey, resp.SecretString);
-        return resp.SecretString;
+        // JSON.parse failed — secret has non-standard format (e.g., literal newlines in PEM)
+        // Use regex extraction for known secret structures
+        const raw = resp.SecretString;
+
+        if (secretId === 'seraphim/appstoreconnect') {
+          const ascCreds = parseAscSecret(raw);
+          // Cache all three fields so subsequent calls don't re-parse
+          this.cache.set('appstore-connect:api-key', ascCreds.apiKey);
+          this.cache.set('appstore-connect:key-id', ascCreds.keyId);
+          this.cache.set('appstore-connect:issuer-id', ascCreds.issuerId);
+          return this.cache.get(cacheKey)!;
+        }
+
+        if (secretId === 'seraphim/expo') {
+          if (credentialKey === 'access-token') {
+            const m = raw.match(/accessToken[:\s]+([^},]+)/);
+            if (m) { const v = m[1]!.trim(); this.cache.set(cacheKey, v); return v; }
+          }
+        }
+
+        // Final fallback — return raw string
+        this.cache.set(cacheKey, raw);
+        return raw;
       }
     } catch (error) {
       throw new Error(`Failed to load ${secretId}: ${(error as Error).message}`);

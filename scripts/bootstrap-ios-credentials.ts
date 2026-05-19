@@ -25,6 +25,7 @@ import {
   BootstrapError,
 } from '../packages/app/src/zionx/app-development/services/apple-credentials/bootstrap-flow.js';
 import { APPLE_CREDENTIALS_CONFIG } from '../packages/app/src/zionx/app-development/config/apple-credentials-config.js';
+import { parseAscSecret } from '../packages/app/src/zionx/app-development/utils/parse-asc-secret.js';
 
 // ---------------------------------------------------------------------------
 // CLI Argument Parsing
@@ -83,22 +84,7 @@ async function loadSecrets(region: string): Promise<{
   const ascResp = await smClient.send(
     new GetSecretValueCommand({ SecretId: 'seraphim/appstoreconnect' }),
   );
-  const ascStr = ascResp.SecretString!;
-
-  // Parse — the secret has real newlines in apiKey field
-  const keyIdMatch = ascStr.match(/"keyId"\s*:\s*"([^"]+)"/);
-  const issuerIdMatch = ascStr.match(/"issuerId"\s*:\s*"([^"]+)"/);
-
-  if (!keyIdMatch || !issuerIdMatch) {
-    throw new Error('Could not parse seraphim/appstoreconnect secret');
-  }
-
-  // Extract apiKey (spans multiple lines due to .p8 content)
-  const apiStart = ascStr.indexOf('"apiKey"');
-  const valueStart = ascStr.indexOf('"', apiStart + 8) + 1;
-  const endMarker = '-----END PRIVATE KEY-----';
-  const endIdx = ascStr.indexOf(endMarker, valueStart);
-  const ascKeyPem = ascStr.slice(valueStart, endIdx + endMarker.length);
+  const ascCreds = parseAscSecret(ascResp.SecretString!);
 
   // Load Expo token
   const expoResp = await smClient.send(
@@ -111,9 +97,9 @@ async function loadSecrets(region: string): Promise<{
   }
 
   return {
-    ascKeyId: keyIdMatch[1]!,
-    ascIssuerId: issuerIdMatch[1]!,
-    ascKeyPem,
+    ascKeyId: ascCreds.keyId,
+    ascIssuerId: ascCreds.issuerId,
+    ascKeyPem: ascCreds.apiKey,
     expoToken: tokenMatch[1]!.trim(),
   };
 }

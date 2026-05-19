@@ -111,7 +111,7 @@ describe('runEasCommand', () => {
     const [binary, args, opts] = mockSpawn.mock.calls[0]!;
     expect(args).toEqual(['eas', 'build', '--platform', 'ios', '--json']);
     expect(opts.cwd).toBe('/project');
-    expect(opts.shell).toBe(false);
+    expect(opts.shell).toBe(process.platform === 'win32');
   });
 
   it('sets EXPO_TOKEN in child env only', async () => {

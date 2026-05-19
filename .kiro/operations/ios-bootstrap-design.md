@@ -367,10 +367,17 @@ export async function bootstrapIosCredentials(
 ┌─────────────────────────────────────────────────────────────────┐
 │ Step 3: Ensure Distribution Certificate                         │
 │                                                                 │
-│   3a. Check EAS for existing cert with valid expiry             │
-│       - Query: listDistributionCerts(accountName)               │
-│       - If found with validityNotAfter > now + 30 days:         │
-│         → REUSE. Log "Using existing EAS cert <id>". SKIP 3b-3e│
+│   3a. Check EAS AND Apple for an existing usable cert           │
+│       - Query EAS: listDistributionCerts(accountName)           │
+│       - For each EAS cert with validityNotAfter > now + 30d:    │
+│         - Look up its developerPortalIdentifier at Apple        │
+│           (match against listCertificates() result by ID)       │
+│         - If found at Apple AND not revoked:                    │
+│           → REUSE. Log "Verified cert <id> at Apple". SKIP 3b-3f│
+│         - If not found at Apple OR revoked:                     │
+│           → Log "EAS has stale cert <id>, skipping"             │
+│           → Continue checking next EAS cert                     │
+│       - If no valid EAS+Apple cert match found → proceed to 3b  │
 │                                                                 │
 │   3b. Check Apple for existing certs we could use               │
 │       - GET /v1/certificates                                    │
@@ -439,12 +446,39 @@ export async function bootstrapIosCredentials(
 
 ---
 
+## P12 Password Handling
+
+The .p12 bundle requires a password for encryption. Strategy:
+
+- **Generated per run**: `crypto.randomBytes(16).toString('hex')` — 32-char random hex string
+- **Never reused** across bootstrap runs
+- **Never logged** — must NOT appear in `--verbose` output or any log file
+- **Never written to disk** — exists only in memory between `bundleP12()` and `createDistributionCert()`
+- **EAS encrypts at rest** with its own key; the upload password satisfies the .p12 format requirement only
+- **Lifetime**: created just before `bundleP12()`, passed to `createDistributionCert()`, then dereferenced immediately
+
+```typescript
+// In bootstrap-flow.ts, Step 3e:
+const p12Password = crypto.randomBytes(16).toString('hex');
+const p12Base64 = bundleP12(certDerBase64, privateKeyPem, p12Password);
+const easCertId = await createDistributionCert(expoToken, accountId, {
+  certP12Base64: p12Base64,
+  certPassword: p12Password,
+  certPrivateSigningKey: privateKeyPem,
+  developerPortalIdentifier: appleCert.id,
+  appleTeamId: easAppleTeamId,
+});
+// p12Password is no longer needed — GC will collect
+```
+
+---
+
 ## Idempotency Matrix
 
 | Resource | "Already exists" check | Source of truth | Apple↔EAS conflict handling |
 |----------|----------------------|-----------------|---------------------------|
 | ASC API Key (at EAS) | Query EAS by keyIdentifier | EAS | If mismatch with secret → error |
-| Distribution Cert | Query EAS for valid cert (expiry > now+30d) | EAS (holds .p12) | If EAS has cert but Apple revoked it → cert still works for signing (Apple doesn't retroactively invalidate) |
+| Distribution Cert | Query EAS for valid cert (expiry > now+30d) AND verify at Apple (not revoked) | Both (EAS holds .p12, Apple is authority on revocation) | If EAS has cert but Apple revoked it → stale, skip, create new |
 | Bundle ID | GET Apple /v1/bundleIds by identifier | Apple | If Apple has it but EAS doesn't → create at EAS |
 | Provisioning Profile | GET Apple /v1/profiles by bundleId+certId | Apple | If Apple has it but EAS doesn't → download + upload to EAS |
 | Build Credentials binding | EAS upserts | EAS | Always safe to re-call |
@@ -502,3 +536,31 @@ Exit codes:
 ```
 
 Reads all secrets from AWS Secrets Manager. No .env files, no hardcoded credentials.
+
+---
+
+## Dry-Run Mode
+
+When `config.dryRun === true` (via `--dry-run` CLI flag):
+
+**Reads execute normally:**
+- All GET requests to Apple API (list certs, bundle IDs, profiles)
+- All GraphQL queries to EAS (list certs, get account ID)
+- `generateKeyPairAndCsr()` runs (no side effects, pure crypto)
+
+**Writes are SKIPPED:**
+- `createCertificate()` → logs `[DRY-RUN] Would create Distribution cert at Apple with CSR (xxx bytes)`, returns synthetic `{ id: "DRY_RUN_CERT_ID", ... }`
+- `revokeCertificate()` → logs `[DRY-RUN] Would revoke cert <serial>`, returns void
+- `createBundleId()` → logs `[DRY-RUN] Would create bundle ID <identifier>`, returns synthetic
+- `createProvisioningProfile()` → logs, returns synthetic
+- All EAS mutations → logs, returns synthetic IDs (`"DRY_RUN_EAS_*"`)
+
+**Return value:**
+- `BootstrapResult.created` lists what WOULD have been created
+- `BootstrapResult.reused` lists what was found existing (from real reads)
+- All IDs in the result are either real (reused) or `"DRY_RUN_*"` (would-create)
+
+**Use cases:**
+- Preview `--revoke-cert` behavior before authorizing the destructive flag
+- Verify the flow logic without touching Apple/EAS state
+- CI validation that the bootstrap script parses config correctly

@@ -147,3 +147,24 @@ The `summary.filesWritten` counter only counts Hook 2 output. Hook 7's 4 PNG fil
 - Single test prompt ("workout tracker") used for both successful builds. Should test 2-3 other prompt categories (e.g., habit tracker, recipe app, todo list) to gain confidence the prompt generalizes.
 
 - Build #8 took 10 minutes. At scale (100 apps/day) that's 16+ hours of compute. May need parallelization or EAS priority queue.
+
+
+---
+
+## PHASE 6.5 GROUP C — WORKOUT PLANNER TIMEOUT (2026-05-19)
+
+Prompt: "A workout planner where users can build custom routines from a library of exercises, organize them into weekly schedules, and check off completed sets"
+
+Result: Code generation timed out at 120s (codeGenerationTimeoutMs in limits.ts). Claude produced 12 complete files + 1 partial before the cutoff.
+
+Workspace produced: workspaces/verify-workout-planner-001/
+- All Hook 3 / Hook 4 / Hook 7 checks passed on what was written
+- app/workout/[id].tsx.partial was incomplete
+- Workspace is NOT build-ready
+
+This is a real signal: a normal-complexity user prompt exceeded our default timeout. Three fix options:
+1. Bump timeout to 240s (easy, hides symptom)
+2. Update prompt to favor smaller files / more split components (medium effort, addresses root cause)
+3. Add streaming resumability (hard, complete current file on timeout signal)
+
+DEFER decision until we have Phase 9 metrics on prompt complexity vs generation time. Don't fix until then.

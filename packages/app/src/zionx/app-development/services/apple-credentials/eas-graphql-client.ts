@@ -60,7 +60,6 @@ export interface BindBuildCredentialsInput {
   iosDistributionType: 'APP_STORE';
   distributionCertificateId: string;
   provisioningProfileId: string;
-  appleTeamId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +451,8 @@ export async function createProvisioningProfile(
 
 /**
  * Bind a cert + profile to an app for builds.
- * Idempotent: EAS upserts — safe to call multiple times.
+ * Idempotent: queries existing IosAppCredentials first, creates only if not found.
+ * Then creates IosAppBuildCredentials binding.
  */
 export async function bindBuildCredentials(
   expoToken: string,
@@ -460,43 +460,63 @@ export async function bindBuildCredentials(
   appleAppIdentifierId: string,
   input: BindBuildCredentialsInput,
 ): Promise<string> {
-  // First, ensure IosAppCredentials exist for this app + identifier
-  const ensureQuery = `
-    mutation CreateOrGetIosAppCredentials(
-      $appId: ID!
-      $appleAppIdentifierId: ID!
-    ) {
-      iosAppCredentials {
-        createOrGetIosAppCredentials(
-          appId: $appId
-          appleAppIdentifierId: $appleAppIdentifierId
-        ) {
-          id
-        }
-      }
-    }
-  `;
-
-  // We need the app ID — get it from projectFullName
-  const appQuery = `
-    query GetApp($fullName: String!) {
+  // 1. Combined query: get app ID + existing IosAppCredentials
+  const combinedQuery = `
+    query GetAppAndCredentials($projectFullName: String!, $appleAppIdentifierId: String!) {
       app {
-        byFullName(fullName: $fullName) {
+        byFullName(fullName: $projectFullName) {
           id
+          iosAppCredentials(filter: { appleAppIdentifierId: $appleAppIdentifierId }) {
+            id
+          }
         }
       }
     }
   `;
 
-  const appData = await executeGraphQL(expoToken, appQuery, { fullName: projectFullName });
-  const appId = (appData.app as any).byFullName.id;
+  const combinedData = await executeGraphQL(expoToken, combinedQuery, {
+    projectFullName,
+    appleAppIdentifierId,
+  });
+  const app = (combinedData.app as any).byFullName;
+  const appId: string = app.id;
+  const existingCreds: Array<{ id: string }> = app.iosAppCredentials ?? [];
 
-  const credData = await executeGraphQL(expoToken, ensureQuery, { appId, appleAppIdentifierId });
-  const iosAppCredentialsId = (credData.iosAppCredentials as any).createOrGetIosAppCredentials.id;
+  let iosAppCredentialsId: string;
 
-  // Now create/update the build credentials
+  if (existingCreds.length > 0) {
+    // 2a. Reuse existing
+    iosAppCredentialsId = existingCreds[0]!.id;
+  } else {
+    // 2b. Create new IosAppCredentials
+    const createCredsQuery = `
+      mutation CreateIosAppCredentials(
+        $iosAppCredentialsInput: IosAppCredentialsInput!
+        $appId: ID!
+        $appleAppIdentifierId: ID!
+      ) {
+        iosAppCredentials {
+          createIosAppCredentials(
+            iosAppCredentialsInput: $iosAppCredentialsInput
+            appId: $appId
+            appleAppIdentifierId: $appleAppIdentifierId
+          ) {
+            id
+          }
+        }
+      }
+    `;
+    const createData = await executeGraphQL(expoToken, createCredsQuery, {
+      iosAppCredentialsInput: {},
+      appId,
+      appleAppIdentifierId,
+    });
+    iosAppCredentialsId = (createData.iosAppCredentials as any).createIosAppCredentials.id;
+  }
+
+  // 3. Create the build credentials binding
   const bindQuery = `
-    mutation SetBuildCredentials(
+    mutation CreateIosAppBuildCredentials(
       $iosAppBuildCredentialsInput: IosAppBuildCredentialsInput!
       $iosAppCredentialsId: ID!
     ) {
@@ -511,15 +531,13 @@ export async function bindBuildCredentials(
     }
   `;
 
-  const bindVariables = {
+  const bindData = await executeGraphQL(expoToken, bindQuery, {
     iosAppCredentialsId,
     iosAppBuildCredentialsInput: {
       iosDistributionType: input.iosDistributionType,
       distributionCertificateId: input.distributionCertificateId,
       provisioningProfileId: input.provisioningProfileId,
     },
-  };
-
-  const bindData = await executeGraphQL(expoToken, bindQuery, bindVariables);
+  });
   return (bindData.iosAppBuildCredentials as any).createIosAppBuildCredentials.id;
 }

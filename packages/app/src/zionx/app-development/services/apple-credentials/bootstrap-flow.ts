@@ -171,7 +171,7 @@ export async function bootstrapIosCredentials(
   log('[Step 3] Ensuring Distribution Certificate...');
 
   let easCertId: string;
-  let appleCertId: string;
+  let appleCertId: string = '';
 
   // 3a: Check EAS for existing cert, verify at Apple
   const easCerts = await listDistributionCerts(config.expoToken, config.easAccountName);
@@ -396,7 +396,6 @@ export async function bootstrapIosCredentials(
         iosDistributionType: 'APP_STORE',
         distributionCertificateId: easCertId!,
         provisioningProfileId: easProfileId!,
-        appleTeamId: config.appleTeamId,
       },
     );
     log('[Step 6] Credentials bound to app');

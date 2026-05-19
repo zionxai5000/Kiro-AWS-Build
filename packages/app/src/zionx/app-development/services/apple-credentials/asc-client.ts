@@ -325,5 +325,7 @@ export async function createProvisioningProfile(
     profileContent: data.data.attributes.profileContent,
     profileState: data.data.attributes.profileState,
     expirationDate: data.data.attributes.expirationDate,
+    bundleIdResourceId: bundleIdResourceId,
+    certificateIds: [certificateId],
   };
 }

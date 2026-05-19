@@ -564,3 +564,22 @@ When `config.dryRun === true` (via `--dry-run` CLI flag):
 - Preview `--revoke-cert` behavior before authorizing the destructive flag
 - Verify the flow logic without touching Apple/EAS state
 - CI validation that the bootstrap script parses config correctly
+
+
+---
+
+## Partial F5 Run — 2026-05-19
+
+Steps 1-5 succeeded. Step 6 failed with HTTP 400 (mutation name `createOrGetIosAppCredentials` doesn't exist — should be `createIosAppCredentials`).
+
+Resources created:
+- ASC API Key (EAS): `5478d6ec-0b3a-42f0-8bca-d72d12a9fe7f`
+- Distribution Cert (EAS): `eba116fe-0dd2-4eb1-b6ad-c966557b54b0` (reused)
+- Distribution Cert (Apple): `YSPPB4ZMRA` (reused)
+- Bundle ID (Apple): `US85GDKZ7V`
+- App Identifier (EAS): `82a89108-17ab-45be-a6ba-78ddd8172502`
+- Profile (Apple): `NWC5G2R63W`
+- Profile (EAS): `d1d3274c-bb93-4bb6-ab3b-5dccfd0f91a2`
+- IosAppCredentials (EAS): `fc3e9597-0f49-4a0d-b1ec-2bd63839b01f` (created during debug)
+
+Step 6 fix: change `createOrGetIosAppCredentials` → `createIosAppCredentials` with `iosAppCredentialsInput: {}`.

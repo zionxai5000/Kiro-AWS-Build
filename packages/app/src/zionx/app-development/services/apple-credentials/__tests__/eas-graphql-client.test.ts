@@ -184,21 +184,59 @@ describe('eas-graphql-client', () => {
   // -------------------------------------------------------------------------
 
   describe('ensureAscApiKeyRegistered', () => {
-    it('creates and returns new ASC key ID', async () => {
+    it('returns existing ID when keyIdentifier already registered', async () => {
+      // listAscApiKeys returns a match
       mockFetch.mockResolvedValueOnce(gqlSuccess({
-        appStoreConnectApiKey: {
-          createAppStoreConnectApiKey: { id: 'asc-key-1', keyIdentifier: 'ABC123', issuerIdentifier: 'uuid-1' },
+        account: {
+          byName: {
+            id: 'acc-1',
+            appStoreConnectApiKeysPaginated: {
+              edges: [
+                { node: { id: 'existing-key-1', keyIdentifier: 'ABC123', issuerIdentifier: 'uuid-1' } },
+              ],
+            },
+          },
         },
       }));
 
-      const id = await ensureAscApiKeyRegistered(TOKEN, 'acc-1', {
+      const id = await ensureAscApiKeyRegistered(TOKEN, 'acc-1', 'zionxai', {
         keyIdentifier: 'ABC123',
         issuerIdentifier: 'uuid-1',
         keyP8: '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
         name: 'SeraphimOS Key',
       });
 
-      expect(id).toBe('asc-key-1');
+      expect(id).toBe('existing-key-1');
+      // Only 1 fetch call (the list query), no mutation
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('creates new when keyIdentifier not found', async () => {
+      // First: listAscApiKeys returns empty
+      mockFetch.mockResolvedValueOnce(gqlSuccess({
+        account: {
+          byName: {
+            id: 'acc-1',
+            appStoreConnectApiKeysPaginated: { edges: [] },
+          },
+        },
+      }));
+      // Second: create mutation
+      mockFetch.mockResolvedValueOnce(gqlSuccess({
+        appStoreConnectApiKey: {
+          createAppStoreConnectApiKey: { id: 'new-key-1', keyIdentifier: 'XYZ789', issuerIdentifier: 'uuid-2' },
+        },
+      }));
+
+      const id = await ensureAscApiKeyRegistered(TOKEN, 'acc-1', 'zionxai', {
+        keyIdentifier: 'XYZ789',
+        issuerIdentifier: 'uuid-2',
+        keyP8: '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
+        name: 'New Key',
+      });
+
+      expect(id).toBe('new-key-1');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 

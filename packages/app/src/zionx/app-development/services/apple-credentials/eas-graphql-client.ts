@@ -248,57 +248,22 @@ export async function createDistributionCert(
 /**
  * Register an App Store Connect API key with EAS.
  * Idempotent: queries existing keys first by keyIdentifier.
+ * If a key with the same keyIdentifier already exists, returns its ID.
  */
 export async function ensureAscApiKeyRegistered(
   expoToken: string,
   accountId: string,
+  accountName: string,
   input: CreateAscApiKeyInput,
 ): Promise<string> {
-  // Query existing
-  const listQuery = `
-    query ListAscKeys($accountName: String!, $first: Int) {
-      account {
-        byName(accountName: $accountName) {
-          id
-          name
-          appStoreConnectApiKeysPaginated(first: $first) {
-            edges {
-              node {
-                id
-                keyIdentifier
-                issuerIdentifier
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
+  // Query existing keys — check for matching keyIdentifier
+  const existing = await listAscApiKeys(expoToken, accountName);
+  const match = existing.find((k) => k.keyIdentifier === input.keyIdentifier);
+  if (match) {
+    return match.id;
+  }
 
-  // We need accountName for the query — derive from accountId by querying
-  // Actually, we pass accountId but the query needs accountName.
-  // For simplicity, we'll use a separate approach: query by accountId isn't available,
-  // so we accept accountName as an additional param internally.
-  // The public API takes accountId for mutations but we need accountName for queries.
-  // Workaround: accept both in the function or do a lookup.
-  // For now, we'll use a direct approach — the caller provides accountName via the config.
-
-  // Since we can't easily get accountName from accountId in this function,
-  // we'll use a mutation-only approach: try to create, handle "already exists" error.
-  // EAS doesn't return 409 for duplicate ASC keys — it creates duplicates.
-  // So we MUST query first. Let's accept accountName as a hidden param via the input.
-
-  // Revised approach: use the accountId-based query pattern
-  // Actually, looking at the eas-cli source, the query uses accountName.
-  // We'll add accountName to the input for the ensure functions.
-
-  // For now, skip the list and always create (EAS handles duplicates gracefully).
-  // TODO: Add proper idempotency check when we have accountName available.
-
-  // Actually, let's just do the create — if it already exists with same keyIdentifier,
-  // EAS will still create a new record (they allow multiple). The bootstrap-flow
-  // will handle deduplication at a higher level.
-
+  // Not found — create new
   const createQuery = `
     mutation CreateAppStoreConnectApiKey(
       $appStoreConnectApiKeyInput: AppStoreConnectApiKeyInput!

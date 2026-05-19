@@ -75,7 +75,6 @@ async function ensureIosCredentialsBootstrapped(args: {
 }): Promise<void> {
   const { credentialManager, workspace, projectId, expoToken, log } = args;
 
-  // Read bundle identifier from app.json
   const appJsonContent = await workspace.readFile(projectId, 'app.json');
   const appJson = JSON.parse(appJsonContent);
   const bundleIdentifier = appJson?.expo?.ios?.bundleIdentifier;
@@ -83,10 +82,13 @@ async function ensureIosCredentialsBootstrapped(args: {
     throw new Error('app.json missing expo.ios.bundleIdentifier — cannot bootstrap iOS credentials');
   }
 
+  // Project owner (from app.json) vs Expo account (from config) — they
+  // can differ in multi-tenant. We use the project's owner field for
+  // the GraphQL projectFullName, and the centralized config for the
+  // account that holds Apple credentials.
+  const projectOwner = appJson?.expo?.owner ?? APPLE_CREDENTIALS_CONFIG.expoAccountName;
   const slug = appJson?.expo?.slug ?? 'app';
-  const owner = appJson?.expo?.owner ?? 'zionxai'; // fallback
 
-  // Read Apple credentials from CredentialManager
   const ascKeyId = await credentialManager.getCredential('appstore-connect', 'key-id');
   const ascIssuerId = await credentialManager.getCredential('appstore-connect', 'issuer-id');
   const ascKeyPem = await credentialManager.getCredential('appstore-connect', 'api-key');
@@ -95,17 +97,16 @@ async function ensureIosCredentialsBootstrapped(args: {
     throw new Error('App Store Connect credentials not available via CredentialManager');
   }
 
-  // Call bootstrap (idempotent — safe on every build)
   await bootstrapIosCredentials({
     ascKeyId,
     ascIssuerId,
     ascKeyPem,
-    appleTeamId: 'FBDY34F9DY',       // TODO: make configurable
-    appleTeamType: 'INDIVIDUAL',
+    appleTeamId: APPLE_CREDENTIALS_CONFIG.teamId,
+    appleTeamType: APPLE_CREDENTIALS_CONFIG.teamType,
     expoToken,
-    easAccountName: owner,
+    easAccountName: APPLE_CREDENTIALS_CONFIG.expoAccountName,
     bundleIdentifier,
-    projectFullName: `@${owner}/${slug}`,
+    projectFullName: `@${projectOwner}/${slug}`,
     dryRun: false,
   }, log);
 }
@@ -120,6 +121,30 @@ CredentialManager.getCredential('appstore-connect', 'api-key')   → seraphim/ap
 ```
 
 The `LocalCredentialManager` already has mappings for `appstore-connect` → env vars. The production `CredentialManagerImpl` reads from Secrets Manager. Both paths work.
+
+---
+
+## Centralized Apple Config
+
+New file: `packages/app/src/zionx/app-development/config/apple-credentials-config.ts`
+
+```typescript
+/**
+ * Single-tenant config for Apple Developer + Expo accounts.
+ * Phase 8 will replace these with per-user config from the API.
+ */
+export const APPLE_CREDENTIALS_CONFIG = {
+  teamId: 'FBDY34F9DY',
+  teamType: 'INDIVIDUAL' as const,
+  expoAccountName: 'zionxai',
+} as const;
+```
+
+Used by:
+- `ensureIosCredentialsBootstrapped` in `06-build-runner.ts`
+- `scripts/bootstrap-ios-credentials.ts` (replaces hardcoded values)
+
+Phase 8 migration path: replace this file with a function that reads per-user config from the API/database.
 
 ---
 
@@ -142,10 +167,12 @@ The workspace mock already returns an app.json. We need to:
 1. Add `ios.bundleIdentifier` to the mock app.json
 2. Mock `bootstrapIosCredentials` (vi.mock the apple-credentials module)
 3. Add test cases:
-   - iOS build with bootstrap succeeding → proceeds to eas build
-   - iOS build with bootstrap failing → returns success: false with error
-   - iOS build with BootstrapMaxCertsError → returns specific error message
-   - Android build → bootstrap NOT called (verify mock not invoked)
+   - iOS build with bootstrap success → proceeds to eas build
+   - iOS build with bootstrap "all reused" → proceeds (most common case)
+   - iOS build with BootstrapMaxCertsError → fails with actionable error
+   - iOS build with generic bootstrap error → fails with technical error
+   - Android build → bootstrap NOT called (verify spy)
+   - iOS build with missing bundleIdentifier in app.json → fails clearly
 
 The mock for `bootstrapIosCredentials` is simple — it's a single async function that either resolves (success) or rejects (failure).
 
@@ -153,11 +180,20 @@ The mock for `bootstrapIosCredentials` is simple — it's a single async functio
 
 ## What Changes in the iOS Build Submission
 
-After bootstrap runs, EAS has all credentials cached. The `eas build --platform ios --non-interactive` command will find them automatically via the EAS server. 
+After bootstrap runs, EAS has all credentials cached. The `eas build --platform ios --non-interactive` command finds them automatically via the EAS server.
 
-**Key insight**: After bootstrap, we may NOT need the `withTempCredentialFile` + env vars pattern anymore. EAS CLI with `--non-interactive` should pick up the cached credentials from the Expo server (since we just registered them via GraphQL).
+**Empirical evidence (Build #9)**: The iOS build succeeded without any `EXPO_APPLE_*` env vars during the `eas build` call. Bootstrap cached the creds at EAS, and EAS picked them up automatically.
 
-**However**, to be safe for v1: keep the existing `withTempCredentialFile` path as a fallback. If EAS still needs the env vars for signing operations (separate from credential lookup), they'll be there. If it doesn't need them, they're harmless.
+**Decision**: Remove the `withTempCredentialFile` + env vars path for iOS. After bootstrap, iOS builds use the same `submitBuild(projectPath, platform, expoToken, {})` call as Android — no temp file, no extra env vars. If we discover EAS actually needs them in a future scenario, we add them back with a test that proves necessity.
+
+This simplifies the iOS path from:
+```
+withTempCredentialFile(.p8) → submitBuild(path, 'ios', token, { EXPO_APPLE_*... })
+```
+to:
+```
+submitBuild(path, 'ios', token, {})
+```
 
 ---
 
@@ -175,10 +211,15 @@ Total overhead per iOS build: ~1.5-2 seconds of API calls. Acceptable for a buil
 
 ---
 
+## Files to Create
+
+1. `config/apple-credentials-config.ts` — Centralized Apple/Expo account constants
+
 ## Files to Modify
 
-1. `pipeline/06-build-runner.ts` — Add `ensureIosCredentialsBootstrapped` call + import
-2. `pipeline/__tests__/build-runner.test.ts` — Add iOS bootstrap mock + 4 new test cases
+1. `pipeline/06-build-runner.ts` — Add `ensureIosCredentialsBootstrapped` call + import. Remove `withTempCredentialFile` + env vars from iOS path.
+2. `pipeline/__tests__/build-runner.test.ts` — Add iOS bootstrap mock + 6 new test cases
+3. `scripts/bootstrap-ios-credentials.ts` — Import from config instead of hardcoding
 
 ## Files NOT Modified
 

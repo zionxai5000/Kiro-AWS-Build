@@ -34,17 +34,21 @@ Implementation:
 
 ### Q3: Which screenshot strategy?
 
-**Decision: Option C (AI generation) for MVP. Option A deferred to post-Phase 9.**
+**Decision: Option A (placeholder) for MVP. Real screenshots deferred.**
 
 Rationale:
-- We already have the OpenAI images client
-- We can generate 3-5 screenshots per app at ~$0.04/image
-- Total cost per app: ~$0.20
-- Timeline: ~1 day to implement
+- AI-generated screenshots have a HIGH rejection rate from Apple (2025-2026). Apple's guidelines explicitly require "actual app screenshots." This is not a medium risk — it's near-certain rejection for most app categories.
+- Upscaling 1024×1792 to 1290×2796 via sharp produces visibly blurry output. Apple reviewers notice.
+- Simulator capture (Option A from research) requires 3-5 days of infrastructure (Detox/Maestro) — out of scope for Phase 8 MVP.
 
-**Known risk**: Apple may reject AI-generated screenshots that don't look like actual app captures. Mitigation: prompt engineering to produce UI-realistic images (flat design, status bar, navigation elements). If Apple rejects, we fall back to Option A in a future phase.
+**MVP approach**: Hook 8 generates placeholder screenshots — solid-color backgrounds with the app name, tagline, and a simple icon overlay rendered via `sharp` (text-on-image). These are clearly NOT production screenshots but they:
+- Satisfy the "at least 1 screenshot" technical requirement for ASC upload
+- Allow the full pipeline to be tested end-to-end
+- Are clearly marked as placeholders in the checklist (Hook 9 flags `screenshots_placeholder: warn`)
 
-**Size strategy**: Generate at 1290×2796 (iPhone 6.7") — Apple auto-propagates to smaller sizes. For Google Play, resize to 1080×1920.
+**Operator workflow**: Before actual App Store submission, the operator replaces placeholder screenshots with real ones (manual capture or future Option B/simulator automation). Hook 9's checklist surfaces this as a warning, not a blocker — the operator decides whether to proceed.
+
+**Future (post-Phase 9)**: Implement simulator-based screenshot capture via Detox or Maestro. This is a separate infrastructure project (~3-5 days).
 
 ### Q4: Multi-tenant handling?
 
@@ -71,17 +75,34 @@ This keeps the ID co-located with the project and follows EAS conventions.
 
 ### Q7: Privacy Policy URL?
 
-**Decision: Generate a hosted template URL on our domain.**
+**Decision: Host on GitHub Pages (verified approach).**
 
-Format: `https://zionxai.dev/privacy/{bundleIdentifier}`
+**Verification (2026-05-19)**:
+- `https://zionxai5000.github.io/` → 404 (GitHub Pages not yet enabled)
+- `https://zionxai5000.github.io/Kiro-AWS-Build/` → 404 (no project page)
+- Termly API (`docs.termly.io`) → exists but only covers consent management (cookie banners, DSAR). Does NOT support programmatic privacy policy creation. Their "Privacy Policy Generator" is a web wizard, not an API.
 
-Implementation:
-- Hook 8 generates the privacy policy text via LLM (same Claude call that generates the store listing)
-- The URL is deterministic from the bundle ID
-- For MVP, the URL can point to a static page template that we host
-- The actual page content is generated and uploaded as a static asset
+**Approach: GitHub Pages on a dedicated repo.**
 
-Alternative (simpler): use a generic privacy policy URL like `https://zionxai.dev/privacy` that covers all apps with a blanket policy. Less work, still passes Apple review for simple apps.
+C0 prerequisite steps:
+1. Create repo `zionxai5000/privacy-policies` (or enable Pages on an existing repo)
+2. Enable GitHub Pages (Settings → Pages → Deploy from branch `main`)
+3. Add a blanket `index.html` privacy policy template
+4. Verify `https://zionxai5000.github.io/privacy-policies/` returns 200
+
+**URL format**: `https://zionxai5000.github.io/privacy-policies/{bundleIdentifier}.html`
+
+**Implementation**:
+- Hook 8 generates privacy policy HTML via Claude (app-specific language)
+- Hook 8 commits the HTML file to the `privacy-policies` repo via GitHub API (we have `seraphim/github-token`)
+- GitHub Pages serves it automatically within ~60 seconds of commit
+- The URL is deterministic and immediately reachable by Apple reviewers
+
+**Fallback (even simpler MVP)**: Single blanket privacy policy at `https://zionxai5000.github.io/privacy-policies/` covering all apps generically. One static HTML file, no per-app generation needed. Still passes Apple review for simple apps that don't collect sensitive data.
+
+**Cost**: $0 (GitHub Pages is free for public repos).
+**Dependency**: GitHub token (already in Secrets Manager as `seraphim/github-token`).
+**Hard gate**: C0 must verify the Pages URL returns 200 before C3 begins.
 
 ---
 
@@ -210,10 +231,35 @@ export interface StoreListingWriterOutput {
 | Error | Severity | Action |
 |-------|----------|--------|
 | LLM generation fails | NOTIFY | Return partial result, listing = null |
-| ASC app creation 409 (name taken) | HALT | Surface to operator — must choose different name |
+| ASC app creation 409 (name taken) | RETRY | See name collision flow below |
 | ASC API auth failure | HALT | Credential issue — operator must fix |
 | Screenshot generation fails | NOTIFY | Continue without screenshots, flag in checklist |
 | ASC metadata PATCH fails | NOTIFY | Log which field failed, continue with others |
+
+### Name Collision Flow (ASC 409 Handling)
+
+App Store has ~2M apps. LLM-generated names WILL collide. This is high-likelihood, not an edge case.
+
+**Automatic retry strategy (no operator intervention needed):**
+
+```
+1. First attempt: use LLM-generated name as-is
+2. On 409 (name taken):
+   a. Append a differentiator suffix: "{Name} - {category keyword}"
+      e.g., "FitTracker" → "FitTracker - Workouts"
+   b. Retry createAscApp with the suffixed name
+3. On second 409:
+   a. Ask Claude to generate 3 alternative names (new LLM call)
+   b. Try each in sequence until one succeeds
+4. After 5 total attempts (1 original + 1 suffix + 3 alternatives):
+   - HALT with structured error
+   - Error includes: all names tried, suggestion to provide a custom name
+   - Operator can re-run Hook 8 with an explicit `appName` override
+```
+
+**Budget**: Max 5 createAscApp attempts per Hook 8 invocation. Each attempt is a single API call (~200ms). Total worst-case overhead: ~1s + 1 LLM call (~3s).
+
+**Idempotency**: If Hook 8 is re-run after a successful name was found, it reads the existing ascAppId from eas.json and skips creation entirely (Step 2 idempotency).
 
 ---
 
@@ -402,15 +448,18 @@ Uses the same ASC JWT signing from `asc-jwt.ts`. The key we already have (`serap
 
 ## Section 7: Screenshot Generator (`screenshot-generator.ts`)
 
+### Revised Approach: Placeholder Screenshots
+
+Per the Q3 decision, Phase 8 MVP generates placeholder screenshots — NOT AI-generated app mockups. These are simple branded images that satisfy ASC's technical upload requirement while clearly signaling to the operator that real screenshots are needed before submission.
+
 ### Function Signature
 
 ```typescript
 export interface ScreenshotGeneratorInput {
   appName: string;
   appDescription: string;
-  screenshotCount: number;     // 3-5 recommended
+  screenshotCount: number;     // 3-5
   platform: 'ios' | 'android';
-  credentialManager: CredentialManager;
 }
 
 export interface ScreenshotResult {
@@ -418,50 +467,51 @@ export interface ScreenshotResult {
     filename: string;          // e.g., "screenshot-1.png"
     width: number;
     height: number;
-    description: string;       // What the screenshot depicts
+    isPlaceholder: true;       // Always true for MVP
   }>;
-  costUsd: number;
 }
 
 /**
- * Generate app screenshots via OpenAI image generation.
+ * Generate placeholder screenshots using sharp (text-on-solid-color).
  * 
- * iOS: generates at 1290×2796 (iPhone 6.7" portrait)
- * Android: generates at 1080×1920 (standard portrait)
+ * iOS: 1290×2796 (iPhone 6.7" portrait)
+ * Android: 1080×1920 (standard portrait)
  * 
- * Prompts are designed to produce UI-realistic images:
- * - Status bar with time/battery
- * - Navigation elements (tab bar, back button)
- * - Content that matches the app description
- * - Flat/modern design language
+ * Each placeholder contains:
+ * - Solid background color (app-themed, derived from icon palette or random)
+ * - App name in large centered text
+ * - Screenshot number / screen label (e.g., "Home", "Detail", "Settings")
+ * - "PLACEHOLDER — Replace before submission" watermark
  */
-export async function generateScreenshots(
+export async function generatePlaceholderScreenshots(
   input: ScreenshotGeneratorInput,
 ): Promise<ScreenshotResult>;
 ```
 
-### Prompt Strategy
+### Implementation
 
-Each screenshot gets a different "screen" of the app:
-1. Home/dashboard screen
-2. Detail/content screen
-3. Settings or profile screen
-4. Action screen (creating/editing content)
-5. Results/progress screen (if applicable)
+Uses `sharp` to compose PNG images programmatically:
+1. Create a solid-color canvas at the target resolution
+2. Overlay text (app name, screen label, watermark) via SVG text rendering in sharp
+3. Write to workspace `assets/screenshots/` directory
 
-The prompt includes:
-- App name and description for context
-- Specific screen to depict
-- Size constraints (exact pixel dimensions)
-- Style constraints: "flat UI design, iOS/Material Design conventions, status bar visible, no device frame"
+No OpenAI calls. No upscaling. No blurriness. Cost: $0.
 
-### Size Handling
+### Dependency
 
-OpenAI's image API supports specific sizes. We'll use the closest supported size and resize if needed:
-- If 1290×2796 isn't directly supported, generate at 1024×1792 (supported) and upscale via sharp
-- For Android (1080×1920), generate at 1024×1792 and resize
+Requires `sharp` package. Already noted in deferred.md as needed for notification icon resizing. Adding it now serves both purposes.
 
-This may require adding `sharp` as a dependency (already noted in deferred.md for notification icon resizing).
+### Visual Consistency
+
+Since placeholders are programmatically generated (not AI), all screenshots for a given app share identical styling: same background color, same font, same layout. The only variation is the screen label text. No cross-image consistency problem exists with this approach (unlike AI generation where each call produces a different visual style).
+
+### Future: Real Screenshot Generation
+
+When simulator-based capture is implemented (post-Phase 9), this module will be replaced with a Detox/Maestro integration that:
+1. Boots the app in a simulator
+2. Navigates to key screens
+3. Captures screenshots at native resolution
+4. No upscaling needed — captures are pixel-perfect
 
 ---
 
@@ -543,15 +593,24 @@ Expected suite total after Phase 8: ~453 (413 current + 40 new)
 
 | Group | Scope | Estimate | Dependencies |
 |-------|-------|----------|--------------|
+| C0 | Privacy policy hosting prerequisite (GitHub Pages setup + verify 200) | 0.5 days | None — hard gate before C3 |
 | C1 | Types + `asc-app-client.ts` + tests | 1 day | None |
-| C2 | `store-listing-prompts.ts` + `screenshot-generator.ts` + tests | 1 day | None (parallel with C1) |
-| C3 | Hook 8 implementation + tests | 1 day | C1, C2 |
+| C2 | `store-listing-prompts.ts` + `screenshot-generator.ts` (placeholder) + tests | 0.5 days | sharp dependency |
+| C3 | Hook 8 implementation + tests + name collision flow | 1.5 days | C0, C1, C2 |
 | C4 | Hook 9 implementation + checklist + tests | 0.5 days | C3 |
-| C5 | Confirm endpoint + `eas submit` integration | 0.5 days | C4 |
+| C5 | Confirm endpoint + `eas submit` integration | 1.5 days | C4 |
 | C6 | E2E verification (dry-run full pipeline) | 0.5 days | C5 |
 | C7 | E2E verification (real ASC app creation + submission) | 0.5 days | C6 + operator approval |
 
-**Total: ~5.5 days** (aligns with research spec estimate of 5-6 days for MVP)
+**C5 expanded scope** (was 0.5 days, now 1.5 days):
+- Idempotency: double-click protection (submission ID dedup)
+- Authorization: verify caller has permission to confirm
+- Re-validation: full checklist re-run before submission
+- Credential injection: EXPO_TOKEN + ASC API key for eas submit subprocess
+- Status streaming: eas submit takes 5-15 min, needs WebSocket progress events
+- Error recovery: partial failure states (uploaded but not submitted for review)
+
+**Total: ~7 days** (revised from 5.5 — accounts for C0 prerequisite, C5 complexity, name collision logic in C3)
 
 ---
 
@@ -559,12 +618,40 @@ Expected suite total after Phase 8: ~453 (413 current + 40 new)
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Apple rejects AI screenshots | Medium | Medium (delays submission, not pipeline) | Prompt engineering for UI realism. Fallback: manual screenshots for first app, Option A later. |
-| ASC app name collision | Low | Low (retry with different name) | Generate unique names, catch 409, surface to operator |
+| ASC app name collision | HIGH | Low (automatic retry handles it) | 5-attempt retry with suffix + LLM alternatives. See Section 4 collision flow. |
+| Privacy policy URL inaccessible | Medium | HIGH (auto-rejection) | Hard prerequisite (C0) — must be verified reachable before C3 begins. |
 | Google Play first-release detection fails | Low | Low (operator gets confusing error) | Catch specific EAS Submit error code, provide clear instructions |
-| OpenAI image size limitations | Medium | Low (resize with sharp) | Test exact supported sizes during C2, add sharp dep if needed |
-| Privacy policy URL not accessible | Low | Medium (blocks submission) | Host a static template page before Phase 8 implementation begins |
-| ASC API rate limits | Low | Low (we make few calls per app) | Add retry with backoff (existing pattern) |
+| OpenAI image size limitations | N/A | N/A | Removed — using sharp-generated placeholders, no AI images |
+| Apple rejects placeholder screenshots | HIGH | Low (expected — operator replaces before real submission) | Placeholders are explicitly flagged in checklist as warnings. Operator must replace with real screenshots before submitting for review. |
+| ASC API rate limits | Low-Medium | Low (we make ~5 calls per app worst-case with collision retry) | Add retry with backoff (existing pattern). Monitor in production. |
+| eas submit takes longer than expected | Medium | Low (timeout, retry) | 15-minute timeout, status streaming via WebSocket |
+
+---
+
+## Section 12: Deferred — Apple Review Rejection Handling
+
+**Explicitly out of scope for Phase 8.** Submission ≠ publication.
+
+Apple WILL reject the first 1-3 reviews for typical apps. Common rejection reasons:
+- Guideline 4.0: Design (UI issues, placeholder content)
+- Guideline 2.1: Performance (crashes on specific devices)
+- Guideline 5.1.1: Privacy (data collection not disclosed)
+- Metadata Rejected: screenshots don't match app, description misleading
+
+**What Phase 8 does NOT handle:**
+- Ingesting rejection feedback from Apple (Resolution Center API)
+- Retry-after-fix workflow (modify metadata → resubmit)
+- Rejection event in the event bus taxonomy
+- Operator notification when rejection occurs
+
+**Future phase scope (Phase 10+):**
+- `appdev.submission.rejected` event type
+- Webhook from Apple (or polling ASC API for version status changes)
+- Structured rejection reason parsing
+- Suggested fix generation via LLM
+- One-click resubmission after fix
+
+For Phase 8 MVP, the pipeline ends at "submitted to TestFlight / Play Console." The operator monitors review status manually via ASC / Play Console web UI.
 
 ---
 

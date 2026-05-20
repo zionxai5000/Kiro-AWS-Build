@@ -1,44 +1,68 @@
-# Session Summary — 2026-05-20
+# Session Summary — 2026-05-21
 
-## Phase 8 — 30% Complete
+## Phase 8 Backend — COMPLETE (C0-C5)
 
 Today's commits (chronological):
 
 | Hash | Description |
 |------|-------------|
-| `24bda64` | Design doc revision (6 issues resolved) |
-| `4c1d7a5` | zionx.ai domain status logged to deferred.md |
-| `7b345d0` | C0: GitHub Pages privacy policy live |
-| `dd43d2c` | C1: asc-app-client + types |
-| `f3f0507` | Fix: createAscApp internal idempotency |
-| `17a715b` | C2: store listing prompts + screenshot generator |
-| `ab32ce3` | C3 partial: Hook 8 happy-path skeleton |
+| `2447fad` | C3 complete: Hook 8 collision flow + error handling + screenshot upload |
+| `f01638d` | C4: Hook 9 submission prep checklist + validation |
+| `022f591` | C5: confirm endpoint + eas submit subprocess integration |
 
 ## State
 
-- Privacy URL live: https://zionxai5000.github.io/privacy-policies/
-- asc-app-client.ts production-ready (CRUD + idempotency)
-- sharp dependency installed
-- Hook 8 happy path working with C1 + C2 integration
-- Test suite: 440 passing (was 413 yesterday)
+- Phase 8 backend: **100% complete** (C0-C5 all pushed, 466 tests passing)
+- C6 (dry-run verification): pending — blocked on Phase 8.5
+- C7 (real ASC submission): pending — blocked on Phase 8.5
+- Visual quality audit: **DONE** — current output is functional but not VibeCode-tier
 
-## CARRYOVER FOR NEXT SESSION
+## DECISION: PATH B — Quality First
 
-1. Complete C3: name collision flow, error handling matrix, screenshot upload to ASC, dry-run polish, edge case tests
-2. C4: Hook 9 implementation + checklist (~0.5 days)
-3. C5: Confirm endpoint + eas submit integration (~1.5 days)
-4. C6: E2E dry-run verification (~0.5 days)
-5. C7: E2E real ASC app creation + submission (~0.5 days)
+User chose Path B: upgrade code generation quality BEFORE real App Store submission.
+
+Rationale: First impression on App Store matters. Mediocre visual quality = rejection or poor reviews. The backend pipeline is correct — what it produces needs to be excellent.
+
+## NEXT SESSION: PHASE 8.5 — PROMPT UPGRADE
+
+### Scope
+
+1. Rewrite `services/prompts.ts` CODE_GENERATION_SYSTEM_PROMPT:
+   - Remove "no external CSS-in-JS libraries" restriction
+   - Add explicit VibeCode-quality visual direction
+   - Require modern UI libraries (reanimated, gradient, blur, haptics)
+   - Include example screen excerpts showing the quality bar
+   - Add design system tokens (color palettes, spacing scale, typography)
+
+2. Update Hook 3 dependency validator (if needed):
+   - Allow/encourage: react-native-reanimated, expo-linear-gradient, expo-blur,
+     react-native-gesture-handler, expo-haptics, moti
+   - Keep blocking: anything requiring native iOS/Android code outside Expo managed
+
+3. Test against 5 different app prompts:
+   - "A workout tracker"
+   - "A meal planner"
+   - "A budgeting app"
+   - "A habit tracker"
+   - "A reading log"
+
+4. Iterate prompt until all 5 produce visually polished output
+
+5. Update existing tests if Hook 2 output format changes
+
+### Estimate: 1-2 focused days (2-3 sessions)
 
 ## REMAINING PROJECT WORK
 
-- Phase 8: ~4 more days (C3 completion + C4-C7)
-- Phase 9: ~2 days
+- Phase 8.5: ~1-2 days (prompt upgrade + quality verification)
+- Phase 8 C6: dry-run verification (~0.5 days, after 8.5)
+- Phase 8 C7: real ASC app creation + submission (~0.5 days, after C6)
+- Phase 9: ~2 days (observability, metrics)
 - ZionX client integration: ~1-2 days
-- Total: ~7-8 more days of focused work
+- Total: ~5-7 more days of focused work
 
 ## NEXT SESSION STARTS WITH
 
 1. Verify git state (working tree clean, origin matches)
-2. Run full test suite (expect 440 passing)
-3. Resume C3 — name collision flow first
+2. Run full test suite (expect 466 passing)
+3. Begin Phase 8.5 — read current prompt, draft new prompt, test against first app prompt

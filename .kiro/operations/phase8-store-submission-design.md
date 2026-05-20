@@ -272,8 +272,6 @@ App Store has ~2M apps. LLM-generated names WILL collide. This is high-likelihoo
 export interface SubmissionPrepInput {
   projectId: string;
   platform: 'ios' | 'android';
-  credentialManager: CredentialManager;
-  eventBus: EventBusService;
 }
 
 export interface SubmissionPrepOutput {
@@ -283,6 +281,11 @@ export interface SubmissionPrepOutput {
   ascAppId?: string;         // For iOS — needed by confirm endpoint
 }
 ```
+
+> **Note**: Hook 9 is pure workspace-state validation. No API calls, no credential
+> fetches, no LLM calls. Credential verification and actual submission happen in
+> C5 (confirm endpoint). The `credentialManager` and `eventBus` from the original
+> design were removed — they belong in the confirm endpoint, not the checklist hook.
 
 ### Checklist Items
 
@@ -299,11 +302,11 @@ const IOS_CHECKLIST_ITEMS = [
 ];
 
 const ANDROID_CHECKLIST_ITEMS = [
-  'build_exists',            // .aab artifact available
-  'first_release_done',      // App exists on Play Console (not first upload)
+  'build_exists',            // EAS project linked (projectId in eas.json)
+  'first_release_done',      // Always 'warn' for MVP (manual step)
   'listing_complete',        // StoreListing JSON exists
   'screenshots_exist',       // ≥2 screenshots in workspace
-  'service_account_key',     // seraphim/googleplay accessible
+  'service_account_key',     // Config value GOOGLE_PLAY_SERVICE_ACCOUNT_SECRET is set (do not fetch the secret itself)
 ];
 ```
 

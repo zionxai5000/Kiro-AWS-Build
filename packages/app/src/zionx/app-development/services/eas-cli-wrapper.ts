@@ -170,3 +170,68 @@ export function parseLastJsonLine(stdout: string): unknown | null {
     return null;
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// EAS Submit
+// ---------------------------------------------------------------------------
+
+export interface SubmitBuildOptions {
+  /** Working directory (workspace path) */
+  cwd: string;
+  /** Platform to submit */
+  platform: 'ios' | 'android';
+  /** EXPO_TOKEN for authentication */
+  expoToken: string;
+  /** Android track (default: 'internal') */
+  track?: string;
+  /** Timeout in ms (default: 900_000 = 15 minutes) */
+  timeoutMs?: number;
+}
+
+export interface SubmitBuildResult {
+  status: 'submitted' | 'failed';
+  submissionId?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Submit a build to the App Store (iOS) or Google Play (Android) via EAS CLI.
+ *
+ * Does NOT throw on submission failure — returns a structured result.
+ * Caller decides how to handle failure.
+ *
+ * @returns SubmitBuildResult with status and optional error details
+ */
+export async function submitBuild(options: SubmitBuildOptions): Promise<SubmitBuildResult> {
+  const { cwd, platform, expoToken, track, timeoutMs } = options;
+
+  const args = ['submit', '--platform', platform, '--non-interactive', '--json'];
+  if (platform === 'android' && track) {
+    args.push('--track', track);
+  }
+
+  try {
+    const result = await runEasCommand(args, {
+      cwd,
+      expoToken,
+      timeoutMs: timeoutMs ?? 900_000, // 15 minutes default
+    });
+
+    // Parse submission ID from JSON output
+    const parsed = result.parsedJson as { id?: string; submissionId?: string } | null;
+    const submissionId = parsed?.id ?? parsed?.submissionId ?? undefined;
+
+    return {
+      status: 'submitted',
+      submissionId,
+    };
+  } catch (error) {
+    // Don't throw — return structured failure
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      status: 'failed',
+      errorMessage: msg.slice(0, 500), // Truncate to avoid leaking full stderr
+    };
+  }
+}

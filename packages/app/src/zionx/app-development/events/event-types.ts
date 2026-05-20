@@ -26,6 +26,7 @@ export const APPDEV_EVENTS = {
   HOOK_COMPLETED: 'appdev.hook.completed',
   WORKSPACE_FILE_CHANGED: 'appdev.workspace.file.changed',
   BUILD_STATUS_CHANGED: 'appdev.build.status.changed',
+  SUBMISSION_COMPLETED: 'appdev.submission.completed',
 } as const;
 
 export type AppDevEventType = typeof APPDEV_EVENTS[keyof typeof APPDEV_EVENTS];

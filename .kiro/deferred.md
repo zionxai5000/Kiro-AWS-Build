@@ -231,3 +231,12 @@ Required before C7 (real submission):
 3. Add 2 tests for the 3-step flow
 
 Effort: ~1 hour, slot into C6 verification block when this surfaces during dry-run.
+
+
+---
+
+## confirmSubmission Idempotency Cache (logged 2026-05-21)
+
+The in-memory submissionCache in handlers.ts grows unbounded with each successful submission. In production, replace with LRU cache (max ~1000 entries) or Redis-backed store.
+
+For MVP this is acceptable — process restarts clear the cache, which is fine for low-volume factory operation.

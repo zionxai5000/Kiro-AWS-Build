@@ -22,6 +22,8 @@ import { randomUUID } from 'node:crypto';
 import { run as runSanitizer } from '../pipeline/01-prompt-sanitizer.js';
 import { run as runBuildPreparer } from '../pipeline/05-build-preparer.js';
 import { run as runBuildRunner } from '../pipeline/06-build-runner.js';
+import { run as runSubmissionPrep } from '../pipeline/09-submission-prep.js';
+import { submitBuild } from '../services/eas-cli-wrapper.js';
 import { LLMService } from '../services/llm-service.js';
 import { isHookDryRun } from '../config/hooks.config.js';
 import type { ServerResponse } from 'node:http';
@@ -58,6 +60,18 @@ export interface AppDevHandlers {
 // ---------------------------------------------------------------------------
 
 const buildRateTracker = new Map<string, number[]>();
+
+// ---------------------------------------------------------------------------
+// Submission idempotency cache (in-memory)
+// ---------------------------------------------------------------------------
+
+// Idempotency cache for confirmSubmission. Module-scoped
+// so it persists across requests within one process.
+//
+// TODO: This grows unbounded. For production, replace with
+// an LRU cache or Redis-backed store. For MVP, accept that
+// process restarts clear pending idempotency.
+const submissionCache = new Map<string, Record<string, unknown>>();
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -416,8 +430,30 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 400, body: { error: 'project id is required' } };
       }
 
+      const platform = (req.body as Record<string, unknown>)?.platform as string | undefined;
+      if (platform !== 'ios' && platform !== 'android') {
+        return { statusCode: 400, body: { error: 'platform must be "ios" or "android"' } };
+      }
+
+      const submissionId = (req.body as Record<string, unknown>)?.submissionId as string | undefined;
+      if (!submissionId) {
+        return { statusCode: 400, body: { error: 'submissionId is required (client-generated UUID for idempotency)' } };
+      }
+
+      // Idempotency: if this submissionId was already processed, return cached result
+      const cached = submissionCache.get(submissionId);
+      if (cached) {
+        return { statusCode: 200, body: cached };
+      }
+
+      // Verify workspace exists
+      try {
+        await workspace.listFiles(projectId);
+      } catch {
+        return { statusCode: 404, body: { error: `Project "${projectId}" workspace not found` } };
+      }
+
       // Note: requireHumanOrigin is enforced by the router before this handler runs.
-      // This handler only executes if the human-origin check passed.
 
       // Audit trail — immutable record of human confirmation
       if (auditService) {
@@ -430,25 +466,63 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           authorizationChain: [],
           executionTokens: [],
           outcome: 'success',
-          details: {
-            projectId,
-            confirmedAt: new Date().toISOString(),
-            source: 'api',
-          },
+          details: { projectId, platform, submissionId, confirmedAt: new Date().toISOString(), source: 'api' },
         });
       }
 
-      // TODO: Actually trigger the store submission via App Store Connect / Google Play driver
-      return {
-        statusCode: 200,
-        body: {
-          projectId,
-          status: 'confirmed',
-          message: 'Submission confirmed by human operator. Store submission will proceed.',
-          confirmedAt: new Date().toISOString(),
-          confirmedBy: req.userId,
-        },
+      // Re-validate checklist (state may have changed since prep)
+      const ctx = { executionId: randomUUID(), dryRun: false, startedAt: new Date().toISOString(), log: () => {} };
+      const prepResult = await runSubmissionPrep({ projectId, platform }, ctx);
+      if (!prepResult.data?.readyForConfirmation) {
+        return {
+          statusCode: 400,
+          body: {
+            error: 'Submission not ready — checklist has failing items',
+            missingItems: prepResult.data?.missingItems ?? [],
+          },
+        };
+      }
+
+      // Retrieve EXPO_TOKEN for eas submit
+      let expoToken: string;
+      try {
+        expoToken = await credentialManager!.getCredential('expo', 'access-token');
+        if (!expoToken) throw new Error('empty');
+      } catch {
+        return { statusCode: 500, body: { error: 'Failed to retrieve Expo token for submission' } };
+      }
+
+      // Run eas submit
+      const projectPath = workspace.getProjectPath(projectId);
+      const submitResult = await submitBuild({
+        cwd: projectPath,
+        platform,
+        expoToken,
+        track: platform === 'android' ? 'internal' : undefined,
+      });
+
+      // Build response
+      const responseBody = {
+        submissionId,
+        projectId,
+        platform,
+        status: submitResult.status,
+        errorMessage: submitResult.errorMessage,
+        confirmedAt: new Date().toISOString(),
+        confirmedBy: req.userId,
       };
+
+      // Cache for idempotency
+      submissionCache.set(submissionId, responseBody);
+
+      // Publish event
+      await eventBus.publish(createAppDevEvent(
+        APPDEV_EVENTS.SUBMISSION_COMPLETED,
+        { projectId, platform, submissionId, status: submitResult.status },
+        req.tenantId ?? 'system',
+      )).catch(() => {});
+
+      return { statusCode: 200, body: responseBody };
     },
 
     // -----------------------------------------------------------------------

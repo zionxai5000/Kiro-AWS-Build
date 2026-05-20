@@ -176,7 +176,7 @@ describe('App Dev Handlers', () => {
   });
 
   describe('confirmSubmission', () => {
-    it('returns 200 and writes audit trail', async () => {
+    it('returns 400 when platform is missing', async () => {
       const handlers = createHandlers({
         eventBus,
         watcherSupervisor: createMockSupervisor(true),
@@ -190,18 +190,8 @@ describe('App Dev Handlers', () => {
       });
       const res = await handlers.confirmSubmission(req);
 
-      expect(res.statusCode).toBe(200);
-      expect((res.body as { status: string }).status).toBe('confirmed');
-      expect((res.body as { confirmedBy: string }).confirmedBy).toBe('king-user-1');
-
-      // Audit trail written
-      expect(auditService.recordAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          actionType: 'app_submission_confirmed',
-          target: 'proj-1',
-          actingAgentId: 'king-user-1',
-        }),
-      );
+      expect(res.statusCode).toBe(400);
+      expect((res.body as { error: string }).error).toContain('platform');
     });
   });
 

@@ -6,8 +6,8 @@ import {
 } from '../event-types.js';
 
 describe('APPDEV_EVENTS constants', () => {
-  it('has all 6 event types defined', () => {
-    expect(Object.keys(APPDEV_EVENTS)).toHaveLength(6);
+  it('has all 7 event types defined', () => {
+    expect(Object.keys(APPDEV_EVENTS)).toHaveLength(7);
   });
 
   it('all event types start with "appdev."', () => {

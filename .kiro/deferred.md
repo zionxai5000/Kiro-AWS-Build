@@ -214,3 +214,20 @@ manually changed both ios.bundleIdentifier and android.package to dev.zionxai.wo
 **Phase 8 workaround**: Privacy policy hosted on GitHub Pages (`https://zionxai5000.github.io/privacy-policies/`) instead of zionx.ai. This is acceptable for App Store review but not for long-term production.
 
 **When to address**: Before public launch / marketing push. Not blocking Phase 8-9 development.
+
+
+---
+
+## C6/C7 Known Issue — Screenshot Upload Set ID
+
+Status as of 2026-05-21: Hook 8 uploadScreenshot call passes ascAppId where screenshotSetId is expected.
+
+- Works in mocked tests (mock doesn't enforce semantics)
+- Will fail against real Apple ASC with 404 (invalid set ID)
+
+Required before C7 (real submission):
+1. Add `createScreenshotSet(jwt, ascAppId, displayType: 'APP_IPHONE_67' | etc): Promise<string>` to asc-app-client.ts
+2. In `uploadScreenshotsToAsc` (Hook 8), call `createScreenshotSet` once per displayType, then loop `uploadScreenshot` calls against that set ID
+3. Add 2 tests for the 3-step flow
+
+Effort: ~1 hour, slot into C6 verification block when this surfaces during dry-run.

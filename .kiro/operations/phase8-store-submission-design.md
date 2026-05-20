@@ -252,9 +252,10 @@ App Store has ~2M apps. LLM-generated names WILL collide. This is high-likelihoo
    a. Ask Claude to generate 3 alternative names (new LLM call)
    b. Try each in sequence until one succeeds
 4. After 5 total attempts (1 original + 1 suffix + 3 alternatives):
-   - HALT with structured error
-   - Error includes: all names tried, suggestion to provide a custom name
-   - Operator can re-run Hook 8 with an explicit `appName` override
+   - NOTIFY (not HALT) — log all attempted names, continue hook with ascAppId: null
+   - Hook returns success: true so downstream steps (listing.json write, screenshot generation) still run
+   - Operator sees ascAppId: null in output and can re-run Hook 8 with an explicit `appName` override
+   - This is intentional: the factory should be resilient to collisions, not halt the whole submission flow
 ```
 
 **Budget**: Max 5 createAscApp attempts per Hook 8 invocation. Each attempt is a single API call (~200ms). Total worst-case overhead: ~1s + 1 LLM call (~3s).

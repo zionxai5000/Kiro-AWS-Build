@@ -240,3 +240,12 @@ Effort: ~1 hour, slot into C6 verification block when this surfaces during dry-r
 The in-memory submissionCache in handlers.ts grows unbounded with each successful submission. In production, replace with LRU cache (max ~1000 entries) or Redis-backed store.
 
 For MVP this is acceptable — process restarts clear the cache, which is fine for low-volume factory operation.
+
+
+---
+
+## Phase 8.5 — Component primitive polish (logged 2026-05-22)
+
+- **Button.tsx**: disabled state still fires pressIn/pressOut scale animation. Add early return in handlePressIn/Out if disabled. (~5 min fix, low priority — disabled buttons rarely pressed)
+
+- **Sheet.tsx**: no SafeAreaView wrapper for bottom notch. May obscure content near home indicator on devices like iPhone 14+. Wrap content in SafeAreaView with edges={['bottom']}. (~5 min fix, low priority — most sheet content doesn't reach the very bottom)

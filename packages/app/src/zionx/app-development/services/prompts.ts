@@ -62,7 +62,7 @@ dependencies:
   "@expo/vector-icons": "^14.0.0"
   "@expo-google-fonts/inter": "^0.3.0"
   "@shopify/flash-list": "^2.0.0"
-  "@shopify/react-native-skia": "^1.8.0"
+  "@shopify/react-native-skia": "^2.6.0"
   "moti": "^0.30.0"
   "phosphor-react-native": "^2.2.0"
   "zustand": "^4.4.0"

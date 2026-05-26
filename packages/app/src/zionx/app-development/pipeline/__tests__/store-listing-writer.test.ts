@@ -30,6 +30,8 @@ vi.mock('../../services/apple-credentials/asc-client.js', () => ({
 const mockCreateAscApp = vi.fn();
 const mockSetAppMetadata = vi.fn();
 const mockUploadScreenshot = vi.fn();
+const mockCreateScreenshotSet = vi.fn();
+const mockGetAppStoreVersionLocalizationId = vi.fn();
 
 const mockErrors = vi.hoisted(() => {
   class AscAppNameTakenError extends Error {
@@ -57,6 +59,8 @@ vi.mock('../../services/apple-credentials/asc-app-client.js', () => ({
   createAscApp: (...args: unknown[]) => mockCreateAscApp(...args),
   setAppMetadata: (...args: unknown[]) => mockSetAppMetadata(...args),
   uploadScreenshot: (...args: unknown[]) => mockUploadScreenshot(...args),
+  createScreenshotSet: (...args: unknown[]) => mockCreateScreenshotSet(...args),
+  getAppStoreVersionLocalizationId: (...args: unknown[]) => mockGetAppStoreVersionLocalizationId(...args),
   AscAppNameTakenError: mockErrors.AscAppNameTakenError,
   AscApiError: mockErrors.AscApiError,
 }));
@@ -175,6 +179,8 @@ beforeEach(() => {
   mockCreateAscApp.mockResolvedValue({ ascAppId: '1234567890', bundleId: 'dev.zionxai.workouttracker', name: 'FitTrack Pro', sku: 'dev-zionxai-workouttracker', primaryLocale: 'en-US' });
   mockSetAppMetadata.mockResolvedValue(undefined);
   mockUploadScreenshot.mockResolvedValue('screenshot-id-1');
+  mockCreateScreenshotSet.mockResolvedValue('screenshot-set-001');
+  mockGetAppStoreVersionLocalizationId.mockResolvedValue('localization-en-us-001');
   mockWriteFile.mockResolvedValue(undefined);
   mockWriteBinaryFile.mockResolvedValue(undefined);
   mockReadBinaryFile.mockResolvedValue(Buffer.from('fake-png'));

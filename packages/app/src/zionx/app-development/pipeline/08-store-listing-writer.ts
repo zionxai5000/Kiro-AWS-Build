@@ -14,7 +14,7 @@ import { isHookEnabled, isHookDryRun } from '../config/hooks.config.js';
 import { LIMITS } from '../config/limits.js';
 import { signAscJwt } from '../services/apple-credentials/asc-jwt.js';
 import { listBundleIds } from '../services/apple-credentials/asc-client.js';
-import { createAscApp, setAppMetadata, uploadScreenshot, AscAppNameTakenError } from '../services/apple-credentials/asc-app-client.js';
+import { createAscApp, setAppMetadata, uploadScreenshot, createScreenshotSet, getAppStoreVersionLocalizationId, AscAppNameTakenError } from '../services/apple-credentials/asc-app-client.js';
 import { STORE_LISTING_SYSTEM_PROMPT, buildStoreListingUserPrompt } from '../services/store-listing-prompts.js';
 import { generatePlaceholderScreenshots } from '../services/screenshot-generator.js';
 import { Workspace } from '../workspace/workspace.js';
@@ -422,18 +422,41 @@ async function uploadScreenshotsToAsc(args: {
 }): Promise<void> {
   const { credentialManager, ascAppId, workspace, projectId, screenshots, log } = args;
 
+  if (screenshots.length === 0) {
+    log(`[store-listing-writer] No screenshots to upload`);
+    return;
+  }
+
   try {
+    // ── Step 1: Sign JWT ──────────────────────────────────────────
     const ascKeyId = await credentialManager.getCredential('appstore-connect', 'key-id');
     const ascIssuerId = await credentialManager.getCredential('appstore-connect', 'issuer-id');
     const ascKeyPem = await credentialManager.getCredential('appstore-connect', 'api-key');
     const jwt = signAscJwt(ascKeyId, ascIssuerId, ascKeyPem);
 
-    // Upload each screenshot — use allSettled so one failure doesn't break all
+    // ── Step 2: Get the appStoreVersionLocalization for this app ──
+    // Required for createScreenshotSet — Apple links screenshot sets to localizations,
+    // not directly to the app entity.
+    const localizationId = await getAppStoreVersionLocalizationId(jwt, ascAppId);
+    if (!localizationId) {
+      log(`[store-listing-writer] No version in PREPARE_FOR_SUBMISSION state — cannot upload screenshots`);
+      return;
+    }
+    log(`[store-listing-writer] Got localizationId: ${localizationId}`);
+
+    // ── Step 3: Create screenshot set for APP_IPHONE_67 ───────────
+    // Default to iPhone 6.7" (modern flagship). Multi-display-type support
+    // is deferred — see deferred.md "Phase 9.5: Screenshot display type matrix".
+    const screenshotSetId = await createScreenshotSet(jwt, localizationId, 'APP_IPHONE_67');
+    log(`[store-listing-writer] Created screenshot set: ${screenshotSetId} (APP_IPHONE_67)`);
+
+    // ── Step 4: Upload screenshots to the set ─────────────────────
+    // Use allSettled so one failure doesn't break all uploads
     const results = await Promise.allSettled(
-      screenshots.map(async (ss, idx) => {
+      screenshots.map(async (ss) => {
         const filePath = `assets/screenshots/${ss.filename}`;
         const data = await workspace.readBinaryFile(projectId, filePath);
-        await uploadScreenshot(jwt, ascAppId, data, ss.filename);
+        await uploadScreenshot(jwt, screenshotSetId, data, ss.filename);
         return ss.filename;
       }),
     );

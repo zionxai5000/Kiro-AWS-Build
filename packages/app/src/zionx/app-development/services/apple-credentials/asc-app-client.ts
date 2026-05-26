@@ -443,3 +443,72 @@ export async function uploadScreenshot(
 
   return screenshotId;
 }
+
+/**
+ * Get the primary App Store version localization ID for an app.
+ * Fetches the version in PREPARE_FOR_SUBMISSION state and returns
+ * the first localization ID (typically en-US).
+ *
+ * @param jwt - Apple JWT token
+ * @param ascAppId - The App Store Connect app ID
+ * @returns The localization ID, or null if no version is in preparation
+ */
+export async function getAppStoreVersionLocalizationId(
+  jwt: string,
+  ascAppId: string,
+): Promise<string | null> {
+  const response = await fetch(
+    `${BASE_URL}/v1/apps/${ascAppId}/appStoreVersions?filter[appStoreState]=PREPARE_FOR_SUBMISSION&include=appStoreVersionLocalizations&limit=1`,
+    { method: 'GET', headers: authHeaders(jwt) },
+  );
+  const data = await handleResponse(response) as {
+    data: Array<{ id: string }>;
+    included?: Array<{ id: string; type: string }>;
+  };
+
+  const localization = data.included?.find((r) => r.type === 'appStoreVersionLocalizations');
+  return localization?.id ?? null;
+}
+
+/**
+ * Create an App Store Connect screenshot set for a specific display type.
+ * Required before uploading screenshots — Apple groups screenshots by display type.
+ *
+ * @param jwt - Apple JWT token
+ * @param localizationId - App Store version localization ID (NOT the app ID)
+ * @param displayType - e.g., 'APP_IPHONE_67', 'APP_IPHONE_65', 'APP_IPAD_PRO_129'
+ * @returns The created screenshot set ID
+ */
+export async function createScreenshotSet(
+  jwt: string,
+  localizationId: string,
+  displayType: 'APP_IPHONE_67' | 'APP_IPHONE_65' | 'APP_IPHONE_61' | 'APP_IPAD_PRO_129' | 'APP_IPAD_PRO_3GEN_129',
+): Promise<string> {
+  const response = await fetch(`${BASE_URL}/v1/appScreenshotSets`, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      data: {
+        type: 'appScreenshotSets',
+        attributes: { screenshotDisplayType: displayType },
+        relationships: {
+          appStoreVersionLocalization: {
+            data: { type: 'appStoreVersionLocalizations', id: localizationId },
+          },
+        },
+      },
+    }),
+  });
+
+  if (response.status !== 201) {
+    const errorText = await response.text();
+    throw new AscApiError(
+      response.status,
+      'SCREENSHOT_SET_CREATION_FAILED',
+      `Failed to create screenshot set (${displayType}): ${errorText}`,
+    );
+  }
+
+  const result = await response.json() as { data: { id: string } };
+  return result.data.id;
+}

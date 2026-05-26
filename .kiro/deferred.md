@@ -218,19 +218,28 @@ manually changed both ios.bundleIdentifier and android.package to dev.zionxai.wo
 
 ---
 
-## C6/C7 Known Issue — Screenshot Upload Set ID
+## RESOLVED — Screenshot Upload Set ID Bug (Phase 9)
 
-Status as of 2026-05-21: Hook 8 uploadScreenshot call passes ascAppId where screenshotSetId is expected.
+Resolved 2026-05-26.
 
-- Works in mocked tests (mock doesn't enforce semantics)
-- Will fail against real Apple ASC with 404 (invalid set ID)
+- Added `createScreenshotSet(jwt, localizationId, displayType)` to asc-app-client.ts
+- Added `getAppStoreVersionLocalizationId(jwt, ascAppId)` helper
+- Updated Hook 8 `uploadScreenshotsToAsc` with 3-step flow (get localization → create set → upload)
+- Defaults to APP_IPHONE_67 (modern flagship)
+- Multi-display-type matrix deferred — see Phase 9.5 below
 
-Required before C7 (real submission):
-1. Add `createScreenshotSet(jwt, ascAppId, displayType: 'APP_IPHONE_67' | etc): Promise<string>` to asc-app-client.ts
-2. In `uploadScreenshotsToAsc` (Hook 8), call `createScreenshotSet` once per displayType, then loop `uploadScreenshot` calls against that set ID
-3. Add 2 tests for the 3-step flow
+---
 
-Effort: ~1 hour, slot into C6 verification block when this surfaces during dry-run.
+## Phase 9.5 — Screenshot Display Type Matrix
+
+Current Hook 8 defaults all screenshots to APP_IPHONE_67. To support
+multiple display types (iPhone 6.7, iPhone 6.5, iPad Pro 12.9, etc.):
+
+1. Update screenshot generator to produce screenshots categorized by display type
+2. Update uploadScreenshotsToAsc to accept screenshots grouped by displayType, create one set per type
+3. Update screenshot filename convention (e.g., 'iphone-67-1.png', 'ipad-129-1.png')
+
+Effort: ~2 hours. Slot when first ZionX user needs iPad screenshots or as Phase 10 polish.
 
 
 ---

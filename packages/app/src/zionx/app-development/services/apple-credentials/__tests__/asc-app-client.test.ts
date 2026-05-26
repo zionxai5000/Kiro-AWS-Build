@@ -9,6 +9,7 @@ import {
   setAppMetadata,
   setAppCategory,
   uploadScreenshot,
+  createScreenshotSet,
   AscAppNameTakenError,
   AscApiError,
 } from '../asc-app-client.js';
@@ -307,5 +308,49 @@ describe('uploadScreenshot', () => {
 
     await expect(uploadScreenshot(FAKE_JWT, 'set-001', fakeData, 'screenshot-1.png'))
       .rejects.toThrow(AscApiError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createScreenshotSet
+// ---------------------------------------------------------------------------
+
+describe('createScreenshotSet', () => {
+  it('POSTs to /appScreenshotSets and returns the set ID', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        data: {
+          id: 'screenshot-set-001',
+          type: 'appScreenshotSets',
+          attributes: { screenshotDisplayType: 'APP_IPHONE_67' },
+        },
+      }),
+    } as unknown as Response);
+
+    const setId = await createScreenshotSet(FAKE_JWT, 'localization-123', 'APP_IPHONE_67');
+
+    expect(setId).toBe('screenshot-set-001');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]![0]).toBe('https://api.appstoreconnect.apple.com/v1/appScreenshotSets');
+
+    const callOptions = mockFetch.mock.calls[0]![1] as RequestInit;
+    expect(callOptions.method).toBe('POST');
+
+    const body = JSON.parse(callOptions.body as string);
+    expect(body.data.attributes.screenshotDisplayType).toBe('APP_IPHONE_67');
+    expect(body.data.relationships.appStoreVersionLocalization.data.id).toBe('localization-123');
+  });
+
+  it('throws on non-201 response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      text: async () => JSON.stringify({ errors: [{ detail: 'Not found' }] }),
+    } as unknown as Response);
+
+    await expect(createScreenshotSet(FAKE_JWT, 'localization-invalid', 'APP_IPHONE_67'))
+      .rejects.toThrow(/Failed to create screenshot set/);
   });
 });

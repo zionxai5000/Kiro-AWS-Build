@@ -288,3 +288,28 @@ to catch JS-level errors BEFORE real EAS Build is triggered.
 
 This would have caught babel-preset-expo + version mismatches for free
 without burning EAS credits.
+
+
+---
+
+## Phase 9.5 — Production Submission Gaps (RESOLVED + REMAINING)
+
+### RESOLVED (Step 2G real-world submission test, 2026-05-26)
+
+1. **Apple Team ID corrected** — seraphim/appstoreconnect note said FBDY34F9DY, actual team is 24B2ADT27B (eneka fateen / Individual).
+2. **prompts.ts versions aligned with Expo SDK 54** — 13 packages corrected.
+3. **First real TestFlight submission completed**:
+   - Build ID: ea6194c6-23ac-4818-9fc9-2110d16af54f
+   - ASC App ID: 6773520429
+   - Submission ID: 335557ab-5822-4dec-abd0-8f9b41bdb4b2
+   - Bundle: com.zionx.factorytest-6dd7e3c7
+   - App: testapplication5.26.2.26
+
+### REMAINING (Phase 9.5 work for next session)
+
+1. **Hook 5 should auto-run prerequisites** — npm install + npx expo install --check + git init before triggering build-runner.
+2. **Hook 6 should provision iOS credentials non-interactively** — Currently requires interactive `eas build` for first run.
+3. **Partial-live test should include local bundle validation** — Add `npx expo export` stage to catch JS errors before EAS Build.
+4. **Hook 8 needs handler wiring** — generateStoreListing API handler is a 202 stub. Hook 8 only runs via direct invocation.
+5. **Bake ascAppId back into eas.json automatically** — Hook 8 should write ascAppId after ASC creation.
+6. **ASC API key needs Admin role for app creation** — Current key can only GET/UPDATE, not CREATE apps.

@@ -27,12 +27,19 @@ SECTION 1: HARD CONSTRAINTS
 - Styling: StyleSheet.create with design tokens from theme/ directory
 - State: React useState/useReducer for local state; zustand for global state
 - Icons: phosphor-react-native (weight "duotone" for UI, "bold" for tab bar)
-- All components must be accessible (accessibilityLabel, accessibilityRole)
 - Every screen must handle loading, error, and empty states
 - No native modules that require ejecting from Expo managed workflow
 - No external API calls without user consent
 - All file paths must be relative. Never use absolute paths or paths containing ../
 - Do not include API keys, secrets, or placeholder credentials in any file
+- All Zustand stores MUST persist via AsyncStorage middleware (zustand/middleware persist). Never use unpersisted stores for user data.
+- All useEffect hooks with subscriptions, intervals, or listeners MUST return cleanup functions.
+- All screens MUST handle AppState changes (background/foreground) when running timers or active processes.
+- All interactive elements MUST have accessibilityLabel and accessibilityRole. Informational elements (statistics, counts, dynamic values) MUST be wrapped in accessible Text with descriptive labels (e.g., "Current streak: 5 days" not just "5").
+- Every screen MUST be wrapped in SafeAreaView with appropriate edges OR use useSafeAreaInsets() hook.
+- Every app MUST include an onboarding flow on first launch.
+- Every app MUST support light AND dark mode via useColorScheme() hook.
+- No placeholder/non-functional UI. Every interactive element must work OR not be rendered.
 
 ===================================================================
 SECTION 2: REQUIRED DEPENDENCIES (USE EXACT VERSIONS)
@@ -66,6 +73,8 @@ dependencies:
   "moti": "^0.30.0"
   "phosphor-react-native": "^2.2.0"
   "zustand": "^4.4.0"
+  "@react-native-async-storage/async-storage": "~2.1.0"
+  "react-native-mmkv": "^3.0.0"
 devDependencies:
   "@babel/core": "^7.25.2"
   "@types/react": "~19.1.0"
@@ -79,36 +88,80 @@ SECTION 3: PALETTE SELECTION (PICK ONE — DO NOT INVENT COLORS)
 
 Select ONE palette based on the app's domain. Place a declaration comment at the top of theme/colors.ts.
 
-PALETTE 1 — "Serene" (Calm-inspired)
+PALETTE 1 — "Serene" LIGHT (Calm-inspired)
 Use when: meditation, wellness, journaling, sleep, reading, mindfulness
 \`\`\`
 primary: '#4A6FA5', accent: '#7BA7BC', bg: '#F7F9FC', surface: '#FFFFFF',
 textPrimary: '#1A2332', textSecondary: '#6B7C8F', border: '#E8EDF2',
-success: '#4CAF82', warning: '#E8A838', error: '#D64545'
+success: '#4CAF82', warning: '#E8A838', error: '#D64545',
+primarySoft: '#4A6FA520', accentSoft: '#7BA7BC20',
+successSoft: '#4CAF8220', warningSoft: '#E8A83820'
 \`\`\`
 
-PALETTE 2 — "Focus" (Linear-inspired)
+PALETTE 1 DARK — "Serene Dark"
+\`\`\`
+primary: '#6B8FC4', accent: '#8FB8C9', bg: '#0F1419', surface: '#1A2332',
+textPrimary: '#F0F4F8', textSecondary: '#A0AEC0', border: '#2A3441',
+success: '#5DBE92', warning: '#F0B848', error: '#E66565',
+primarySoft: '#6B8FC420', accentSoft: '#8FB8C920',
+successSoft: '#5DBE9220', warningSoft: '#F0B84820'
+\`\`\`
+
+PALETTE 2 — "Focus" LIGHT (Linear-inspired)
 Use when: productivity, dev tools, dashboards, task management, notes
 \`\`\`
 primary: '#5E6AD2', accent: '#00B8D4', bg: '#0D0E14', surface: '#1A1D29',
 textPrimary: '#FFFFFF', textSecondary: '#B4B8C5', border: '#2A2E3B',
-success: '#4ADE80', warning: '#FBBF24', error: '#F87171'
+success: '#4ADE80', warning: '#FBBF24', error: '#F87171',
+primarySoft: '#5E6AD220', accentSoft: '#00B8D420',
+successSoft: '#4ADE8020', warningSoft: '#FBBF2420'
 \`\`\`
 
-PALETTE 3 — "Vital" (energy-forward)
+PALETTE 2 DARK — "Focus Dark"
+\`\`\`
+primary: '#7C8BFF', accent: '#A78BFA', bg: '#0E0E14', surface: '#1A1A24',
+textPrimary: '#EDEDF5', textSecondary: '#9CA3AF', border: '#2D2D3A',
+success: '#5DBE92', warning: '#F0B848', error: '#E66565',
+primarySoft: '#7C8BFF20', accentSoft: '#A78BFA20',
+successSoft: '#5DBE9220', warningSoft: '#F0B84820'
+\`\`\`
+
+PALETTE 3 — "Vital" LIGHT (energy-forward)
 Use when: fitness, food, social, health tracking, cooking, workout
 \`\`\`
 primary: '#FF6B35', accent: '#F7B801', bg: '#FFFAF6', surface: '#FFFFFF',
 textPrimary: '#2D1810', textSecondary: '#8B6F5F', border: '#F0E6DE',
-success: '#22C55E', warning: '#F59E0B', error: '#DC2626'
+success: '#22C55E', warning: '#F59E0B', error: '#DC2626',
+primarySoft: '#FF6B3520', accentSoft: '#F7B80120',
+successSoft: '#22C55E20', warningSoft: '#F59E0B20'
 \`\`\`
 
-PALETTE 4 — "Modern" (versatile default)
+PALETTE 3 DARK — "Vital Dark"
+\`\`\`
+primary: '#F97373', accent: '#FB923C', bg: '#120D0D', surface: '#1F1818',
+textPrimary: '#FAFAFA', textSecondary: '#A0A0A0', border: '#332828',
+success: '#5DBE92', warning: '#F0B848', error: '#E66565',
+primarySoft: '#F9737320', accentSoft: '#FB923C20',
+successSoft: '#5DBE9220', warningSoft: '#F0B84820'
+\`\`\`
+
+PALETTE 4 — "Modern" LIGHT (versatile default)
 Use when: business, finance, utilities, generic SaaS, shopping, anything not matching above
 \`\`\`
 primary: '#000000', accent: '#6366F1', bg: '#FAFAFA', surface: '#FFFFFF',
 textPrimary: '#0A0A0A', textSecondary: '#525252', border: '#E5E5E5',
-success: '#10B981', warning: '#F59E0B', error: '#EF4444'
+success: '#10B981', warning: '#F59E0B', error: '#EF4444',
+primarySoft: '#00000020', accentSoft: '#6366F120',
+successSoft: '#10B98120', warningSoft: '#F59E0B20'
+\`\`\`
+
+PALETTE 4 DARK — "Modern Dark"
+\`\`\`
+primary: '#0EA5E9', accent: '#06B6D4', bg: '#0A0A0F', surface: '#16161E',
+textPrimary: '#F1F5F9', textSecondary: '#94A3B8', border: '#1E1E2A',
+success: '#5DBE92', warning: '#F0B848', error: '#E66565',
+primarySoft: '#0EA5E920', accentSoft: '#06B6D420',
+successSoft: '#5DBE9220', warningSoft: '#F0B84820'
 \`\`\`
 
 The FIRST LINE of theme/colors.ts must be:
@@ -179,7 +232,65 @@ SECTION 6: THEME FILES CONTRACT
 
 Generate ALL theme files. Each exports a single const object.
 
-theme/colors.ts — Export the selected palette as: export const colors = { primary, accent, bg, surface, textPrimary, textSecondary, border, success, warning, error }
+theme/colors.ts — Export BOTH light and dark palettes plus a default:
+COPY EXACTLY — DO NOT MODIFY (fill in selected palette values)
+\`\`\`typescript
+// ZionX Palette: <Name>
+// Selected because: <keyword reasoning>
+
+export const lightColors = {
+  primary: '...',
+  accent: '...',
+  bg: '...',
+  surface: '...',
+  textPrimary: '...',
+  textSecondary: '...',
+  border: '...',
+  success: '...',
+  warning: '...',
+  error: '...',
+  primarySoft: '...',
+  accentSoft: '...',
+  successSoft: '...',
+  warningSoft: '...',
+};
+
+export const darkColors = {
+  primary: '...',
+  accent: '...',
+  bg: '...',
+  surface: '...',
+  textPrimary: '...',
+  textSecondary: '...',
+  border: '...',
+  success: '...',
+  warning: '...',
+  error: '...',
+  primarySoft: '...',
+  accentSoft: '...',
+  successSoft: '...',
+  warningSoft: '...',
+};
+
+export type Colors = typeof lightColors;
+
+// Default export for static contexts (StyleSheet outside components)
+// For dynamic themed components, use useTheme() hook
+export const colors = lightColors;
+\`\`\`
+
+theme/useTheme.ts — Hook that returns the correct palette based on system appearance:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import { useColorScheme } from 'react-native';
+import { lightColors, darkColors, type Colors } from './colors';
+
+export function useTheme(): Colors {
+  const scheme = useColorScheme();
+  return scheme === 'dark' ? darkColors : lightColors;
+}
+\`\`\`
+
 theme/typography.ts — Export: export const typography = { displayXl, displayLg, displayMd, bodyLg, bodyMd, bodySm, caption, button } (each is a TextStyle object)
 theme/spacing.ts — Export: export const spacing = { xs: 4, sm: 8, md: 12, base: 16, lg: 24, xl: 32, '2xl': 48, '3xl': 64 }
 theme/motion.ts — Export: export const motion = { gentle: {...}, snappy: {...}, bouncy: {...} }
@@ -470,20 +581,334 @@ const styles = StyleSheet.create({
 });
 \`\`\`
 
+COMPONENT: components/ui/ErrorBoundary.tsx
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Warning } from 'phosphor-react-native';
+import { Button } from './Button';
+import { useTheme } from '../../theme/useTheme';
+import { typography } from '../../theme/typography';
+import { spacing } from '../../theme/spacing';
+
+interface Props {
+  children: React.ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<Props, State> {
+  state: State = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // In production, send to crash reporting service
+  }
+
+  reset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return <ErrorFallback onReset={this.reset} />;
+    }
+    return this.props.children;
+  }
+}
+
+function ErrorFallback({ onReset }: { onReset: () => void }) {
+  const colors = useTheme();
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      <View style={[styles.iconContainer, { backgroundColor: colors.warningSoft }]}>
+        <Warning size={48} weight="duotone" color={colors.warning} />
+      </View>
+      <Text style={[typography.displayMd, { color: colors.textPrimary, textAlign: 'center', marginTop: spacing.lg }]}>
+        Something went wrong
+      </Text>
+      <Text style={[typography.bodyMd, { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, maxWidth: 280 }]}>
+        We hit an unexpected error. Please try again.
+      </Text>
+      <View style={{ marginTop: spacing.xl }}>
+        <Button variant="primary" label="Try Again" onPress={onReset} />
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  iconContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+\`\`\`
+
+COMPONENT: components/ui/Toast.tsx
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { MotiView } from 'moti';
+import { CheckCircle, Warning, X, Info } from 'phosphor-react-native';
+import { useTheme } from '../../theme/useTheme';
+import { typography } from '../../theme/typography';
+import { spacing } from '../../theme/spacing';
+import { shadows } from '../../theme/shadows';
+
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+interface ToastProps {
+  visible: boolean;
+  type?: ToastType;
+  message: string;
+  duration?: number;
+  onDismiss: () => void;
+}
+
+const ICONS = { success: CheckCircle, error: X, warning: Warning, info: Info };
+
+export function Toast({ visible, type = 'info', message, duration = 3000, onDismiss }: ToastProps) {
+  const colors = useTheme();
+  const Icon = ICONS[type];
+  const colorMap = {
+    success: colors.success,
+    error: colors.error,
+    warning: colors.warning,
+    info: colors.primary,
+  };
+
+  useEffect(() => {
+    if (visible) {
+      const timer = setTimeout(onDismiss, duration);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, duration, onDismiss]);
+
+  if (!visible) return null;
+
+  return (
+    <MotiView
+      from={{ opacity: 0, translateY: -20 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      exit={{ opacity: 0, translateY: -20 }}
+      transition={{ type: 'spring', damping: 18, stiffness: 200 }}
+      style={[styles.container, { backgroundColor: colors.surface, ...shadows.level2 }]}
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+    >
+      <Icon size={20} weight="duotone" color={colorMap[type]} />
+      <Text style={[typography.bodyMd, { color: colors.textPrimary, flex: 1 }]}>
+        {message}
+      </Text>
+    </MotiView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 60,
+    left: spacing.base,
+    right: spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md,
+    borderRadius: 12,
+    zIndex: 1000,
+  },
+});
+\`\`\`
+
+HOOK: hooks/useAppState.ts
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import { useEffect, useState } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
+
+export function useAppState() {
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      setAppState(nextAppState);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  return {
+    appState,
+    isActive: appState === 'active',
+    isBackground: appState === 'background',
+    isInactive: appState === 'inactive',
+  };
+}
+\`\`\`
+
 ===================================================================
-SECTION 8: SCREEN PATTERNS
+SECTION 8: SCREEN PATTERNS (REQUIRED)
 ===================================================================
 
-Every screen must implement ALL THREE states:
+Every screen MUST implement ALL of the following patterns:
 
-1. LOADING: Render Skeleton components matching the content layout shape.
-2. EMPTY: Render EmptyState component with appropriate Phosphor icon + headline + helper + CTA.
-3. HAPPY: Render actual content with FlashList (for lists), Cards, proper spacing.
+1. SAFE AREAS
+- Wrap screen root in SafeAreaView with edges={['top']} (top notch only, since tab bar handles bottom)
+- OR use useSafeAreaInsets() hook for paddingTop calculation
+- NEVER hardcode paddingTop above notch (spacing['3xl'] = 64px is wrong)
+- Import: import { SafeAreaView } from 'react-native-safe-area-context';
+- OR: import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-Additional requirements:
-- Entry animation: Wrap screen content in MotiView with from={{ opacity: 0, translateY: 20 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', ...motion.gentle }}
-- Pull-to-refresh: Use RefreshControl with tintColor={colors.primary} where data is fetched
-- Inter font loading: Check useFonts hook. Return null if fonts not loaded.
+2. TAB BAR PADDING
+- Use useBottomTabBarHeight() hook for paddingBottom in scrollable content
+- NEVER hardcode paddingBottom: 100 to "account for tab bar"
+- Import: import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+
+3. LOADING STATE
+- Skeleton loader matching the SHAPE of the eventual content
+- For lists: 3-5 skeleton rows matching list item shape
+- For stats grid: skeleton boxes in same grid layout
+- For detail screens: skeleton lines matching headline + body
+- Use the Skeleton component from components/ui/Skeleton
+
+4. EMPTY STATE
+- EmptyState component from components/ui/EmptyState
+- Phosphor icon with weight="duotone"
+- Helpful headline (3-5 words)
+- Supportive helper text (1-2 sentences)
+- Primary CTA button leading to action
+- NEVER use plain text like "No items yet"
+
+5. ERROR STATE
+- ErrorBoundary wraps the layout (catches render errors)
+- Per-screen error UI for API/data failures
+- Friendly message + retry CTA
+- Phosphor Warning icon
+- NEVER show raw error messages or stack traces to user
+
+6. PULL-TO-REFRESH
+- RefreshControl on all scrollable screens that load data
+- tintColor={colors.primary}
+- Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light) on trigger
+
+7. ENTRY ANIMATION
+- Wrap main content in MotiView with:
+  from={{ opacity: 0, translateY: 16 }}
+  animate={{ opacity: 1, translateY: 0 }}
+  transition={{ type: 'spring', ...motion.gentle }}
+- Skip animation if AccessibilityInfo.isReduceMotionEnabled() is true
+
+8. ACCESSIBILITY
+- Every Pressable/button has accessibilityLabel + accessibilityRole
+- Every image has accessibilityLabel
+- Statistics announce values: "Current streak: 5 days" not just "5"
+- Tab icons use tabBarAccessibilityLabel
+- Decorative-only elements use accessibilityElementsHidden={true}
+
+9. BACKGROUND HANDLING
+- Any screen with active timers, intervals, or running processes MUST subscribe to AppState changes
+- Pause work on AppState 'background', resume on 'active'
+- Use the useAppState hook from hooks/useAppState.ts
+- Import: import { AppState } from 'react-native';
+
+10. STATS GRID LAYOUT
+- 4 items: explicit 2x2 grid with width: '48%' on each item
+- 3 items: width: '31%' on each item
+- 5+ items: horizontal ScrollView with fixed item width
+- NEVER flex: 1 + flexWrap (causes squishing on small screens)
+
+Layout pattern for any screen:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import React, { useEffect, useState } from 'react';
+import { View, ScrollView, RefreshControl, AppState, AccessibilityInfo } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { MotiView } from 'moti';
+import * as Haptics from 'expo-haptics';
+import { useFonts, Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { useTheme } from '../../theme/useTheme';
+import { spacing } from '../../theme/spacing';
+import { motion } from '../../theme/motion';
+
+export default function ScreenName() {
+  const colors = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_600SemiBold, Inter_700Bold });
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // Pause/resume logic here
+    });
+    return () => subscription.remove();
+  }, []);
+
+  if (!fontsLoaded) return null;
+
+  if (isLoading) {
+    return <SafeAreaView edges={['top']}>{/* skeleton */}</SafeAreaView>;
+  }
+
+  if (/* empty condition */) {
+    return <SafeAreaView edges={['top']}>{/* EmptyState */}</SafeAreaView>;
+  }
+
+  return (
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
+      <MotiView
+        from={reduceMotion ? undefined : { opacity: 0, translateY: 16 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ type: 'spring', ...motion.gentle }}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: tabBarHeight + spacing.lg }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                // Reload data
+                setRefreshing(false);
+              }}
+              tintColor={colors.primary}
+            />
+          }
+        >
+          {/* content */}
+        </ScrollView>
+      </MotiView>
+    </SafeAreaView>
+  );
+}
+\`\`\`
 
 ===================================================================
 SECTION 9: NAVIGATION
@@ -522,7 +947,779 @@ export default function TabsLayout() {
 \`\`\`
 
 ===================================================================
-SECTION 10: ANTI-PATTERNS (NEVER GENERATE THESE)
+SECTION 10: STATE PERSISTENCE (REQUIRED)
+===================================================================
+
+All Zustand stores that hold user data MUST use the persist middleware with AsyncStorage. This is non-negotiable — apps without persistence lose all user data on restart and get 1-star reviews.
+
+Required pattern for every store:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// store/[domain].ts
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export interface AppState {
+  // ... domain types
+  // Loading state for UI (NOT persisted)
+  isLoading: boolean;
+
+  // Actions
+  addItem: (item: Item) => void;
+  loadData: () => Promise<void>;
+}
+
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      items: [],
+      isLoading: true,
+
+      addItem: (item) => {
+        set((state) => ({
+          items: [...state.items, item]
+        }));
+      },
+
+      loadData: async () => {
+        // Data is automatically rehydrated from AsyncStorage
+        // by persist middleware. This just signals UI ready.
+        set({ isLoading: false });
+      },
+    }),
+    {
+      name: 'app-storage-v1',  // unique storage key per app
+      storage: createJSONStorage(() => AsyncStorage),
+      version: 1,
+      partialize: (state) => ({
+        // ONLY persist user data, NOT loading/UI flags
+        items: state.items,
+        // ... other persisted fields
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.isLoading = false;
+        }
+      },
+    }
+  )
+);
+\`\`\`
+
+Critical rules:
+- Storage key MUST be unique per app (include app slug + version)
+- partialize MUST exclude isLoading, errors, and other UI state
+- version field MUST be set (allows migrations later)
+- onRehydrateStorage handler sets isLoading to false after rehydration
+- Date fields require special handling — see Date Serialization below
+
+Date Serialization:
+Dates don't serialize cleanly to JSON. For any Date fields in persisted state, use this pattern:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// When adding to store, store as ISO string:
+addSession: (session) => {
+  set((state) => ({
+    sessions: [...state.sessions, {
+      ...session,
+      completedAt: new Date().toISOString(),  // ISO string
+    }],
+  }));
+},
+
+// When reading, parse back to Date:
+const sessions = useAppStore((state) =>
+  state.sessions.map(s => ({
+    ...s,
+    completedAt: new Date(s.completedAt),
+  }))
+);
+\`\`\`
+
+Alternative — use a custom JSON storage that handles Date:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+const dateReviver = (key: string, value: any) => {
+  if (typeof value === 'string' && /^\\d{4}-\\d{2}-\\d{2}T/.test(value)) {
+    return new Date(value);
+  }
+  return value;
+};
+
+storage: createJSONStorage(() => AsyncStorage, {
+  reviver: dateReviver,
+}),
+\`\`\`
+
+Timezone-safe date math:
+When calculating streaks or "today" boundaries, use UTC-anchored date math to avoid timezone bugs:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+function getMeditationDayKey(date: Date): string {
+  // Use UTC date for stable day boundaries across timezones
+  const utc = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return utc.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+\`\`\`
+
+===================================================================
+SECTION 11: ONBOARDING FLOW (REQUIRED)
+===================================================================
+
+Every app MUST include a 3-screen onboarding flow shown on first launch. Apps without onboarding fail App Review and feel incomplete to users.
+
+Required file structure:
+- app/onboarding/_layout.tsx       (stack navigator, no header)
+- app/onboarding/index.tsx         (welcome — value proposition)
+- app/onboarding/permissions.tsx   (explain notifications/etc.)
+- app/onboarding/finish.tsx        (complete + go to home)
+
+Routing logic in app/_layout.tsx:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// app/_layout.tsx
+import { useEffect, useState } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as SplashScreen from 'expo-splash-screen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFonts, Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+
+SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+  const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    AsyncStorage.getItem('hasOnboarded').then((value) => {
+      setHasOnboarded(value === 'true');
+    });
+  }, []);
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  useEffect(() => {
+    if (hasOnboarded === null) return;
+
+    const inOnboarding = segments[0] === 'onboarding';
+
+    if (!hasOnboarded && !inOnboarding) {
+      router.replace('/onboarding');
+    } else if (hasOnboarded && inOnboarding) {
+      router.replace('/(tabs)');
+    }
+  }, [hasOnboarded, segments]);
+
+  if (!fontsLoaded || hasOnboarded === null) {
+    return null;
+  }
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="onboarding" />
+        </Stack>
+        <StatusBar style="auto" />
+      </ErrorBoundary>
+    </GestureHandlerRootView>
+  );
+}
+\`\`\`
+
+Onboarding screen template (all 3 screens follow this pattern):
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// app/onboarding/index.tsx (welcome screen)
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { MotiView } from 'moti';
+import { Canvas, Circle, LinearGradient, vec } from '@shopify/react-native-skia';
+import { Lotus } from 'phosphor-react-native';  // or app-appropriate icon
+import { Button } from '../../components/ui/Button';
+import { useTheme } from '../../theme/useTheme';
+import { spacing } from '../../theme/spacing';
+import { typography } from '../../theme/typography';
+import { motion } from '../../theme/motion';
+
+export default function OnboardingWelcome() {
+  const colors = useTheme();
+  const router = useRouter();
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]} edges={['top', 'bottom']}>
+      <MotiView
+        from={{ opacity: 0, translateY: 20 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ type: 'spring', ...motion.gentle }}
+        style={styles.content}
+      >
+        {/* Illustration */}
+        <View style={styles.illustrationContainer}>
+          <Canvas style={styles.canvas}>
+            <Circle cx={100} cy={100} r={100}>
+              <LinearGradient
+                start={vec(0, 0)}
+                end={vec(200, 200)}
+                colors={[colors.accentSoft, colors.primarySoft]}
+              />
+            </Circle>
+          </Canvas>
+          <View style={styles.iconOverlay}>
+            <Lotus size={120} weight="duotone" color={colors.accent} />
+          </View>
+        </View>
+
+        {/* Copy */}
+        <Text style={[typography.displayLg, { color: colors.textPrimary, textAlign: 'center' }]}>
+          Welcome to AppName
+        </Text>
+        <Text style={[typography.bodyLg, { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md, paddingHorizontal: spacing.lg }]}>
+          Value proposition — 1-2 sentences explaining the app
+        </Text>
+      </MotiView>
+
+      {/* CTA */}
+      <View style={styles.footer}>
+        <Button
+          variant="primary"
+          label="Continue"
+          onPress={() => router.push('/onboarding/permissions')}
+        />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  content: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
+  illustrationContainer: { width: 200, height: 200, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xl },
+  canvas: { position: 'absolute', width: 200, height: 200 },
+  iconOverlay: { position: 'absolute', width: 200, height: 200, alignItems: 'center', justifyContent: 'center' },
+  footer: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
+});
+\`\`\`
+
+Final onboarding screen MUST mark onboarding complete:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// app/onboarding/finish.tsx
+// ... same SafeAreaView + MotiView structure ...
+
+const handleFinish = async () => {
+  await AsyncStorage.setItem('hasOnboarded', 'true');
+  router.replace('/(tabs)');
+};
+
+// ... CTA uses handleFinish onPress
+\`\`\`
+
+===================================================================
+SECTION 12: APP STORE COMPLIANCE (REQUIRED)
+===================================================================
+
+Every generated app MUST satisfy these requirements OR Apple/Google will reject it at submission. These are non-negotiable.
+
+-------------------------------------------------------------------
+12.1 — iOS PRIVACY MANIFEST (REQUIRED SINCE MAY 2024)
+-------------------------------------------------------------------
+
+Generate this file at the project root with this EXACT content:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array><string>CA92.1</string></array>
+    </dict>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array><string>C617.1</string></array>
+    </dict>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array><string>35F9.1</string></array>
+    </dict>
+  </array>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyTracking</key>
+  <false/>
+</dict>
+</plist>
+\`\`\`
+
+File path: ./PrivacyInfo.xcprivacy
+Rationale (Apple-mandated reason codes):
+- CA92.1 — UserDefaults access for app-specific user prefs
+- C617.1 — File timestamps for accessing file modification dates
+- 35F9.1 — System boot time for measuring time intervals
+
+-------------------------------------------------------------------
+12.2 — BUNDLE ID GENERATION
+-------------------------------------------------------------------
+
+NEVER hardcode bundle IDs. Apple rejects duplicates instantly.
+
+Pattern in app.json:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`json
+{
+  "expo": {
+    "ios": {
+      "bundleIdentifier": "com.zionx.<app-slug>-<random8>"
+    },
+    "android": {
+      "package": "com.zionx.<app_slug>_<random8>"
+    }
+  }
+}
+\`\`\`
+
+Format rules:
+- <app-slug> is the kebab-case app name (e.g., "mindful-timer")
+- <random8> is an 8-char random hex string (e.g., "a3f9c2e1")
+- iOS uses hyphens, Android uses underscores (Android pkg names can't contain hyphens)
+- Total length: never exceed 155 chars (iOS limit)
+
+Example for "Mindful Timer":
+- iOS: com.zionx.mindful-timer-a3f9c2e1
+- Android: com.zionx.mindful_timer_a3f9c2e1
+
+-------------------------------------------------------------------
+12.3 — SUPPORT EMAIL + URLS IN APP CONFIG
+-------------------------------------------------------------------
+
+Apple requires Support URL in App Store listing. Add to app.json:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`json
+{
+  "expo": {
+    "extra": {
+      "supportEmail": "support@zionx.ai",
+      "privacyUrl": "https://zionxai5000.github.io/privacy-policies/",
+      "termsUrl": "https://zionxai5000.github.io/privacy-policies/terms"
+    }
+  }
+}
+\`\`\`
+
+These URLs are read at runtime via expo-constants:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import Constants from 'expo-constants';
+
+const supportEmail = Constants.expoConfig?.extra?.supportEmail ?? 'support@zionx.ai';
+const privacyUrl = Constants.expoConfig?.extra?.privacyUrl ?? '';
+const termsUrl = Constants.expoConfig?.extra?.termsUrl ?? '';
+\`\`\`
+
+-------------------------------------------------------------------
+12.4 — SETTINGS SCREEN — FUNCTIONAL ITEMS ONLY
+-------------------------------------------------------------------
+
+Apple App Review Guideline 2.1 (Performance) rejects apps with non-functional UI. Settings screens MUST follow these rules:
+
+ALLOWED items (must be functional):
+- "About" — shows app name, version (from expo-constants), build number, support link
+- "Privacy Policy" — opens privacyUrl via Linking.openURL()
+- "Terms of Service" — opens termsUrl via Linking.openURL()
+- "Contact Support" — opens mailto: with supportEmail
+- "Rate App" — opens App Store URL via Linking.openURL()
+- "Share App" — uses react-native Share API with app store URL
+
+NEVER include unless fully implemented:
+- "Notifications" (requires expo-notifications setup + permissions)
+- "Appearance" / "Theme" (requires theme switcher state management)
+- "Sleep Timer" / "Auto-end" (requires actual sleep timer logic)
+- "Language" (requires i18n + locale switcher)
+- "Account" / "Profile" (requires auth backend)
+
+Settings layout — ONE Card containing all items with dividers:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+// app/(tabs)/settings.tsx
+import React from 'react';
+import { View, Text, StyleSheet, Pressable, Linking, Share } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { MotiView } from 'moti';
+import { Info, ShieldCheck, FileText, EnvelopeSimple, Star, ShareNetwork, CaretRight } from 'phosphor-react-native';
+import * as Haptics from 'expo-haptics';
+import Constants from 'expo-constants';
+import { Card } from '../../components/ui/Card';
+import { useTheme } from '../../theme/useTheme';
+import { spacing } from '../../theme/spacing';
+import { typography } from '../../theme/typography';
+
+export default function SettingsScreen() {
+  const colors = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const appName = Constants.expoConfig?.name ?? 'App';
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+  const supportEmail = Constants.expoConfig?.extra?.supportEmail ?? '';
+  const privacyUrl = Constants.expoConfig?.extra?.privacyUrl ?? '';
+  const termsUrl = Constants.expoConfig?.extra?.termsUrl ?? '';
+
+  const handleLink = async (url: string) => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Linking.openURL(url);
+  };
+
+  const handleShare = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Share.share({
+      message: \\\`Check out \\\${appName}!\\\`,
+      // Add App Store URL when published
+    });
+  };
+
+  const items = [
+    {
+      icon: Info,
+      title: 'About',
+      subtitle: \\\`Version \\\${version}\\\`,
+      onPress: () => {},
+      showChevron: false,
+    },
+    {
+      icon: EnvelopeSimple,
+      title: 'Contact Support',
+      subtitle: supportEmail,
+      onPress: () => handleLink(\\\`mailto:\\\${supportEmail}\\\`),
+      showChevron: true,
+    },
+    {
+      icon: ShieldCheck,
+      title: 'Privacy Policy',
+      subtitle: 'How we protect your data',
+      onPress: () => handleLink(privacyUrl),
+      showChevron: true,
+    },
+    {
+      icon: FileText,
+      title: 'Terms of Service',
+      subtitle: 'App usage terms',
+      onPress: () => handleLink(termsUrl),
+      showChevron: true,
+    },
+    {
+      icon: Star,
+      title: 'Rate App',
+      subtitle: 'Help others discover us',
+      onPress: () => { /* App Store URL when published */ },
+      showChevron: true,
+    },
+    {
+      icon: ShareNetwork,
+      title: 'Share App',
+      subtitle: 'Tell your friends',
+      onPress: handleShare,
+      showChevron: true,
+    },
+  ];
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
+      <MotiView
+        from={{ opacity: 0, translateY: 16 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ type: 'spring', damping: 18, stiffness: 90 }}
+        style={{ flex: 1 }}
+      >
+        <View style={{ paddingHorizontal: spacing.base, paddingTop: spacing.lg }}>
+          <Text style={[typography.displayLg, { color: colors.textPrimary, marginBottom: spacing.lg }]}>
+            Settings
+          </Text>
+          <Card>
+            {items.map((item, idx) => (
+              <Pressable
+                key={item.title}
+                onPress={item.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={\\\`\\\${item.title}, \\\${item.subtitle}\\\`}
+                style={[
+                  styles.row,
+                  idx < items.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border },
+                ]}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: colors.accentSoft }]}>
+                  <item.icon size={20} weight="duotone" color={colors.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[typography.bodyMd, { color: colors.textPrimary, fontWeight: '600' }]}>
+                    {item.title}
+                  </Text>
+                  <Text style={[typography.bodySm, { color: colors.textSecondary, marginTop: 2 }]}>
+                    {item.subtitle}
+                  </Text>
+                </View>
+                {item.showChevron && (
+                  <CaretRight size={16} weight="bold" color={colors.textSecondary} />
+                )}
+              </Pressable>
+            ))}
+          </Card>
+        </View>
+      </MotiView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+  },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+\`\`\`
+
+-------------------------------------------------------------------
+12.5 — APP CATEGORY-SPECIFIC REQUIREMENTS
+-------------------------------------------------------------------
+
+Some app categories have additional Apple requirements:
+
+MEDITATION / WELLNESS apps:
+- Background audio capability if playing sounds
+- Health data disclosure if tracking activity
+- Disclaimer that app is not medical advice
+
+PRODUCTIVITY / TIMER apps:
+- Background processing capability for timers
+- Notification permissions explanation
+
+SOCIAL / SHARING apps:
+- Content moderation policy (required by App Review)
+- Block/report user functionality
+- Account deletion in-app (Apple requirement)
+
+FINANCIAL apps:
+- Privacy disclosure for financial data
+- 2FA requirement for sensitive actions
+
+For the meditation timer app type, add to app.json:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`json
+{
+  "expo": {
+    "ios": {
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
+\`\`\`
+
+===================================================================
+SECTION 13: ACCESSIBILITY (REQUIRED)
+===================================================================
+
+Every interactive element MUST be accessible. Apple now performs accessibility audits in App Review. Apps with poor accessibility get rejected OR get 1-star reviews from accessibility-first users.
+
+-------------------------------------------------------------------
+13.1 — INTERACTIVE ELEMENT REQUIREMENTS
+-------------------------------------------------------------------
+
+Every Pressable, TouchableOpacity, Button MUST have:
+- accessibilityLabel: descriptive (not redundant with visible text)
+- accessibilityRole: "button", "link", "tab", "checkbox", "switch", etc.
+- accessibilityHint: WHEN action is non-obvious
+- accessibilityState: for toggleable elements ({ selected, disabled, checked })
+
+GOOD:
+\`\`\`typescript
+<Pressable
+  accessibilityRole="button"
+  accessibilityLabel="Start 10-minute meditation session"
+  accessibilityHint="Begins the meditation timer with chosen duration"
+  onPress={handleStart}
+>
+\`\`\`
+
+BAD (label duplicates visible text):
+\`\`\`typescript
+<Pressable accessibilityLabel="Start" onPress={handleStart}>
+  <Text>Start</Text>
+</Pressable>
+\`\`\`
+
+Acceptable shorthand IF label adds context the screen reader user doesn't have:
+\`\`\`typescript
+<Pressable
+  accessibilityRole="button"
+  accessibilityLabel="Settings"
+  onPress={openSettings}
+>
+  <Gear size={24} weight="bold" />  {/* Icon only */}
+</Pressable>
+\`\`\`
+
+-------------------------------------------------------------------
+13.2 — STATISTICS + DYNAMIC VALUES
+-------------------------------------------------------------------
+
+Numbers without context are useless to screen reader users. Wrap statistic displays with descriptive accessible labels:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+<View
+  accessible={true}
+  accessibilityRole="text"
+  accessibilityLabel={\`Current streak: \${currentStreak} days\`}
+>
+  <Flame size={24} weight="duotone" color={colors.accent} />
+  <Text style={typography.displayMd}>{currentStreak}</Text>
+  <Text style={typography.caption}>Day Streak</Text>
+</View>
+\`\`\`
+
+Without the accessibilityLabel wrap: screen reader announces "5, Day Streak" (meaningless).
+With it: "Current streak: 5 days".
+
+-------------------------------------------------------------------
+13.3 — TAB BAR ACCESSIBILITY
+-------------------------------------------------------------------
+
+Tab bar icons need accessibility labels:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+<Tabs.Screen
+  name="index"
+  options={{
+    title: 'Home',
+    tabBarIcon: ({ color }) => <Lotus size={24} weight="bold" color={color} />,
+    tabBarAccessibilityLabel: 'Home tab',
+  }}
+/>
+\`\`\`
+
+-------------------------------------------------------------------
+13.4 — REDUCE MOTION SUPPORT
+-------------------------------------------------------------------
+
+Users with vestibular disorders enable iOS "Reduce Motion". Apps that don't respect this setting cause physical illness (nausea, vertigo). Apple requires apps to honor it.
+
+Pattern in every screen with animations:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+import { AccessibilityInfo } from 'react-native';
+
+const [reduceMotion, setReduceMotion] = useState(false);
+
+useEffect(() => {
+  AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+  const subscription = AccessibilityInfo.addEventListener(
+    'reduceMotionChanged',
+    setReduceMotion
+  );
+  return () => subscription.remove();
+}, []);
+
+// Then in MotiView:
+<MotiView
+  from={reduceMotion ? undefined : { opacity: 0, translateY: 16 }}
+  animate={{ opacity: 1, translateY: 0 }}
+  transition={reduceMotion
+    ? { type: 'timing', duration: 0 }  // Instant
+    : { type: 'spring', ...motion.gentle }
+  }
+>
+\`\`\`
+
+-------------------------------------------------------------------
+13.5 — DECORATIVE ELEMENTS
+-------------------------------------------------------------------
+
+Purely decorative elements (Skia gradient circles, illustrations with no semantic meaning) MUST hide from screen readers:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+<Canvas
+  style={styles.canvas}
+  accessibilityElementsHidden={true}
+  importantForAccessibility="no-hide-descendants"
+>
+  <Circle ... />
+</Canvas>
+\`\`\`
+
+-------------------------------------------------------------------
+13.6 — MINIMUM TOUCH TARGETS
+-------------------------------------------------------------------
+
+Apple HIG requires minimum 44x44pt touch targets. Most icon buttons fail this with size={24}. Wrap in larger Pressable:
+COPY EXACTLY — DO NOT MODIFY
+\`\`\`typescript
+<Pressable
+  onPress={handlePress}
+  style={({ pressed }) => ({
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: pressed ? 0.7 : 1,
+  })}
+  accessibilityRole="button"
+  accessibilityLabel="Close"
+  hitSlop={8}
+>
+  <X size={20} weight="bold" color={colors.textPrimary} />
+</Pressable>
+\`\`\`
+
+-------------------------------------------------------------------
+13.7 — COLOR CONTRAST (WCAG AA)
+-------------------------------------------------------------------
+
+All palettes (light AND dark) MUST meet WCAG AA contrast:
+- Body text: 4.5:1 minimum
+- Large text (18pt+): 3:1 minimum
+- UI components: 3:1 minimum
+
+The palettes in Section 3 are pre-verified. Do NOT modify color values when applying them — alpha tweaks break contrast ratios.
+
+===================================================================
+SECTION 14: ANTI-PATTERNS (NEVER GENERATE THESE)
 ===================================================================
 
 | BANNED | USE INSTEAD |
@@ -540,9 +1737,29 @@ SECTION 10: ANTI-PATTERNS (NEVER GENERATE THESE)
 | Image from react-native | Image from expo-image |
 | Ionicons / MaterialIcons for UI | phosphor-react-native (duotone) |
 | React Native Modal | Sheet.tsx |
+| useEffect with subscription but no cleanup | Always return cleanup function |
+| Zustand store without persist middleware | Use persist + AsyncStorage |
+| Storing Date objects in persisted state | Use ISO strings, parse on read |
+| Hardcoded paddingTop above notch | SafeAreaView edges={['top']} |
+| Hardcoded paddingBottom for tab bar | useBottomTabBarHeight() hook |
+| Settings rows without implementation | Either implement fully or remove |
+| Card-per-row in settings list | Single Card with dividers between rows |
+| Color + hex alpha concatenation (e.g., colors.primary + '20') | Use predefined tonal tokens (primarySoft) |
+| flex: 1 in row with > 2 items | Explicit width percentages (48%, 31%) |
+| Hardcoded bundle ID like "com.example.app" | Generate com.zionx.<slug>-<random8> |
+| Light mode only palette | Provide both lightColors AND darkColors with useTheme() |
+| English-only strings | i18n setup with locales/en.json (extensible) |
+| Timer/interval without AppState handling | Subscribe to AppState changes, pause on background |
+| Statistics without accessibility labels | Wrap with accessible View + descriptive label |
+| Icon import same name as React component | Alias (e.g., Timer as TimerIcon) |
+| MotiView without reduceMotion check | Conditionally disable animations |
+| Pressable with only icon, no minimum touch target | minWidth/minHeight 44 + hitSlop |
+| Skia Canvas without accessibilityElementsHidden | Hide decorative elements from screen readers |
+| Direct colors import in component | Use useTheme() for dynamic light/dark |
+| Console.log left in production code | Remove all console.log before final output |
 
 ===================================================================
-SECTION 11: REFERENCE SCREEN (DEMONSTRATES QUALITY BAR)
+SECTION 15: REFERENCE SCREEN (DEMONSTRATES QUALITY BAR)
 ===================================================================
 
 This shows how a home screen looks with all patterns applied.
@@ -645,7 +1862,7 @@ const styles = StyleSheet.create({
 \`\`\`
 
 ===================================================================
-SECTION 12: OUTPUT FORMAT
+SECTION 16: OUTPUT FORMAT
 ===================================================================
 
 Respond with a series of file blocks. Each file block starts with:
@@ -653,30 +1870,73 @@ Respond with a series of file blocks. Each file block starts with:
 followed by the complete file content, then:
 --- END FILE ---
 
-Required files for EVERY app:
-1. app/_layout.tsx (root layout)
-2. app/(tabs)/_layout.tsx (tab bar with blur + Phosphor icons)
-3. app/(tabs)/index.tsx (first tab — home screen)
-4. app/(tabs)/[other tabs].tsx (2-4 additional tabs)
-5. app.json (Expo config)
-6. package.json (with ALL dependencies from Section 2)
-7. tsconfig.json
-8. babel.config.js (babel-preset-expo + reanimated plugin)
-9. metro.config.js (expo/metro-config)
-10. eas.json (EAS Build config)
-11. .gitignore
-12. theme/colors.ts (with palette comment)
-13. theme/typography.ts
-14. theme/spacing.ts
-15. theme/motion.ts
-16. theme/shadows.ts
-17. components/ui/Button.tsx
-18. components/ui/Card.tsx
-19. components/ui/Sheet.tsx
-20. components/ui/Skeleton.tsx
-21. components/ui/EmptyState.tsx
-22. hooks/useHaptics.ts
-23. store/[domain].ts (zustand store for app data)
+Required files (generate ALL of these):
+
+CONFIG (8):
+1. package.json (with ALL deps from Section 2 including AsyncStorage)
+2. tsconfig.json (extends expo/tsconfig.base, strict mode)
+3. babel.config.js (with reanimated plugin)
+4. metro.config.js (default expo metro config)
+5. eas.json (production build profile)
+6. app.json (with bundle ID, supportEmail, privacyUrl, termsUrl in extra)
+7. .gitignore (standard expo + node_modules)
+8. PrivacyInfo.xcprivacy (iOS privacy manifest — see Section 12.1)
+
+THEME (6):
+9. theme/colors.ts (lightColors + darkColors + Colors type)
+10. theme/typography.ts (typography scale)
+11. theme/spacing.ts (4pt grid)
+12. theme/motion.ts (spring configs)
+13. theme/shadows.ts (3 levels)
+14. theme/useTheme.ts (returns colors based on useColorScheme)
+
+COMPONENTS (7):
+15. components/ui/Button.tsx (all 3 variants)
+16. components/ui/Card.tsx (level 1 and 2 shadows)
+17. components/ui/Sheet.tsx (drag-to-dismiss, blur backdrop)
+18. components/ui/Skeleton.tsx (Moti pulse animation)
+19. components/ui/EmptyState.tsx (Skia gradient + Phosphor icon + CTA)
+20. components/ui/ErrorBoundary.tsx (catches render errors, friendly UI)
+21. components/ui/Toast.tsx (transient notifications for feedback)
+
+HOOKS (3):
+22. hooks/useHaptics.ts (light/medium/heavy/success/warning/error)
+23. hooks/useAppState.ts (subscribes to background/foreground)
+24. hooks/usePersistedStore.ts (helper for stores with persist)
+
+LOCALES (1):
+25. locales/en.json (i18n strings — at minimum keys for: common, onboarding, settings, errors)
+
+STORE (1+):
+26. store/[domain].ts (zustand WITH persist middleware) — one file per domain
+
+APP STRUCTURE (10+):
+27. app/_layout.tsx (root layout with onboarding routing, fonts, ErrorBoundary)
+28. app/onboarding/_layout.tsx (stack navigator for onboarding flow)
+29. app/onboarding/index.tsx (welcome screen)
+30. app/onboarding/permissions.tsx (permission explanation)
+31. app/onboarding/finish.tsx (sets hasOnboarded=true, navigates to tabs)
+32. app/(tabs)/_layout.tsx (tab bar with blur, Phosphor, haptics, tabBarAccessibilityLabel)
+33. app/(tabs)/index.tsx (home tab — landing screen)
+34. app/(tabs)/[domain].tsx (2-3 additional domain tabs based on app)
+35. app/(tabs)/settings.tsx (uses Section 12.4 template exactly)
+36. (optional) app/+not-found.tsx (404 screen)
+
+Total minimum: 35-36 files for any app.
+Larger apps will have more domain-specific screens and stores.
+
+IMPORTANT — File generation order:
+Generate in this order so dependencies resolve correctly:
+1. package.json (declares all imports)
+2. Config files (tsconfig, babel, metro, eas, app.json, .gitignore)
+3. PrivacyInfo.xcprivacy
+4. Theme files (colors → typography → spacing → motion → shadows → useTheme)
+5. Hooks (useHaptics → useAppState → usePersistedStore)
+6. Locales (en.json)
+7. Components (Button → Card → Sheet → Skeleton → EmptyState → ErrorBoundary → Toast)
+8. Store
+9. App layout (_layout.tsx → onboarding/* → (tabs)/_layout.tsx)
+10. App screens (index → domain tabs → settings)
 
 Generate ONLY the files needed. Do not explain or narrate — just output the file blocks.
 

@@ -260,3 +260,31 @@ For MVP this is acceptable — process restarts clear the cache, which is fine f
 - **Sheet.tsx**: no SafeAreaView wrapper for bottom notch. May obscure content near home indicator on devices like iPhone 14+. Wrap content in SafeAreaView with edges={['bottom']}. (~5 min fix, low priority — most sheet content doesn't reach the very bottom)
 
 - **Model deprecation**: `claude-sonnet-4-20250514` deprecated, EOL June 15, 2026. Update model string in `llm-service.ts` before EOL. Check https://docs.anthropic.com/en/docs/resources/model-deprecations for current recommended model.
+
+
+---
+
+## Phase 9.5 — Production Submission Gaps Resolved (2026-05-26)
+
+Resolved during Step 2G real-world TestFlight submission test:
+
+1. Apple Team ID corrected (was FBDY34F9DY in note, actually 24B2ADT27B)
+2. prompts.ts package versions aligned with Expo SDK 54 (13 packages)
+3. Workspace needs git init for EAS project root detection
+4. babel-preset-expo + "main": "expo-router/entry" added to template
+
+### Hook 5 should run npm install + expo install --check + git init
+
+Before triggering EAS Build, Hook 5 (build-preparer) should:
+- Run npm install in workspace
+- Run npx expo install --check to verify version compatibility
+- Run git init + git commit if workspace lacks .git
+
+### Partial-live test should include local bundle validation
+
+Add Stage 2.8 to e2e-pipeline-partial-live.ts that runs:
+  npx expo export --platform ios --output-dir <tmp>
+to catch JS-level errors BEFORE real EAS Build is triggered.
+
+This would have caught babel-preset-expo + version mismatches for free
+without burning EAS credits.

@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Mindful Timer",
+    "slug": "mindful-timer-a3f9c2e1",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F9FC"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "bundleIdentifier": "com.zionx.mindful-timer-a3f9c2e1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.zionx.mindful_timer_a3f9c2e1",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F7F9FC"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "supportEmail": "support@zionx.ai",
+      "privacyUrl": "https://zionxai5000.github.io/privacy-policies/",
+      "termsUrl": "https://zionxai5000.github.io/privacy-policies/terms"
+    }
+  }
+}

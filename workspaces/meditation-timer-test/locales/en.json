@@ -1,0 +1,76 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "close": "Close",
+    "continue": "Continue",
+    "start": "Start",
+    "stop": "Stop",
+    "pause": "Pause",
+    "resume": "Resume",
+    "complete": "Complete",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "minutes": "minutes",
+    "seconds": "seconds"
+  },
+  "onboarding": {
+    "welcome": {
+      "headline": "Find Your Center",
+      "description": "Guided meditation and breathing exercises to reduce stress and improve focus."
+    },
+    "features": {
+      "headline": "Everything You Need",
+      "timer": "Meditation Timer",
+      "breathing": "Breathing Guides",
+      "history": "Progress Tracking"
+    },
+    "finish": {
+      "headline": "You're All Set",
+      "description": "Start your mindfulness journey with your first meditation session."
+    }
+  },
+  "timer": {
+    "selectDuration": "Select Duration",
+    "chooseBreathingPattern": "Choose Breathing Pattern",
+    "sessionComplete": "Session Complete",
+    "wellDone": "Well done!",
+    "sessionSaved": "Session saved to your history",
+    "newStreak": "New streak started!",
+    "streakContinued": "Streak continued!"
+  },
+  "breathing": {
+    "breatheIn": "Breathe In",
+    "breatheOut": "Breathe Out",
+    "hold": "Hold",
+    "prepare": "Prepare to begin",
+    "patterns": {
+      "fourSevenEight": "4-7-8 Relaxation",
+      "boxBreathing": "Box Breathing",
+      "deepBreathing": "Deep Breathing"
+    }
+  },
+  "history": {
+    "totalSessions": "Total Sessions",
+    "totalMinutes": "Total Minutes",
+    "currentStreak": "Current Streak",
+    "longestStreak": "Longest Streak",
+    "noSessions": "No sessions yet",
+    "startFirstSession": "Complete your first meditation to see your progress here."
+  },
+  "settings": {
+    "title": "Settings",
+    "about": "About",
+    "contactSupport": "Contact Support",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service",
+    "rateApp": "Rate App",
+    "shareApp": "Share App"
+  },
+  "errors": {
+    "loadFailed": "Failed to load data",
+    "saveFailed": "Failed to save session",
+    "tryAgain": "Please try again"
+  }
+}

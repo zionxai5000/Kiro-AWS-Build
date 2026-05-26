@@ -249,3 +249,5 @@ For MVP this is acceptable — process restarts clear the cache, which is fine f
 - **Button.tsx**: disabled state still fires pressIn/pressOut scale animation. Add early return in handlePressIn/Out if disabled. (~5 min fix, low priority — disabled buttons rarely pressed)
 
 - **Sheet.tsx**: no SafeAreaView wrapper for bottom notch. May obscure content near home indicator on devices like iPhone 14+. Wrap content in SafeAreaView with edges={['bottom']}. (~5 min fix, low priority — most sheet content doesn't reach the very bottom)
+
+- **Model deprecation**: `claude-sonnet-4-20250514` deprecated, EOL June 15, 2026. Update model string in `llm-service.ts` before EOL. Check https://docs.anthropic.com/en/docs/resources/model-deprecations for current recommended model.

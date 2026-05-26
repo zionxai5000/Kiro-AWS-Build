@@ -71,7 +71,7 @@ export class LLMService {
     this.credentialManager = config.credentialManager;
     this.recentWrites = config.recentWrites;
     this.model = config.model ?? 'claude-sonnet-4-20250514';
-    this.maxTokens = config.maxTokens ?? 16384;
+    this.maxTokens = config.maxTokens ?? LIMITS.codeGenerationMaxTokens;
     this.timeoutMs = config.timeoutMs ?? LIMITS.codeGenerationTimeoutMs;
   }
 

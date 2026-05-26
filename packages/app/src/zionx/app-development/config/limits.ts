@@ -39,8 +39,11 @@ export const LIMITS = {
   /** Timeout for submission prep (ms) */
   submissionPrepTimeoutMs: 30_000,
 
-  /** Code generation streaming timeout (ms) */
-  codeGenerationTimeoutMs: 120_000,
+  /** Code generation streaming timeout (ms) — 6 min required for Phase 8.5 expanded prompt */
+  codeGenerationTimeoutMs: 360_000,
+
+  /** Code generation max output tokens — 40K needed for 36-file apps */
+  codeGenerationMaxTokens: 40_960,
 
   /** Max retries for any retriable operation */
   maxRetries: 3,

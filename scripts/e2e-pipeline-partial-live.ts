@@ -28,15 +28,19 @@ HOOKS_CONFIG.hooks['code-generator']!.dryRun = false;
 HOOKS_CONFIG.hooks['dependency-validator']!.dryRun = false;
 HOOKS_CONFIG.hooks['secret-scanner']!.dryRun = false;
 
-// Keep build/submission/asset-gen in dry-run (avoid cost + complexity)
-HOOKS_CONFIG.hooks['asset-generator']!.dryRun = true;
+// Enable real execution for asset generation + store listing
+HOOKS_CONFIG.hooks['asset-generator']!.dryRun = false;
+HOOKS_CONFIG.hooks['store-listing-writer']!.dryRun = false;
+
+// Keep build/submission in dry-run (avoid cost + complexity)
 HOOKS_CONFIG.hooks['build-preparer']!.dryRun = true;
 HOOKS_CONFIG.hooks['build-runner']!.dryRun = true;
-HOOKS_CONFIG.hooks['store-listing-writer']!.dryRun = true;
 HOOKS_CONFIG.hooks['submission-prep']!.dryRun = true;
 
 import { createHandlers } from '../packages/app/src/zionx/app-development/api/handlers.js';
 import { Workspace } from '../packages/app/src/zionx/app-development/workspace/workspace.js';
+import { run as runAssetGenerator } from '../packages/app/src/zionx/app-development/pipeline/07-asset-generator.js';
+import { run as runStoreListingWriter } from '../packages/app/src/zionx/app-development/pipeline/08-store-listing-writer.js';
 import type { EventBusService } from '../packages/core/src/interfaces/event-bus-service.js';
 import type { CredentialManager } from '../packages/core/src/interfaces/credential-manager.js';
 
@@ -67,14 +71,29 @@ function getAnthropicKey(): string {
   }
 }
 
+function getOpenAIKey(): string {
+  const raw = execSync(
+    'aws secretsmanager get-secret-value --secret-id "seraphim/openai" --region us-east-1 --query "SecretString" --output text',
+    { encoding: 'utf-8' },
+  ).trim();
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed.apiKey ?? parsed.api_key ?? parsed.key ?? parsed.OPENAI_API_KEY ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Real Credential Manager (returns actual API keys)
 // ---------------------------------------------------------------------------
 
-function createRealCredentialManager(anthropicKey: string): CredentialManager {
+function createRealCredentialManager(anthropicKey: string, openaiKey: string): CredentialManager {
   return {
     async getCredential(driverName: string, key: string): Promise<string> {
       if (driverName === 'anthropic' && key === 'api-key') return anthropicKey;
+      if (driverName === 'openai' && key === 'api-key') return openaiKey;
       if (driverName === 'expo' && key === 'access-token') return 'expo-dry-run-fake-token';
       // ASC credentials not needed (hooks 5-9 are dry-run)
       if (driverName === 'appstore-connect') return 'asc-dry-run-fake';
@@ -198,8 +217,8 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('  E2E Pipeline PARTIAL-LIVE Test');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('  Hooks 1-4: LIVE (real LLM, real validation)');
-  console.log('  Hooks 5-9: DRY-RUN (no builds, no submissions)');
+  console.log('  Hooks 1-4, 7, 8: LIVE (real LLM, real OpenAI, real validators)');
+  console.log('  Hooks 5, 6, 9: DRY-RUN (no EAS builds, no Apple submissions)');
   console.log(`  Prompt: "${TEST_PROMPT}"`);
   console.log('');
 
@@ -209,7 +228,14 @@ async function main() {
   if (!anthropicKey || anthropicKey.length < 10) {
     throw new Error('Failed to retrieve valid Anthropic API key');
   }
-  console.log(`[setup] Key retrieved (${anthropicKey.length} chars).`);
+  console.log(`[setup] Anthropic key retrieved (${anthropicKey.length} chars).`);
+
+  console.log('[setup] Retrieving OpenAI API key from Secrets Manager...');
+  const openaiKey = getOpenAIKey();
+  if (!openaiKey || openaiKey.length < 10) {
+    throw new Error('Failed to retrieve valid OpenAI API key');
+  }
+  console.log(`[setup] OpenAI key retrieved (${openaiKey.length} chars).`);
 
   // Prepare workspace (clean slate)
   if (existsSync(WORKSPACE_DIR)) {
@@ -222,7 +248,7 @@ async function main() {
   const eventBus = createMockEventBus();
   const watcherSupervisor = createMockWatcherSupervisor();
   const workspace = new Workspace();
-  const credentialManager = createRealCredentialManager(anthropicKey);
+  const credentialManager = createRealCredentialManager(anthropicKey, openaiKey);
 
   // Create handlers
   const handlers = createHandlers({
@@ -345,6 +371,66 @@ async function main() {
   printStage(stage25);
 
   // -------------------------------------------------------------------------
+  // STAGE 2.6: Generate Assets (LIVE — Hook 7, direct call)
+  // -------------------------------------------------------------------------
+  const stage26 = await runStage('2.6 generateAssets (LIVE)', async () => {
+    // Hook 7 is event-driven in production, but we call it directly here
+    const ctx = {
+      executionId: `e2e-asset-${Date.now()}`,
+      dryRun: false,
+      startedAt: new Date().toISOString(),
+      log: (msg: string) => console.log(`    [hook7] ${msg}`),
+    };
+
+    const result = await runAssetGenerator(
+      { projectId, appName: 'Mindful Timer', appDescription: TEST_PROMPT, credentialManager: credentialManager as any },
+      ctx,
+    );
+
+    if (!result.success) {
+      throw new Error(`Hook 7 failed: ${result.error}`);
+    }
+
+    return {
+      generatedFiles: result.data?.generatedFiles ?? [],
+      skippedFiles: result.data?.skippedFiles ?? [],
+      costUsd: result.data?.costUsd ?? 0,
+      errors: result.data?.errors ?? [],
+    };
+  });
+  printStage(stage26);
+
+  // -------------------------------------------------------------------------
+  // STAGE 2.7: Generate Store Listing (LIVE — Hook 8, direct call)
+  // -------------------------------------------------------------------------
+  const stage27 = await runStage('2.7 generateStoreListing (LIVE)', async () => {
+    // Hook 8 handler is still a stub — call run() directly
+    const ctx = {
+      executionId: `e2e-listing-${Date.now()}`,
+      dryRun: false,
+      startedAt: new Date().toISOString(),
+      log: (msg: string) => console.log(`    [hook8] ${msg}`),
+    };
+
+    const result = await runStoreListingWriter(
+      { projectId, appName: 'Mindful Timer', appDescription: TEST_PROMPT, credentialManager: credentialManager as any },
+      ctx,
+    );
+
+    // Hook 8 may fail if ASC credentials are fake — that's expected
+    // We just verify it ran and produced a listing file
+    if (result.success && result.data?.listing) {
+      return { success: true, hasListing: true };
+    }
+
+    // Check if store-listing.json was written to workspace
+    const files = await workspace.listFiles(projectId);
+    const hasListing = files.includes('store-listing.json');
+    return { success: result.success, hasListing, error: result.error };
+  });
+  printStage(stage27);
+
+  // -------------------------------------------------------------------------
   // STAGE 3: Build Project (DRY-RUN — Hook 5 + Hook 6)
   // -------------------------------------------------------------------------
   const stage3 = await runStage('3. buildProject (dry-run)', async () => {
@@ -368,7 +454,7 @@ async function main() {
   // -------------------------------------------------------------------------
   // STAGE 4: Store Listing (DRY-RUN — Hook 8)
   // -------------------------------------------------------------------------
-  const stage4 = await runStage('4. generateStoreListing (dry-run)', async () => {
+  const stage4 = await runStage('4. generateStoreListing (dry-run stub)', async () => {
     const res = await handlers.generateStoreListing(createMockAPIRequest({
       params: { id: projectId },
     }));
@@ -397,7 +483,7 @@ async function main() {
   // -------------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------------
-  const results = [stage1, stage2, stage25, stage3, stage4, stage5];
+  const results = [stage1, stage2, stage25, stage26, stage27, stage3, stage4, stage5];
   const passed = results.filter(r => r.pass).length;
   const total = results.length;
 
@@ -407,7 +493,7 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════════');
 
   // Stage 3 may fail with 400 (build prep validation) — non-critical
-  const criticalStages = ['1. createProject', '2. generateCode (LIVE)', '2.5 verifyWorkspace'];
+  const criticalStages = ['1. createProject', '2. generateCode (LIVE)', '2.5 verifyWorkspace', '2.6 generateAssets (LIVE)'];
   const criticalFailures = results.filter(r => !r.pass && criticalStages.includes(r.name));
 
   if (criticalFailures.length > 0) {

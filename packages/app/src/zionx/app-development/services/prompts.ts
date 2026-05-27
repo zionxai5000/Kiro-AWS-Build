@@ -532,7 +532,7 @@ Empty notes → Notebook | Empty tasks → CheckSquare | Empty inbox → PaperPl
 Empty calendar → CalendarBlank | Empty search → MagnifyingGlass | Empty favorites → Heart
 Empty workout → Barbell | Empty meals → ForkKnife | Empty photos → Camera
 Empty contacts → Users | Empty cart → ShoppingCart | Welcome → HandWaving
-Success → CheckCircle | Error → Warning | Wellness → Lotus | Generic → Sparkle
+Success → CheckCircle | Error → Warning | Wellness → FlowerLotus | Generic → Sparkle
 
 COMPONENT: components/ui/Sheet.tsx
 COPY EXACTLY — DO NOT MODIFY
@@ -1182,7 +1182,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Canvas, Circle, LinearGradient, vec } from '@shopify/react-native-skia';
-import { Lotus } from 'phosphor-react-native';  // or app-appropriate icon
+import { Lotus } from 'phosphor-react-native';  // or app-appropriate icon — note: 'Lotus' was renamed to 'FlowerLotus' in phosphor-react-native v2.3+; verify the icon name exists before importing
 import { Button } from '../../components/ui/Button';
 import { useTheme } from '../../theme/useTheme';
 import { spacing } from '../../theme/spacing';

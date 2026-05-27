@@ -62,6 +62,7 @@ dependencies:
   "react-dom": "19.1.0"
   "react-native": "0.81.5"
   "react-native-reanimated": "~4.1.0"
+  "react-native-worklets": "0.5.1"
   "react-native-gesture-handler": "~2.28.0"
   "react-native-safe-area-context": "~5.6.0"
   "react-native-screens": "~4.16.0"
@@ -79,9 +80,35 @@ devDependencies:
   "@babel/core": "^7.25.2"
   "@types/react": "~19.1.0"
   "babel-preset-expo": "~54.0.0"
+  "patch-package": "^8.0.0"
+  "postinstall-postinstall": "^2.1.0"
   "typescript": "~5.9.2"
 
+CRITICAL: react-native-worklets is REQUIRED as a peer dep for Reanimated 4 with the New Architecture.
+patch-package is REQUIRED to patch RN 0.81.5 RCTTurboModule.mm for the iOS 26 SIGABRT bug
+(facebook/react-native#54859). Without these, TestFlight builds crash on launch on iOS 26.
+
 Do NOT include @types/react-native (React Native 0.81+ ships its own types).
+
+CRITICAL package.json scripts (every generated package.json MUST include these):
+\`\`\`json
+{
+  "name": "<app-slug>",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "postinstall": "patch-package"
+  }
+}
+\`\`\`
+
+The "postinstall": "patch-package" line is REQUIRED for the iOS 26 crash fix to be re-applied
+after every npm install (including EAS Build's fresh install).
 
 ===================================================================
 SECTION 3: PALETTE SELECTION (PICK ONE — DO NOT INVENT COLORS)
@@ -1297,6 +1324,7 @@ COPY EXACTLY — DO NOT MODIFY
 \`\`\`json
 {
   "expo": {
+    "scheme": "<app-slug-no-hyphens>",
     "ios": {
       "bundleIdentifier": "com.zionx.<app-slug>-<random8>"
     },
@@ -1308,14 +1336,20 @@ COPY EXACTLY — DO NOT MODIFY
 \`\`\`
 
 Format rules:
+- <app-slug-no-hyphens> is the camelCase or single-word slug (e.g., "mindfultimer")
 - <app-slug> is the kebab-case app name (e.g., "mindful-timer")
 - <random8> is an 8-char random hex string (e.g., "a3f9c2e1")
 - iOS uses hyphens, Android uses underscores (Android pkg names can't contain hyphens)
 - Total length: never exceed 155 chars (iOS limit)
 
+CRITICAL: The "scheme" field is REQUIRED for production iOS builds. Without it,
+TestFlight builds may crash on launch (facebook/react-native#54859 — multiple
+production apps confirm scheme presence is part of the iOS 26 launch fix).
+
 Example for "Mindful Timer":
-- iOS: com.zionx.mindful-timer-a3f9c2e1
-- Android: com.zionx.mindful_timer_a3f9c2e1
+- scheme: mindfultimer
+- iOS bundleIdentifier: com.zionx.mindful-timer-a3f9c2e1
+- Android package: com.zionx.mindful_timer_a3f9c2e1
 
 -------------------------------------------------------------------
 12.3 — SUPPORT EMAIL + URLS IN APP CONFIG
@@ -1873,15 +1907,16 @@ followed by the complete file content, then:
 
 Required files (generate ALL of these):
 
-CONFIG (8):
-1. package.json (with ALL deps from Section 2 including AsyncStorage)
+CONFIG (9):
+1. package.json (with ALL deps from Section 2 including AsyncStorage, react-native-worklets, patch-package)
 2. tsconfig.json (extends expo/tsconfig.base, strict mode)
-3. babel.config.js (with reanimated plugin)
+3. babel.config.js (with react-native-worklets/plugin — NOT react-native-reanimated/plugin)
 4. metro.config.js (default expo metro config)
 5. eas.json (production build profile)
-6. app.json (with bundle ID, supportEmail, privacyUrl, termsUrl in extra)
+6. app.json (with scheme, bundle ID, supportEmail, privacyUrl, termsUrl in extra)
 7. .gitignore (standard expo + node_modules)
 8. PrivacyInfo.xcprivacy (iOS privacy manifest — see Section 12.1)
+9. patches/react-native+0.81.5.patch (iOS 26 SIGABRT crash fix — see Section 16.1)
 
 THEME (6):
 9. theme/colors.ts (lightColors + darkColors + Colors type)
@@ -1947,7 +1982,9 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: ['babel-preset-expo'],
-    plugins: ['react-native-reanimated/plugin'],
+    // CRITICAL for Reanimated 4: use react-native-worklets/plugin
+    // (REPLACES the deprecated react-native-reanimated/plugin).
+    plugins: ['react-native-worklets/plugin'],
   };
 };
 --- END FILE ---
@@ -1986,6 +2023,33 @@ npm-debug.*
 *.orig.*
 /android
 /ios
+--- END FILE ---
+
+patches/react-native+0.81.5.patch:
+COPY THIS FILE EXACTLY — Critical iOS 26 SIGABRT crash fix (facebook/react-native#54859).
+patch-package will apply it automatically via the postinstall script.
+--- FILE: patches/react-native+0.81.5.patch ---
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+index 0000000..1111111 100644
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,15 @@
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      // ZionX/Kiro patch (facebook/react-native#54859 — iOS 26 SIGABRT fix).
++      // Calling convertNSExceptionToJSError here accesses jsi::Runtime from the
++      // wrong (background dispatch) thread, leading to a C++ exception that
++      // escapes the GCD block and aborts the process on iOS 26.
++      // Async/void methods cannot meaningfully propagate exceptions to JS,
++      // so log the failure and continue safely.
++      RCTLogError(@"[TurboModule] %s.%s threw NSException: %@ — %@", moduleName, methodNameStr.c_str(), exception.name, exception.reason);
++      [retainedObjectsForInvocation removeAllObjects];
++      return;
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }
 --- END FILE ---` as const;
 
 // ---------------------------------------------------------------------------

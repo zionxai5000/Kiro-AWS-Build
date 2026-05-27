@@ -512,3 +512,155 @@ export async function createScreenshotSet(
   const result = await response.json() as { data: { id: string } };
   return result.data.id;
 }
+
+// ---------------------------------------------------------------------------
+// Build Processing & TestFlight State (Phase 9 observability)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apple's processingState values for an uploaded build.
+ * - PROCESSING: still being scanned
+ * - VALID: processing complete, build is usable in TestFlight
+ * - INVALID: Apple rejected the binary (the most common surface for "Something went wrong" in TestFlight)
+ * - FAILED: an upstream pipeline error before processing started
+ */
+export type AscBuildProcessingState = 'PROCESSING' | 'VALID' | 'INVALID' | 'FAILED';
+
+export interface AscBuildSummary {
+  /** ASC resource ID for the build (not the EAS build ID) */
+  buildId: string;
+  /** App-side build version string (e.g., "4") */
+  version: string;
+  /** appStoreVersion.versionString this build is associated with (e.g., "1.0.0") */
+  appVersion: string;
+  /** Apple's current processing state */
+  processingState: AscBuildProcessingState;
+  /** When the upload was received by ASC */
+  uploadedDate: string | null;
+  /** When processing finished (null while PROCESSING) */
+  expirationDate: string | null;
+  /** Whether the build is usable in TestFlight (VALID and not expired) */
+  usesNonExemptEncryption: boolean | null;
+  /** TestFlight beta-review state, if available — e.g., 'WAITING_FOR_BETA_REVIEW', 'IN_BETA_REVIEW', 'BETA_APPROVED', 'BETA_REJECTED' */
+  betaReviewState: string | null;
+}
+
+/**
+ * List builds for an ASC app, newest first.
+ *
+ * @param jwt ASC API JWT
+ * @param ascAppId numeric ASC App ID (e.g., "6773520429")
+ * @param limit max number of builds to return (default 5)
+ */
+export async function listAscBuilds(
+  jwt: string,
+  ascAppId: string,
+  limit = 5,
+): Promise<AscBuildSummary[]> {
+  // Order by most recent upload, include relationships needed to resolve version + beta review state
+  const url =
+    `${BASE_URL}/v1/builds` +
+    `?filter[app]=${encodeURIComponent(ascAppId)}` +
+    `&include=preReleaseVersion,buildBetaDetail` +
+    `&sort=-uploadedDate` +
+    `&limit=${limit}`;
+
+  const response = await fetch(url, { method: 'GET', headers: authHeaders(jwt) });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new AscApiError(response.status, 'BUILDS_LIST_FAILED', `listAscBuilds: ${body.slice(0, 200)}`);
+  }
+
+  const json = (await response.json()) as {
+    data: Array<{
+      id: string;
+      attributes: {
+        version: string;
+        processingState: AscBuildProcessingState;
+        uploadedDate: string | null;
+        expirationDate: string | null;
+        usesNonExemptEncryption: boolean | null;
+      };
+      relationships: {
+        preReleaseVersion?: { data?: { id: string; type: string } };
+        buildBetaDetail?: { data?: { id: string; type: string } };
+      };
+    }>;
+    included?: Array<{
+      id: string;
+      type: string;
+      attributes: Record<string, unknown>;
+    }>;
+  };
+
+  const included = json.included ?? [];
+  const includedById = new Map<string, { type: string; attributes: Record<string, unknown> }>(
+    included.map((entry) => [entry.id, { type: entry.type, attributes: entry.attributes }]),
+  );
+
+  return json.data.map((build) => {
+    const preReleaseId = build.relationships.preReleaseVersion?.data?.id;
+    const preReleaseAttrs = preReleaseId ? includedById.get(preReleaseId)?.attributes : undefined;
+    const appVersion = (preReleaseAttrs?.['version'] as string | undefined) ?? '';
+
+    const betaDetailId = build.relationships.buildBetaDetail?.data?.id;
+    const betaAttrs = betaDetailId ? includedById.get(betaDetailId)?.attributes : undefined;
+    const externalState = betaAttrs?.['externalBuildState'] as string | undefined;
+    const internalState = betaAttrs?.['internalBuildState'] as string | undefined;
+    const betaReviewState = externalState ?? internalState ?? null;
+
+    return {
+      buildId: build.id,
+      version: build.attributes.version,
+      appVersion,
+      processingState: build.attributes.processingState,
+      uploadedDate: build.attributes.uploadedDate,
+      expirationDate: build.attributes.expirationDate,
+      usesNonExemptEncryption: build.attributes.usesNonExemptEncryption,
+      betaReviewState,
+    };
+  });
+}
+
+/**
+ * Find the ASC build matching a given app version string + buildNumber.
+ * Returns null if not yet visible in ASC (e.g., upload hasn't been registered yet).
+ */
+export async function findAscBuildByVersion(
+  jwt: string,
+  ascAppId: string,
+  appVersion: string,
+  buildNumber: string,
+): Promise<AscBuildSummary | null> {
+  const builds = await listAscBuilds(jwt, ascAppId, 25);
+  return builds.find(
+    (b) => b.appVersion === appVersion && b.version === buildNumber,
+  ) ?? null;
+}
+
+/**
+ * Pull the buildBetaDetail entity for a build — surfaces TestFlight-side errors
+ * that don't appear on the build itself (e.g., crashed-on-launch reports).
+ */
+export async function getBuildBetaDetail(
+  jwt: string,
+  buildId: string,
+): Promise<{
+  internalBuildState: string | null;
+  externalBuildState: string | null;
+} | null> {
+  const url = `${BASE_URL}/v1/builds/${encodeURIComponent(buildId)}/buildBetaDetail`;
+  const response = await fetch(url, { method: 'GET', headers: authHeaders(jwt) });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const body = await response.text();
+    throw new AscApiError(response.status, 'BETA_DETAIL_FETCH_FAILED', body.slice(0, 200));
+  }
+  const json = (await response.json()) as {
+    data: { attributes: { internalBuildState?: string; externalBuildState?: string } };
+  };
+  return {
+    internalBuildState: json.data.attributes.internalBuildState ?? null,
+    externalBuildState: json.data.attributes.externalBuildState ?? null,
+  };
+}

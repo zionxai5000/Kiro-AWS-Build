@@ -23,7 +23,8 @@ import { run as runSanitizer } from '../pipeline/01-prompt-sanitizer.js';
 import { run as runBuildPreparer } from '../pipeline/05-build-preparer.js';
 import { run as runBuildRunner } from '../pipeline/06-build-runner.js';
 import { run as runSubmissionPrep } from '../pipeline/09-submission-prep.js';
-import { submitBuild } from '../services/eas-cli-wrapper.js';
+import { run as runSubmitter } from '../pipeline/09b-submitter.js';
+import { run as runTestFlightWatcher } from '../pipeline/10b-testflight-watcher.js';
 import { LLMService } from '../services/llm-service.js';
 import { isHookDryRun } from '../config/hooks.config.js';
 import type { ServerResponse } from 'node:http';
@@ -53,6 +54,12 @@ export interface AppDevHandlers {
   confirmSubmission: (req: APIRequest) => Promise<APIResponse>;
   getProject: (req: APIRequest) => Promise<APIResponse>;
   listProjectFiles: (req: APIRequest) => Promise<APIResponse>;
+  /** Returns the persisted TestFlight watcher log for one easBuildId. */
+  getSubmissionLog: (req: APIRequest) => Promise<APIResponse>;
+  /** Lists all submission logs for a project (newest first). */
+  listSubmissionLogs: (req: APIRequest) => Promise<APIResponse>;
+  /** Submits a finished EAS build and starts the TestFlight watcher in one call. */
+  autoSubmitAndWatch: (req: APIRequest) => Promise<APIResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,11 +295,15 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 400, body: { error: 'project id is required' } };
       }
 
-      const body = req.body as { platform?: string } | null;
+      const body = req.body as { platform?: string; autoSubmit?: boolean } | null;
       const platform = body?.platform as 'ios' | 'android' | undefined;
       if (platform !== 'ios' && platform !== 'android') {
         return { statusCode: 400, body: { error: 'platform must be "ios" or "android"' } };
       }
+      // Default OFF — caller has to opt in. The submit flow still fires the
+      // TestFlight watcher in the background even when the human-confirm path
+      // is used.
+      const autoSubmit = body?.autoSubmit === true;
 
       // Per-project rate limit
       const rateKey = `build:${projectId}`;
@@ -373,6 +384,10 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           projectId,
           platform,
           status: 'queued',
+          autoSubmit,
+          message: autoSubmit
+            ? 'Build queued; submitter+watcher will run automatically once it finishes.'
+            : 'Build queued; call /confirm-submit to ship to TestFlight when done.',
         },
       };
     },
@@ -483,23 +498,91 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         };
       }
 
-      // Retrieve EXPO_TOKEN for eas submit
-      let expoToken: string;
+      // Retrieve EXPO_TOKEN — required by Hook 9b internally; we still validate
+      // up-front here to fail fast with a clear 500.
       try {
-        expoToken = await credentialManager!.getCredential('expo', 'access-token');
-        if (!expoToken) throw new Error('empty');
+        const tokenCheck = await credentialManager!.getCredential('expo', 'access-token');
+        if (!tokenCheck) throw new Error('empty');
       } catch {
         return { statusCode: 500, body: { error: 'Failed to retrieve Expo token for submission' } };
       }
 
-      // Run eas submit
-      const projectPath = workspace.getProjectPath(projectId);
-      const submitResult = await submitBuild({
-        cwd: projectPath,
-        platform,
-        expoToken,
-        track: platform === 'android' ? 'internal' : undefined,
-      });
+      // Run eas submit via the new submitter hook (Hook 9b).
+      // This unifies the submission code path with the auto-submit option that
+      // Hook 6 will use after a build finishes — so the API and the pipeline
+      // stay in lock-step.
+      const submitterCtx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: () => {},
+      };
+      const submitHookResult = await runSubmitter(
+        {
+          projectId,
+          platform,
+          easBuildId: ((req.body as Record<string, unknown>)?.easBuildId as string | undefined) ?? 'unknown',
+          androidTrack: platform === 'android' ? 'internal' : undefined,
+          credentialManager: credentialManager!,
+          eventBus,
+          tenantId: req.tenantId ?? 'system',
+        },
+        submitterCtx,
+      );
+
+      const submitResult = {
+        status: submitHookResult.data?.status === 'submitted'
+          ? 'submitted'
+          : (submitHookResult.data?.status === 'failed' ? 'failed' : 'submitted'),
+        errorMessage: submitHookResult.data?.errorMessage,
+      } as const;
+
+      // After a successful submission, kick off the TestFlight watcher in the
+      // background. We never await it — the watcher polls for up to 60 minutes
+      // and emits events as Apple's processingState transitions.
+      if (submitHookResult.data?.status === 'submitted' && platform === 'ios') {
+        const easBuildId = (req.body as Record<string, unknown>)?.easBuildId as string | undefined;
+        if (easBuildId) {
+          // Resolve ascAppId, appVersion, buildNumber from workspace files.
+          let ascAppId: string | undefined;
+          let appVersion = '1.0.0';
+          let buildNumber = '1';
+          try {
+            const easJson = JSON.parse(await workspace.readFile(projectId, 'eas.json'));
+            ascAppId = easJson?.submit?.production?.ios?.ascAppId;
+          } catch { /* ignore */ }
+          try {
+            const appJson = JSON.parse(await workspace.readFile(projectId, 'app.json'));
+            appVersion = appJson?.expo?.version ?? appVersion;
+            buildNumber = appJson?.expo?.ios?.buildNumber ?? buildNumber;
+          } catch { /* ignore */ }
+
+          if (ascAppId) {
+            const watcherCtx = {
+              executionId: randomUUID(),
+              dryRun: false,
+              startedAt: new Date().toISOString(),
+              log: () => {},
+            };
+            // Fire and forget — caller gets immediate response, dashboard
+            // subscribes to APPDEV_EVENTS.TESTFLIGHT_* for updates.
+            void runTestFlightWatcher(
+              {
+                projectId,
+                platform: 'ios',
+                easBuildId,
+                ascAppId,
+                appVersion,
+                buildNumber,
+                credentialManager: credentialManager!,
+                eventBus,
+                tenantId: req.tenantId ?? 'system',
+              },
+              watcherCtx,
+            ).catch(() => { /* watcher is non-fatal */ });
+          }
+        }
+      }
 
       // Build response
       const responseBody = {
@@ -565,6 +648,190 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           projectId,
           files,
           count: files.length,
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/submission-logs
+    //   List all TestFlight watcher logs for a project.
+    // -----------------------------------------------------------------------
+    async listSubmissionLogs(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) {
+        return { statusCode: 400, body: { error: 'project id is required' } };
+      }
+
+      let allFiles: string[] = [];
+      try {
+        allFiles = await workspace.listFiles(projectId);
+      } catch {
+        return { statusCode: 404, body: { error: `Project "${projectId}" workspace not found` } };
+      }
+
+      const logFiles = allFiles
+        .filter((f) => f.startsWith('submission-logs/') && f.endsWith('.json'))
+        .sort()
+        .reverse(); // newest first when filenames carry timestamps or build ids
+
+      return {
+        statusCode: 200,
+        body: {
+          projectId,
+          count: logFiles.length,
+          logs: logFiles.map((f) => ({
+            easBuildId: f.replace(/^submission-logs\//, '').replace(/\.json$/, ''),
+            path: f,
+          })),
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/submission-logs/:easBuildId
+    //   Fetch the persisted TestFlight watcher log for one build.
+    //   This is what the dashboard renders to show users what Apple actually
+    //   reported about their build (PROCESSING → INVALID with errorMessage,
+    //   etc.) — same data the user sees when TestFlight throws "Something
+    //   went wrong".
+    // -----------------------------------------------------------------------
+    async getSubmissionLog(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      const easBuildId = req.params.easBuildId;
+      if (!projectId || !easBuildId) {
+        return { statusCode: 400, body: { error: 'project id and easBuildId are required' } };
+      }
+
+      const relPath = `submission-logs/${easBuildId}.json`;
+      const exists = await workspace.exists(projectId, relPath);
+      if (!exists) {
+        return { statusCode: 404, body: { error: `No watcher log for build ${easBuildId}` } };
+      }
+
+      try {
+        const content = await workspace.readFile(projectId, relPath);
+        return { statusCode: 200, body: JSON.parse(content) };
+      } catch (error) {
+        return {
+          statusCode: 500,
+          body: { error: `Failed to read watcher log: ${(error as Error).message}` },
+        };
+      }
+    },
+
+    // -----------------------------------------------------------------------
+    // POST /app-dev/projects/:id/auto-submit-and-watch
+    //   One-shot: submit a finished EAS build to App Store Connect AND start
+    //   the TestFlight watcher in the background. Body must include easBuildId
+    //   (the FINISHED build to submit) and platform.
+    //
+    //   Use this from the dashboard "Ship to TestFlight" button — there's no
+    //   manual step. Watcher events are emitted as APPDEV_EVENTS.TESTFLIGHT_*
+    //   and the persisted log is available at
+    //   GET /app-dev/projects/:id/submission-logs/:easBuildId
+    // -----------------------------------------------------------------------
+    async autoSubmitAndWatch(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) {
+        return { statusCode: 400, body: { error: 'project id is required' } };
+      }
+      if (!credentialManager) {
+        return { statusCode: 500, body: { error: 'Credential manager not configured' } };
+      }
+
+      const body = req.body as { platform?: string; easBuildId?: string; androidTrack?: string } | null;
+      const platform = body?.platform as 'ios' | 'android' | undefined;
+      const easBuildId = body?.easBuildId;
+      if (platform !== 'ios' && platform !== 'android') {
+        return { statusCode: 400, body: { error: 'platform must be "ios" or "android"' } };
+      }
+      if (!easBuildId) {
+        return { statusCode: 400, body: { error: 'easBuildId is required' } };
+      }
+
+      const tenantId = req.tenantId ?? 'system';
+
+      // Hook 9b — eas submit
+      const submitterCtx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: () => {},
+      };
+      const submitResult = await runSubmitter(
+        {
+          projectId,
+          platform,
+          easBuildId,
+          androidTrack: body?.androidTrack,
+          credentialManager,
+          eventBus,
+          tenantId,
+        },
+        submitterCtx,
+      );
+
+      if (submitResult.data?.status !== 'submitted') {
+        return {
+          statusCode: 500,
+          body: {
+            error: 'Submission failed',
+            details: submitResult.error ?? submitResult.data?.errorMessage,
+          },
+        };
+      }
+
+      // Hook 10b — TestFlight watcher (fire-and-forget; iOS only for now)
+      if (platform === 'ios') {
+        let ascAppId: string | undefined;
+        let appVersion = '1.0.0';
+        let buildNumber = '1';
+        try {
+          const easJson = JSON.parse(await workspace.readFile(projectId, 'eas.json'));
+          ascAppId = easJson?.submit?.production?.ios?.ascAppId;
+        } catch { /* ignore */ }
+        try {
+          const appJson = JSON.parse(await workspace.readFile(projectId, 'app.json'));
+          appVersion = appJson?.expo?.version ?? appVersion;
+          buildNumber = appJson?.expo?.ios?.buildNumber ?? buildNumber;
+        } catch { /* ignore */ }
+
+        if (ascAppId) {
+          const watcherCtx = {
+            executionId: randomUUID(),
+            dryRun: false,
+            startedAt: new Date().toISOString(),
+            log: () => {},
+          };
+          void runTestFlightWatcher(
+            {
+              projectId,
+              platform: 'ios',
+              easBuildId,
+              ascAppId,
+              appVersion,
+              buildNumber,
+              credentialManager,
+              eventBus,
+              tenantId,
+            },
+            watcherCtx,
+          ).catch(() => { /* watcher is non-fatal */ });
+        }
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          projectId,
+          platform,
+          easBuildId,
+          submissionId: submitResult.data?.submissionId,
+          status: 'submitted',
+          watcher: platform === 'ios' ? 'started' : 'unsupported',
+          message: platform === 'ios'
+            ? `Submitted. Watch progress via APPDEV_EVENTS.TESTFLIGHT_* or GET /app-dev/projects/${projectId}/submission-logs/${easBuildId}`
+            : 'Submitted. Android watcher not yet implemented.',
         },
       };
     },

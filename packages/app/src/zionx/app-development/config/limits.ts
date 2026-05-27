@@ -39,6 +39,21 @@ export const LIMITS = {
   /** Timeout for submission prep (ms) */
   submissionPrepTimeoutMs: 30_000,
 
+  /**
+   * EAS submit timeout (ms) — covers `eas submit` upload to App Store Connect
+   * or Google Play. iOS submissions can take up to 15 minutes when ASC is busy.
+   */
+  submitTimeoutMs: 900_000,
+
+  /**
+   * Total time-budget for the TestFlight watcher (ms) — Apple build processing
+   * usually completes within 5-10 minutes, but can stall up to 60.
+   */
+  testflightWatcherTimeoutMs: 3_600_000,
+
+  /** Polling interval for ASC build state (ms) — Apple recommends >=30s */
+  testflightPollIntervalMs: 30_000,
+
   /** Code generation streaming timeout (ms) — 6 min required for Phase 8.5 expanded prompt */
   codeGenerationTimeoutMs: 360_000,
 

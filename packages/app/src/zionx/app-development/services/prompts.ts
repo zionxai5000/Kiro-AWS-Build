@@ -76,6 +76,7 @@ dependencies:
   "zustand": "^4.4.0"
   "@react-native-async-storage/async-storage": "2.2.0"
   "react-native-mmkv": "^3.0.0"
+  "@sentry/react-native": "^7.10.0"
 devDependencies:
   "@babel/core": "^7.25.2"
   "@types/react": "~19.1.0"
@@ -1586,6 +1587,63 @@ COPY EXACTLY — DO NOT MODIFY
   }
 }
 \`\`\`
+
+===================================================================
+SECTION 12.5: OBSERVABILITY (REQUIRED — runtime crash + error capture)
+===================================================================
+
+Every generated app MUST initialize @sentry/react-native at startup. The
+backend pipeline relies on Sentry events to know what users see in TestFlight
+and production — without this, "Something went wrong" errors are invisible to
+the operator and can't be debugged.
+
+Rules:
+- Initialize Sentry as the FIRST line of app/_layout.tsx (before any other
+  module-level effects). Importing later loses early-startup crashes.
+- Sentry DSN comes from app.json -> expo.extra.sentryDsn at runtime via
+  Constants.expoConfig.extra.sentryDsn. NEVER hardcode the DSN in source.
+- Wrap the root component with Sentry.wrap() so React error boundaries report.
+- Set tracesSampleRate to 0.2 in production (lower if budget is tight).
+- Always attach a release tag using Constants.expoConfig.version + buildNumber
+  so events line up with EAS builds.
+
+In app.json:
+\`\`\`json
+{
+  "expo": {
+    "extra": {
+      "sentryDsn": "<set per-tenant by Hook 6 build-runner before build>"
+    }
+  }
+}
+\`\`\`
+
+In app/_layout.tsx (top of file, before the React import):
+\`\`\`typescript
+import * as Sentry from '@sentry/react-native';
+import Constants from 'expo-constants';
+
+const sentryDsn = Constants.expoConfig?.extra?.sentryDsn as string | undefined;
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    tracesSampleRate: 0.2,
+    enableNative: true,
+    release: \`\${Constants.expoConfig?.version ?? 'unknown'}+\${Constants.expoConfig?.ios?.buildNumber ?? Constants.expoConfig?.android?.versionCode ?? '0'}\`,
+  });
+}
+// At the bottom of the file, wrap the default export:
+// export default Sentry.wrap(RootLayout);
+\`\`\`
+
+Inside ErrorBoundary.componentDidCatch, call Sentry.captureException(error).
+
+Why: when an uploaded build crashes on launch in TestFlight, Apple shows the
+generic "Something went wrong, we hit an unexpected error" message and
+nothing else. Sentry captures the actual stack trace from the user's device
+so we can debug from inside the dashboard. The TestFlight watcher (Hook 10b)
+will surface ASC processing state, but only Sentry surfaces user-facing
+runtime errors.
 
 ===================================================================
 SECTION 13: ACCESSIBILITY (REQUIRED)

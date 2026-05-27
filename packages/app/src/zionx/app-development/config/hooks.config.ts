@@ -28,6 +28,8 @@ export const HOOKS_CONFIG: HooksConfigMap = {
     'asset-generator':      { enabled: true, dryRun: true },
     'store-listing-writer': { enabled: true, dryRun: true },
     'submission-prep':      { enabled: true, dryRun: true },
+    'submitter':            { enabled: true, dryRun: true },
+    'testflight-watcher':   { enabled: true, dryRun: true },
     'crash-watcher':        { enabled: true, dryRun: true },
   },
 };

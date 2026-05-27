@@ -10,6 +10,11 @@
 
 import { ensureAuthenticated } from './auth.js';
 import { App } from './app.js';
+import { initSentry } from './sentry.js';
+
+// Initialize Sentry FIRST so we capture any errors that happen during
+// authentication or app bootstrap.
+initSentry();
 
 const root = document.getElementById('root');
 

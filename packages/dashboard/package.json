@@ -12,6 +12,7 @@
     "lint": "eslint 'src/**/*.ts'"
   },
   "dependencies": {
+    "@sentry/browser": "^8.55.2",
     "@seraphim/core": "*",
     "highlight.js": "^11.11.1",
     "marked": "^15.0.7",

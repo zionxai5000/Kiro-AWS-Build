@@ -14,6 +14,7 @@
 
 import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
+import { captureUserAction, captureUserError } from '../sentry.js';
 import {
   createAppDevProject,
   getAppDevProject,
@@ -329,6 +330,7 @@ export class StudioView {
 
   private async handleSend(text: string): Promise<void> {
     if (!text || this.state.generating) return;
+    captureUserAction('studio.send', { textLength: text.length });
     this.messages.push({ role: 'user', text });
     this.state.generating = true;
 
@@ -345,6 +347,7 @@ export class StudioView {
         this.messages.push({ role: 'system', text: `Project created: ${project.projectId}` });
       } catch (err) {
         this.messages.push({ role: 'assistant', text: `Could not create project: ${(err as Error).message}` });
+        captureUserError(err, { stage: 'create-project', prompt: text.slice(0, 100) });
         this.state.generating = false;
         this.renderAndAttach();
         return;
@@ -385,6 +388,7 @@ export class StudioView {
   }
 
   private async handleBuild(platform: 'ios' | 'android'): Promise<void> {
+    captureUserAction('studio.build', { platform, projectId: this.state.projectId });
     if (!this.state.projectId) {
       this.messages.push({ role: 'system', text: 'Generate a project first.' });
       this.renderAndAttach();
@@ -399,11 +403,13 @@ export class StudioView {
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
       this.messages.push({ role: 'assistant', text: `Build failed: ${(err as Error).message}` });
+      captureUserError(err, { stage: 'start-build', platform, projectId: this.state.projectId });
     }
     this.renderAndAttach();
   }
 
   private async handleDeploy(platform: 'ios' | 'android'): Promise<void> {
+    captureUserAction('studio.deploy', { platform, projectId: this.state.projectId });
     if (!this.state.projectId || !this.state.latestBuildId) {
       this.messages.push({ role: 'system', text: 'Run a successful build first, then deploy.' });
       this.renderAndAttach();
@@ -417,6 +423,7 @@ export class StudioView {
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
       this.messages.push({ role: 'assistant', text: `Deploy failed: ${(err as Error).message}` });
+      captureUserError(err, { stage: 'auto-submit-and-watch', platform, projectId: this.state.projectId });
     }
     this.renderAndAttach();
   }

@@ -313,3 +313,40 @@ without burning EAS credits.
 4. **Hook 8 needs handler wiring** — generateStoreListing API handler is a 202 stub. Hook 8 only runs via direct invocation.
 5. **Bake ascAppId back into eas.json automatically** — Hook 8 should write ascAppId after ASC creation.
 6. **ASC API key needs Admin role for app creation** — Current key can only GET/UPDATE, not CREATE apps.
+
+
+---
+
+## Phase 9 — Build #14, #15, #17 TestFlight Crash (RESOLVED 2026-05-27)
+
+**Symptom**: Three consecutive TestFlight builds (Build #14 ea6194c6,
+Build #15 41766746, Build #17 89cb1e62) all crashed on iOS 26 launch
+with `EXC_CRASH/SIGABRT` on `com.meta.react.turbomodulemanager.queue`.
+
+**Root cause**: facebook/react-native#54859. RN 0.81.5 RCTTurboModule.mm
+`performVoidMethodInvocation` catches NSExceptions and rethrows via
+`convertNSExceptionToJSError`. On iOS 26 this conversion accesses
+jsi::Runtime from the wrong (GCD background dispatch) thread, causing
+a C++ exception to escape the dispatch block and abort the process.
+The sync method path was fixed upstream in PR #50193 but the void/async
+path was missed.
+
+**Resolution**: Applied patch-package fix to RN source:
+- patches/react-native+0.81.5.patch replaces the @catch body with
+  RCTLogError + early return.
+- Added react-native-worklets@0.5.1 (required peer dep for Reanimated 4).
+- Added "scheme" to app.json (community-reported contributor to fix).
+- Updated babel.config.js to use react-native-worklets/plugin
+  (REPLACES react-native-reanimated/plugin for Reanimated 4).
+- Bumped iOS buildNumber to 4.
+
+**Future-proofing**: Updated prompts.ts so all future generated apps
+include these fixes by default. Tests stayed at 468 passing.
+
+**Commits**:
+- Workspace: 26d14b0 (workspace-only repo, no remote)
+- Monorepo:  0494c45 (prompts.ts), f183084 (forensics scripts)
+
+**Open work**: Build #18 not yet triggered. Next session should run
+`eas build --platform ios --profile production` from the workspace
+to verify the patch resolves the crash on TestFlight.

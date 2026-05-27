@@ -347,6 +347,13 @@ include these fixes by default. Tests stayed at 468 passing.
 - Workspace: 26d14b0 (workspace-only repo, no remote)
 - Monorepo:  0494c45 (prompts.ts), f183084 (forensics scripts)
 
-**Open work**: Build #18 not yet triggered. Next session should run
-`eas build --platform ios --profile production` from the workspace
-to verify the patch resolves the crash on TestFlight.
+**Open work**: Build #18 failed at INSTALL_DEPENDENCIES because the
+package-lock.json wasn't regenerated after adding patch-package +
+postinstall-postinstall + react-native-worklets. Fix applied in
+workspace commit 438344a (regenerated lock with full npm install).
+
+Build #19 (`0e7405b0-3afa-4567-850a-5e40de56d3ec`) FINISHED successfully
+in ~5 min. Submitted to TestFlight via `eas submit` — Submission ID
+`d692ceb8-fc0b-47a0-9da5-e26f2aaeba5d`. Now in Apple processing queue.
+Awaiting "ready to test" email; user can verify on iPhone once
+processing completes (~5-10 min).

@@ -6,8 +6,8 @@ import {
 } from '../event-types.js';
 
 describe('APPDEV_EVENTS constants', () => {
-  it('has all 10 event types defined', () => {
-    expect(Object.keys(APPDEV_EVENTS)).toHaveLength(10);
+  it('has all 13 event types defined', () => {
+    expect(Object.keys(APPDEV_EVENTS)).toHaveLength(13);
   });
 
   it('all event types start with "appdev."', () => {
@@ -27,6 +27,9 @@ describe('APPDEV_EVENTS constants', () => {
     expect(APPDEV_EVENTS.TESTFLIGHT_PROCESSING).toBe('appdev.testflight.processing');
     expect(APPDEV_EVENTS.TESTFLIGHT_READY).toBe('appdev.testflight.ready');
     expect(APPDEV_EVENTS.TESTFLIGHT_INVALID).toBe('appdev.testflight.invalid');
+    expect(APPDEV_EVENTS.CRASH_OBSERVED).toBe('appdev.crash.observed');
+    expect(APPDEV_EVENTS.ESCALATION_CREATED).toBe('appdev.escalation.created');
+    expect(APPDEV_EVENTS.ESCALATION_RESOLVED).toBe('appdev.escalation.resolved');
   });
 });
 

@@ -25,8 +25,14 @@ import { run as runBuildRunner } from '../pipeline/06-build-runner.js';
 import { run as runSubmissionPrep } from '../pipeline/09-submission-prep.js';
 import { run as runSubmitter } from '../pipeline/09b-submitter.js';
 import { run as runTestFlightWatcher } from '../pipeline/10b-testflight-watcher.js';
+import { run as runCrashWatcher, verifySentrySignature } from '../pipeline/10-crash-watcher.js';
 import { LLMService } from '../services/llm-service.js';
 import { isHookDryRun } from '../config/hooks.config.js';
+import { HOOKS_CONFIG } from '../config/hooks.config.js';
+import { LIMITS } from '../config/limits.js';
+import { getMetricsSnapshot, getRecentErrorRate, recordHookExecution } from '../events/hook-metrics.js';
+import { wrapWithWatchdog } from '../pipeline/escalation-bridge.js';
+import { listEscalations } from '../services/escalation-store.js';
 import type { ServerResponse } from 'node:http';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +66,14 @@ export interface AppDevHandlers {
   listSubmissionLogs: (req: APIRequest) => Promise<APIResponse>;
   /** Submits a finished EAS build and starts the TestFlight watcher in one call. */
   autoSubmitAndWatch: (req: APIRequest) => Promise<APIResponse>;
+  /** Sentry webhook receiver for runtime crash reports. */
+  sentryWebhook: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/metrics — per-hook counters. */
+  getMetrics: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/health — overall pipeline health. */
+  getHealth: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/escalations — list unresolved escalations. */
+  listEscalations: (req: APIRequest) => Promise<APIResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,17 +368,32 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         };
       }
 
-      // Hook 6: Build Runner
-      const buildResult = await runBuildRunner(
-        {
-          projectId,
-          platform,
-          credentialManager,
-          credentialInfo: prepResult.data?.credentialInfo,
-          eventBus,
-          tenantId: req.tenantId,
-        },
-        ctx,
+      // Hook 6: Build Runner — wrapped with metrics + watchdog so a stuck
+      // build still surfaces an escalation to operators within 30s.
+      const buildResult = await recordHookExecution('build-runner', () =>
+        wrapWithWatchdog(
+          (innerCtx) => runBuildRunner(
+            {
+              projectId,
+              platform,
+              credentialManager,
+              credentialInfo: prepResult.data?.credentialInfo,
+              eventBus,
+              tenantId: req.tenantId,
+            },
+            innerCtx,
+          ),
+          ctx,
+          {
+            hookId: 'build-runner',
+            projectId,
+            timeoutMs: LIMITS.escalationWatchdogMs,
+            eventBus,
+            credentialManager,
+            tenantId: req.tenantId ?? 'system',
+            failureContext: { platform, autoSubmit },
+          },
+        ),
       );
 
       if (!buildResult.success) {
@@ -832,6 +861,139 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           message: platform === 'ios'
             ? `Submitted. Watch progress via APPDEV_EVENTS.TESTFLIGHT_* or GET /app-dev/projects/${projectId}/submission-logs/${easBuildId}`
             : 'Submitted. Android watcher not yet implemented.',
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // POST /app-dev/webhooks/sentry
+    //   Sentry → Hook 10 (crash-watcher).
+    //   Optional HMAC signature check via SENTRY_WEBHOOK_SECRET.
+    // -----------------------------------------------------------------------
+    async sentryWebhook(req: APIRequest): Promise<APIResponse> {
+      const secret = process.env.SENTRY_WEBHOOK_SECRET ?? '';
+      if (secret) {
+        const sig = (req.headers?.['sentry-hook-signature'] as string | undefined) ?? null;
+        const rawBody =
+          typeof req.rawBody === 'string'
+            ? req.rawBody
+            : JSON.stringify(req.body ?? {});
+        if (!verifySentrySignature(rawBody, sig, secret)) {
+          return { statusCode: 401, body: { error: 'invalid Sentry signature' } };
+        }
+      }
+
+      const payload = req.body as Record<string, unknown> | null;
+      if (!payload) {
+        return { statusCode: 400, body: { error: 'empty payload' } };
+      }
+
+      // Resolve the projectId from the Sentry project slug.
+      // The slug is what Hook 5c set when provisioning Sentry — we mirror it
+      // back here. Fallback: use slug verbatim.
+      const issue = (payload as Record<string, unknown>)?.['data'] as Record<string, unknown> | undefined;
+      const issueObj = issue?.['issue'] as Record<string, unknown> | undefined;
+      const project = issueObj?.['project'] as Record<string, unknown> | undefined;
+      const sentryProjectSlug = (project?.['slug'] as string | undefined) ?? 'unknown';
+
+      // We map sentryProjectSlug → workspace projectId by listing projects
+      // and matching against app.json.expo.slug. This is best-effort.
+      let projectId = sentryProjectSlug;
+      try {
+        const allProjects = await workspace.listProjects?.();
+        if (Array.isArray(allProjects)) {
+          for (const pid of allProjects) {
+            try {
+              const appJson = JSON.parse(await workspace.readFile(pid, 'app.json'));
+              if (appJson?.expo?.slug === sentryProjectSlug) {
+                projectId = pid;
+                break;
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } catch { /* fall back to slug */ }
+
+      const ctx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: (msg: string) => console.log(msg),
+      };
+      const result = await runCrashWatcher(
+        {
+          projectId,
+          payload: payload as Parameters<typeof runCrashWatcher>[0]['payload'],
+          eventBus,
+          tenantId: req.tenantId ?? 'system',
+        },
+        ctx,
+      );
+
+      return {
+        statusCode: 200,
+        body: {
+          received: true,
+          observed: result.data?.observed ?? false,
+          sentryEventId: result.data?.sentryEventId,
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/metrics
+    // -----------------------------------------------------------------------
+    async getMetrics(_req: APIRequest): Promise<APIResponse> {
+      return {
+        statusCode: 200,
+        body: {
+          hooks: getMetricsSnapshot(),
+          recentErrorRate: getRecentErrorRate(),
+          collectedAt: new Date().toISOString(),
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/health
+    // -----------------------------------------------------------------------
+    async getHealth(_req: APIRequest): Promise<APIResponse> {
+      const watcherHealthy = watcherSupervisor.isHealthy();
+      const hookCount = Object.keys(HOOKS_CONFIG.hooks).length;
+      const enabledCount = Object.values(HOOKS_CONFIG.hooks).filter((h) => h.enabled).length;
+
+      return {
+        statusCode: 200,
+        body: {
+          status: watcherHealthy && !HOOKS_CONFIG.globalKillSwitch ? 'healthy' : 'degraded',
+          hooks: {
+            total: hookCount,
+            enabled: enabledCount,
+            killSwitchOn: HOOKS_CONFIG.globalKillSwitch,
+          },
+          watcher: { healthy: watcherHealthy },
+          recentErrorRate: getRecentErrorRate(),
+          checkedAt: new Date().toISOString(),
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/escalations
+    // -----------------------------------------------------------------------
+    async listEscalations(req: APIRequest): Promise<APIResponse> {
+      const status = (req.query?.['status'] as string | undefined) as
+        | 'open'
+        | 'self_healing'
+        | 'resolved'
+        | 'operator_required'
+        | undefined;
+      const records = await listEscalations(status ? { status } : {});
+      return {
+        statusCode: 200,
+        body: {
+          count: records.length,
+          escalations: records.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         },
       };
     },

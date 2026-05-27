@@ -157,6 +157,16 @@ export class Workspace {
   }
 
   /**
+   * List all known project IDs by reading the workspace root.
+   * Returns an empty array if the workspace root does not exist.
+   */
+  async listProjects(): Promise<string[]> {
+    if (!existsSync(WORKSPACE_ROOT)) return [];
+    const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  }
+
+  /**
    * Read a file from a project's workspace.
    * @param projectId - The project identifier.
    * @param relativePath - Path relative to the project directory.

@@ -2108,7 +2108,194 @@ index 0000000..1111111 100644
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
      }
---- END FILE ---` as const;
+--- END FILE ---
+
+===================================================================
+SECTION 17: CAPABILITY LIBRARY (OPT-IN — pick what the user prompt requires)
+===================================================================
+
+The base SDK 54 deps in Section 2 cover navigation, theming, animation, icons,
+gradients, persistence, observability. SECTION 17 lists EVERY optional native
+capability the LLM may add to package.json when the user prompt requires it.
+
+WHEN TO INCLUDE: Read the user prompt. If they mention sound, alarm, alert,
+camera, notification, location, video, file, share, print, sensor — pick the
+matching capability and add the listed dependency to package.json.
+
+DO NOT add a capability the user did not ask for. They cost permissions and
+review attention.
+
+For every capability included, you MUST:
+1. Add the package to dependencies with the exact version listed.
+2. Add the iOS NSUsageDescription string to app.json.expo.ios.infoPlist
+   (privacy descriptions Apple displays in the permission prompt).
+3. Add the Android permission to app.json.expo.android.permissions.
+4. Initialize the capability per the "USE PATTERN" snippet.
+5. Always handle permission denial (status !== 'granted') gracefully.
+
+| Capability | Package + Version | USE WHEN | Permissions |
+|------------|-------------------|----------|-------------|
+| Audio playback / recording | "expo-av": "~16.0.0" | sound, music, alarm, recording, voice memo | NSMicrophoneUsageDescription if recording |
+| Modern video player | "expo-video": "~3.0.0" | play video, video player, mp4, hls | none |
+| Camera | "expo-camera": "~17.0.0" | photo, camera, scan QR | NSCameraUsageDescription, CAMERA |
+| Image picker (gallery) | "expo-image-picker": "~17.0.0" | pick photo, upload image, profile picture | NSPhotoLibraryUsageDescription |
+| Notifications | "expo-notifications": "~0.32.0" | reminder, alarm, push, schedule notification | userNotifications via plugin config |
+| Location | "expo-location": "~19.0.0" | geofence, gps, current location, map | NSLocationWhenInUseUsageDescription, ACCESS_FINE_LOCATION |
+| Secure store (keychain) | "expo-secure-store": "~15.0.0" | secret, password, token, encryption key | none |
+| Print (PDF / AirPrint) | "expo-print": "~14.0.0" | print, generate pdf, export | none |
+| Sensors (gyro / accel) | "expo-sensors": "~15.0.0" | shake, motion, step counter, compass | none on iOS, BODY_SENSORS for step on Android |
+| Clipboard | "expo-clipboard": "~7.0.0" | copy to clipboard, paste | none |
+| Sharing | "expo-sharing": "~14.0.0" | share, send to, export | none |
+| File system | "expo-file-system": "~19.0.0" | save file locally, read/write, cache | none |
+| Media library | "expo-media-library": "~17.0.0" | save photo to album, access user gallery | NSPhotoLibraryAddUsageDescription, READ_MEDIA_IMAGES |
+| Document picker | "expo-document-picker": "~13.0.0" | pick document, attach pdf, choose file | none |
+| Keep awake (no-sleep) | "expo-keep-awake": "~14.0.0" | keep screen on, prevent sleep, timer running | none |
+
+USE PATTERN — Audio (expo-av):
+\`\`\`tsx
+import { Audio } from 'expo-av';
+const sound = new Audio.Sound();
+await sound.loadAsync(require('../assets/sounds/bell.mp3'));
+await sound.playAsync();
+// Always unload on cleanup:
+useEffect(() => () => { sound.unloadAsync(); }, []);
+\`\`\`
+
+USE PATTERN — Video (expo-video):
+\`\`\`tsx
+import { useVideoPlayer, VideoView } from 'expo-video';
+const player = useVideoPlayer(videoSource, (p) => { p.loop = true; p.play(); });
+return <VideoView player={player} style={styles.video} contentFit="cover" />;
+\`\`\`
+
+USE PATTERN — Camera (expo-camera):
+\`\`\`tsx
+import { CameraView, useCameraPermissions } from 'expo-camera';
+const [permission, requestPermission] = useCameraPermissions();
+if (!permission?.granted) {
+  return <Button onPress={requestPermission} title="Grant camera access" />;
+}
+return <CameraView style={styles.camera} facing="back" />;
+\`\`\`
+
+USE PATTERN — Notifications (expo-notifications):
+\`\`\`tsx
+import * as Notifications from 'expo-notifications';
+await Notifications.requestPermissionsAsync();
+await Notifications.scheduleNotificationAsync({
+  content: { title: 'Time to meditate', body: 'Your daily practice awaits.' },
+  trigger: { hour: 9, minute: 0, repeats: true },
+});
+\`\`\`
+
+USE PATTERN — Location (expo-location):
+\`\`\`tsx
+import * as Location from 'expo-location';
+const { status } = await Location.requestForegroundPermissionsAsync();
+if (status !== 'granted') return; // graceful degradation
+const loc = await Location.getCurrentPositionAsync({});
+\`\`\`
+
+USE PATTERN — Secure store (expo-secure-store):
+\`\`\`tsx
+import * as SecureStore from 'expo-secure-store';
+await SecureStore.setItemAsync('apiToken', token);
+const value = await SecureStore.getItemAsync('apiToken');
+\`\`\`
+
+USE PATTERN — Print/PDF (expo-print):
+\`\`\`tsx
+import * as Print from 'expo-print';
+await Print.printAsync({ html: '<h1>Hello</h1>' });
+const { uri } = await Print.printToFileAsync({ html: '<h1>Hello</h1>' });
+\`\`\`
+
+USE PATTERN — Sensors (expo-sensors):
+\`\`\`tsx
+import { Accelerometer } from 'expo-sensors';
+useEffect(() => {
+  const sub = Accelerometer.addListener(({ x, y, z }) => { /* ... */ });
+  Accelerometer.setUpdateInterval(100);
+  return () => sub.remove();
+}, []);
+\`\`\`
+
+USE PATTERN — Clipboard (expo-clipboard):
+\`\`\`tsx
+import * as Clipboard from 'expo-clipboard';
+await Clipboard.setStringAsync('hello');
+const text = await Clipboard.getStringAsync();
+\`\`\`
+
+USE PATTERN — Sharing (expo-sharing):
+\`\`\`tsx
+import * as Sharing from 'expo-sharing';
+if (await Sharing.isAvailableAsync()) {
+  await Sharing.shareAsync(fileUri);
+}
+\`\`\`
+
+USE PATTERN — FileSystem (expo-file-system):
+\`\`\`tsx
+import * as FileSystem from 'expo-file-system';
+const path = FileSystem.documentDirectory + 'data.json';
+await FileSystem.writeAsStringAsync(path, JSON.stringify(data));
+const raw = await FileSystem.readAsStringAsync(path);
+\`\`\`
+
+USE PATTERN — MediaLibrary (expo-media-library):
+\`\`\`tsx
+import * as MediaLibrary from 'expo-media-library';
+const { status } = await MediaLibrary.requestPermissionsAsync();
+if (status === 'granted') await MediaLibrary.saveToLibraryAsync(fileUri);
+\`\`\`
+
+USE PATTERN — DocumentPicker (expo-document-picker):
+\`\`\`tsx
+import * as DocumentPicker from 'expo-document-picker';
+const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf' });
+if (!result.canceled) { /* result.assets[0].uri */ }
+\`\`\`
+
+USE PATTERN — KeepAwake (expo-keep-awake):
+\`\`\`tsx
+import { useKeepAwake } from 'expo-keep-awake';
+function TimerScreen() {
+  useKeepAwake(); // device won't sleep while this screen is mounted
+}
+\`\`\`
+
+iOS infoPlist additions (only include the ones you used):
+\`\`\`json
+"ios": {
+  "infoPlist": {
+    "NSCameraUsageDescription": "Capture photos and scan codes inside the app.",
+    "NSMicrophoneUsageDescription": "Record audio when you use voice features.",
+    "NSPhotoLibraryUsageDescription": "Select photos to share inside the app.",
+    "NSPhotoLibraryAddUsageDescription": "Save your generated images to Photos.",
+    "NSLocationWhenInUseUsageDescription": "Show nearby content based on your location."
+  }
+}
+\`\`\`
+
+Android permissions (only include the ones you used):
+\`\`\`json
+"android": {
+  "permissions": [
+    "CAMERA",
+    "RECORD_AUDIO",
+    "ACCESS_FINE_LOCATION",
+    "READ_MEDIA_IMAGES"
+  ]
+}
+\`\`\`
+
+REJECTION rule: never invent a capability that isn't in the table above. If
+the user prompt asks for something not listed (Bluetooth, NFC, AR, in-app
+purchases beyond RevenueCat) — politely note in code comments at the top of
+the relevant screen "TODO: capability not yet supported in pipeline" and
+implement a clean fallback (e.g., "Coming soon" pressable that links to a
+support email).` as const;
 
 // ---------------------------------------------------------------------------
 // File Marker Constants

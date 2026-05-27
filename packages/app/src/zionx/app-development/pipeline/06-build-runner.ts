@@ -22,6 +22,8 @@ import { ArtifactStorageClient } from '../services/artifact-storage-client.js';
 import { createAppDevEvent, APPDEV_EVENTS } from '../events/event-types.js';
 import { Workspace } from '../workspace/workspace.js';
 import { bootstrapIosCredentials, BootstrapMaxCertsError } from '../services/apple-credentials/bootstrap-flow.js';
+import { run as runSentryProvisioner } from './05c-sentry-provisioner.js';
+import { wrapWithWatchdog } from './escalation-bridge.js';
 import type { EventBusService } from '@seraphim/core';
 import type { CredentialManager } from '@seraphim/core/interfaces/credential-manager.js';
 import type { HookContext, HookMetadata, HookResult } from './types.js';
@@ -145,6 +147,36 @@ export async function run(
       data: { buildId: '', projectId, platform, status: 'queued' },
       durationMs: Date.now() - start,
     };
+  }
+
+  // Provision Sentry — best-effort, never blocks the build itself.
+  try {
+    let appSlug = projectId;
+    try {
+      const appJson = JSON.parse(await workspace.readFile(projectId, 'app.json'));
+      appSlug = appJson?.expo?.slug ?? projectId;
+    } catch {
+      /* fall through */
+    }
+    const sentryResult = await runSentryProvisioner(
+      {
+        projectId,
+        appSlug,
+        credentialManager,
+        expoToken,
+      },
+      ctx,
+    );
+    if (!sentryResult.success) {
+      ctx.log(`[${HOOK_METADATA.id}] WARN — Sentry provisioner reported: ${sentryResult.error}`);
+    } else if (sentryResult.data) {
+      ctx.log(
+        `[${HOOK_METADATA.id}] Sentry ready: project=${sentryResult.data.sentryProjectSlug} ` +
+          `injected=${sentryResult.data.injectedIntoAppJson} easEnv=${sentryResult.data.easEnvVarSet}`,
+      );
+    }
+  } catch (err) {
+    ctx.log(`[${HOOK_METADATA.id}] WARN — Sentry provisioner threw: ${(err as Error).message}`);
   }
 
   // Ensure iOS credentials are bootstrapped (idempotent — safe on every build)

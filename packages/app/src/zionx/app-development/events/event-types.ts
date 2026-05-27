@@ -33,6 +33,12 @@ export const APPDEV_EVENTS = {
   TESTFLIGHT_READY: 'appdev.testflight.ready',
   /** Apple/Google rejected the binary or processing failed. */
   TESTFLIGHT_INVALID: 'appdev.testflight.invalid',
+  /** A user app emitted a runtime crash via Sentry webhook. */
+  CRASH_OBSERVED: 'appdev.crash.observed',
+  /** A pipeline hook exceeded its watchdog timeout (escalation candidate). */
+  ESCALATION_CREATED: 'appdev.escalation.created',
+  /** Self-heal agent posted a proposed fix that resolved the escalation. */
+  ESCALATION_RESOLVED: 'appdev.escalation.resolved',
 } as const;
 
 export type AppDevEventType = typeof APPDEV_EVENTS[keyof typeof APPDEV_EVENTS];
@@ -112,6 +118,59 @@ export interface TestFlightStateDetail {
   observedAt: string;
 }
 
+/**
+ * Emitted by Hook 10 (crash-watcher) on any user-app crash report from Sentry.
+ */
+export interface CrashObservedDetail {
+  projectId: string;
+  /** Sentry organization slug. */
+  sentryOrg: string;
+  /** Sentry project slug. */
+  sentryProject: string;
+  /** Sentry event id (canonical id used to fetch full event JSON). */
+  sentryEventId: string;
+  /** Sentry issue id — links multiple events of the same root cause. */
+  sentryIssueId?: string;
+  /** Top-level error message Sentry surfaced. */
+  errorMessage: string;
+  /** Build platform that produced the crash. */
+  platform: 'ios' | 'android' | 'unknown';
+  /** App version reported in the Sentry payload. */
+  appVersion?: string;
+  /** Build number reported in the Sentry payload. */
+  buildNumber?: string;
+  /** Direct URL to the Sentry issue page so operators can dig in. */
+  sentryUrl?: string;
+  observedAt: string;
+}
+
+/**
+ * Emitted by the escalation bridge when a hook exceeds its watchdog timeout.
+ */
+export interface EscalationCreatedDetail {
+  escalationId: string;
+  projectId: string;
+  hookId: string;
+  /** Why the hook was escalated (e.g., 'watchdog-timeout', 'persistent-failure'). */
+  reason: string;
+  /** Timeout (ms) that elapsed before escalation. */
+  timeoutMs: number;
+  /** Failure context the self-heal agent will work from (truncated). */
+  context: string;
+  /** Operator or self-heal agent attempting resolution. */
+  assignee: 'self-heal' | 'operator';
+  createdAt: string;
+}
+
+export interface EscalationResolvedDetail {
+  escalationId: string;
+  projectId: string;
+  hookId: string;
+  resolution: 'self-heal-success' | 'self-heal-failed' | 'operator';
+  notes?: string;
+  resolvedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Union type for all event details
 // ---------------------------------------------------------------------------
@@ -123,7 +182,10 @@ export type AppDevEventDetail =
   | HookCompletedDetail
   | WorkspaceFileChangedDetail
   | BuildStatusChangedDetail
-  | TestFlightStateDetail;
+  | TestFlightStateDetail
+  | CrashObservedDetail
+  | EscalationCreatedDetail
+  | EscalationResolvedDetail;
 
 // ---------------------------------------------------------------------------
 // Helper: create a SystemEvent for the app-dev pipeline

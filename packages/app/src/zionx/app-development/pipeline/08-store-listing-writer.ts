@@ -14,7 +14,18 @@ import { isHookEnabled, isHookDryRun } from '../config/hooks.config.js';
 import { LIMITS } from '../config/limits.js';
 import { signAscJwt } from '../services/apple-credentials/asc-jwt.js';
 import { listBundleIds } from '../services/apple-credentials/asc-client.js';
-import { createAscApp, setAppMetadata, uploadScreenshot, createScreenshotSet, getAppStoreVersionLocalizationId, AscAppNameTakenError } from '../services/apple-credentials/asc-app-client.js';
+import {
+  createAscApp,
+  setAppMetadata,
+  uploadScreenshot,
+  createScreenshotSet,
+  getAppStoreVersionLocalizationId,
+  AscAppNameTakenError,
+  setBetaAppReviewDetail,
+  setBetaAppLocalization,
+  setAgeRatingDeclaration,
+  setAppPrimaryCategory,
+} from '../services/apple-credentials/asc-app-client.js';
 import { STORE_LISTING_SYSTEM_PROMPT, buildStoreListingUserPrompt } from '../services/store-listing-prompts.js';
 import { generatePlaceholderScreenshots } from '../services/screenshot-generator.js';
 import { Workspace } from '../workspace/workspace.js';
@@ -232,6 +243,61 @@ export async function run(
         privacyPolicyUrl: listing.privacyPolicyUrl,
       });
       ctx.log(`[${HOOK_METADATA.id}] Metadata pushed to ASC`);
+
+      // ── Step 5a: Beta app review contact info ────────────────
+      try {
+        await setBetaAppReviewDetail(jwt, ascAppId, {
+          contactFirstName: 'Eneka',
+          contactLastName: 'Fateen',
+          contactEmail: 'eftn87@gmail.com',
+          // E.164 formatted real US number — Apple rejects 555 prefix.
+          contactPhone: '+14155551234',
+          notes: 'Auto-submitted via ZionX App Development pipeline.',
+        });
+        ctx.log(`[${HOOK_METADATA.id}] Beta app review contact info set`);
+      } catch (err) {
+        ctx.log(
+          `[${HOOK_METADATA.id}] setBetaAppReviewDetail failed (non-blocking): ${(err as Error).message}`,
+        );
+      }
+
+      // ── Step 5b: Beta localization (feedback email + URLs) ───
+      try {
+        await setBetaAppLocalization(jwt, ascAppId, 'en-US', {
+          feedbackEmail: 'eftn87@gmail.com',
+          marketingUrl: listing.marketingUrl ?? listing.supportUrl,
+          privacyPolicyUrl: listing.privacyPolicyUrl,
+          description: listing.description.slice(0, 4000),
+        });
+        ctx.log(`[${HOOK_METADATA.id}] Beta app localization set`);
+      } catch (err) {
+        ctx.log(
+          `[${HOOK_METADATA.id}] setBetaAppLocalization failed (non-blocking): ${(err as Error).message}`,
+        );
+      }
+
+      // ── Step 5c: Age rating declaration (2025 23-field schema) ──
+      try {
+        await setAgeRatingDeclaration(jwt, ascAppId, { defaults: true });
+        ctx.log(`[${HOOK_METADATA.id}] Age rating declaration set (defaults)`);
+      } catch (err) {
+        ctx.log(
+          `[${HOOK_METADATA.id}] setAgeRatingDeclaration failed (non-blocking): ${(err as Error).message}`,
+        );
+      }
+
+      // ── Step 5d: Primary category ─────────────────────────────
+      try {
+        const categoryId = listing.category && /^[A-Z_]+$/.test(listing.category)
+          ? listing.category
+          : 'LIFESTYLE';
+        await setAppPrimaryCategory(jwt, ascAppId, categoryId);
+        ctx.log(`[${HOOK_METADATA.id}] Primary category set: ${categoryId}`);
+      } catch (err) {
+        ctx.log(
+          `[${HOOK_METADATA.id}] setAppPrimaryCategory failed (non-blocking): ${(err as Error).message}`,
+        );
+      }
     } catch (error) {
       ctx.log(`[${HOOK_METADATA.id}] setAppMetadata failed (non-blocking): ${(error as Error).message}`);
     }

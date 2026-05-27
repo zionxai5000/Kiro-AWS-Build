@@ -730,3 +730,269 @@ export async function setBetaWhatsNew(
   const body = await response.text().catch(() => '');
   throw new AscApiError(response.status, 'WHATS_NEW_FAILED', body.slice(0, 200));
 }
+
+
+// ---------------------------------------------------------------------------
+// Phase 9.1 — TestFlight beta review + age rating + category
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the TestFlight beta app review contact info.
+ *
+ * Apple validates phone format strictly: E.164-style digits with a real
+ * country code + area code. 555-prefix US numbers are rejected.
+ *
+ * Idempotent: 409 indicates the record exists; we PATCH it instead.
+ */
+export async function setBetaAppReviewDetail(
+  jwt: string,
+  ascAppId: string,
+  detail: {
+    contactFirstName: string;
+    contactLastName: string;
+    contactEmail: string;
+    contactPhone: string;
+    demoAccountName?: string;
+    demoAccountPassword?: string;
+    demoAccountRequired?: boolean;
+    notes?: string;
+  },
+): Promise<void> {
+  // Beta app review detail is identified by the same id as the app.
+  const id = ascAppId;
+  const attributes: Record<string, unknown> = {
+    contactFirstName: detail.contactFirstName,
+    contactLastName: detail.contactLastName,
+    contactEmail: detail.contactEmail,
+    contactPhone: detail.contactPhone,
+  };
+  if (detail.demoAccountName !== undefined) attributes['demoAccountName'] = detail.demoAccountName;
+  if (detail.demoAccountPassword !== undefined) attributes['demoAccountPassword'] = detail.demoAccountPassword;
+  if (detail.demoAccountRequired !== undefined) attributes['demoAccountRequired'] = detail.demoAccountRequired;
+  if (detail.notes !== undefined) attributes['notes'] = detail.notes;
+
+  const response = await fetch(`${BASE_URL}/v1/betaAppReviewDetails/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      data: { type: 'betaAppReviewDetails', id, attributes },
+    }),
+  });
+  await handleResponse(response);
+}
+
+/**
+ * Set TestFlight beta localization (feedback email, marketing/privacy URL,
+ * description). Apple recommends having these populated to avoid the generic
+ * "Something went wrong" surface in TestFlight.
+ *
+ * Behavior: POST to create; on 409 (already exists), PATCH the existing
+ * localization record for the same locale.
+ */
+export async function setBetaAppLocalization(
+  jwt: string,
+  ascAppId: string,
+  locale: string,
+  fields: {
+    feedbackEmail?: string;
+    marketingUrl?: string;
+    privacyPolicyUrl?: string;
+    description?: string;
+    tvOsPrivacyPolicy?: string;
+  },
+): Promise<void> {
+  const attributes: Record<string, string> = { locale };
+  if (fields.feedbackEmail !== undefined) attributes['feedbackEmail'] = fields.feedbackEmail;
+  if (fields.marketingUrl !== undefined) attributes['marketingUrl'] = fields.marketingUrl;
+  if (fields.privacyPolicyUrl !== undefined) attributes['privacyPolicyUrl'] = fields.privacyPolicyUrl;
+  if (fields.description !== undefined) attributes['description'] = fields.description;
+  if (fields.tvOsPrivacyPolicy !== undefined) attributes['tvOsPrivacyPolicy'] = fields.tvOsPrivacyPolicy;
+
+  const createBody = {
+    data: {
+      type: 'betaAppLocalizations',
+      attributes,
+      relationships: {
+        app: { data: { type: 'apps', id: ascAppId } },
+      },
+    },
+  };
+
+  const createResponse = await fetch(`${BASE_URL}/v1/betaAppLocalizations`, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify(createBody),
+  });
+
+  if (createResponse.status === 201) return;
+
+  if (createResponse.status === 409) {
+    // Already exists — fetch and PATCH
+    const listRes = await fetch(
+      `${BASE_URL}/v1/apps/${encodeURIComponent(ascAppId)}/betaAppLocalizations`,
+      { method: 'GET', headers: authHeaders(jwt) },
+    );
+    if (!listRes.ok) {
+      const body = await listRes.text();
+      throw new AscApiError(listRes.status, 'BETA_LOCALIZATION_LIST_FAILED', body.slice(0, 200));
+    }
+    const list = (await listRes.json()) as {
+      data: Array<{ id: string; attributes: { locale: string } }>;
+    };
+    const existing = list.data.find((d) => d.attributes.locale === locale);
+    if (!existing) {
+      throw new AscApiError(409, 'BETA_LOCALIZATION_NOT_FOUND', 'POST returned 409 but list did not include locale');
+    }
+    // PATCH (locale itself is immutable on PATCH; strip it from attributes)
+    const patchAttrs = { ...attributes };
+    delete patchAttrs['locale'];
+    const patchRes = await fetch(`${BASE_URL}/v1/betaAppLocalizations/${existing.id}`, {
+      method: 'PATCH',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({
+        data: { type: 'betaAppLocalizations', id: existing.id, attributes: patchAttrs },
+      }),
+    });
+    await handleResponse(patchRes);
+    return;
+  }
+
+  const body = await createResponse.text().catch(() => '');
+  throw new AscApiError(
+    createResponse.status,
+    'BETA_LOCALIZATION_CREATE_FAILED',
+    body.slice(0, 200),
+  );
+}
+
+/**
+ * Set the App Store Connect age rating declaration (2025 23-field schema).
+ *
+ * Required to ship to the store. Apple changed this in 2025 to add several
+ * new boolean fields (messagingAndChat, advertising, healthOrWellnessTopics,
+ * ageAssurance, userGeneratedContent, parentalControls, lootBox) plus a
+ * string enum (gunsOrOtherWeapons) on top of the original 14 categorical
+ * frequency enums.
+ *
+ * Pass `defaults: true` to get an everything-NONE/false declaration suitable
+ * for a meditation/utility app.
+ */
+export interface AgeRatingDeclaration {
+  // Boolean fields (2025 additions)
+  messagingAndChat?: boolean;
+  advertising?: boolean;
+  healthOrWellnessTopics?: boolean;
+  ageAssurance?: boolean;
+  userGeneratedContent?: boolean;
+  parentalControls?: boolean;
+  lootBox?: boolean;
+
+  // Frequency enums — values: NONE | INFREQUENT_OR_MILD | FREQUENT_OR_INTENSE
+  alcoholTobaccoOrDrugUseOrReferences?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  contests?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  gamblingSimulated?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  medicalOrTreatmentInformation?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  profanityOrCrudeHumor?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  sexualContentGraphicAndNudity?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  sexualContentOrNudity?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  horrorOrFearThemes?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  matureOrSuggestiveThemes?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  unrestrictedWebAccess?: boolean;
+  gambling?: boolean;
+  violenceCartoonOrFantasy?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  violenceRealistic?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+  violenceRealisticProlongedGraphicOrSadistic?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+
+  // 2025 string enum
+  gunsOrOtherWeapons?: 'NONE' | 'INFREQUENT_OR_MILD' | 'FREQUENT_OR_INTENSE';
+
+  /** Apply the safe defaults (everything NONE/false). Useful for utility apps. */
+  defaults?: boolean;
+}
+
+const DEFAULT_AGE_RATING: Record<string, unknown> = {
+  // Booleans default false
+  messagingAndChat: false,
+  advertising: false,
+  healthOrWellnessTopics: false,
+  ageAssurance: false,
+  userGeneratedContent: false,
+  parentalControls: false,
+  lootBox: false,
+  unrestrictedWebAccess: false,
+  gambling: false,
+  // Enums default NONE
+  alcoholTobaccoOrDrugUseOrReferences: 'NONE',
+  contests: 'NONE',
+  gamblingSimulated: 'NONE',
+  medicalOrTreatmentInformation: 'NONE',
+  profanityOrCrudeHumor: 'NONE',
+  sexualContentGraphicAndNudity: 'NONE',
+  sexualContentOrNudity: 'NONE',
+  horrorOrFearThemes: 'NONE',
+  matureOrSuggestiveThemes: 'NONE',
+  violenceCartoonOrFantasy: 'NONE',
+  violenceRealistic: 'NONE',
+  violenceRealisticProlongedGraphicOrSadistic: 'NONE',
+  gunsOrOtherWeapons: 'NONE',
+};
+
+export async function setAgeRatingDeclaration(
+  jwt: string,
+  ascAppId: string,
+  declaration: AgeRatingDeclaration,
+): Promise<void> {
+  // Lookup the existing declaration id under the appInfo
+  const infoResponse = await fetch(
+    `${BASE_URL}/v1/apps/${encodeURIComponent(ascAppId)}/appInfos?include=ageRatingDeclaration&limit=1`,
+    { method: 'GET', headers: authHeaders(jwt) },
+  );
+  const infoData = (await handleResponse(infoResponse)) as {
+    data: Array<{ id: string }>;
+    included?: Array<{ id: string; type: string }>;
+  };
+  const declarationRef = infoData.included?.find((r) => r.type === 'ageRatingDeclarations');
+  if (!declarationRef) {
+    throw new AscApiError(404, 'NO_AGE_RATING_DECLARATION', 'No ageRatingDeclaration linked to appInfo');
+  }
+
+  // Merge with defaults if asked
+  const baseAttrs: Record<string, unknown> = declaration.defaults
+    ? { ...DEFAULT_AGE_RATING }
+    : {};
+  for (const [k, v] of Object.entries(declaration)) {
+    if (k === 'defaults' || v === undefined) continue;
+    baseAttrs[k] = v;
+  }
+
+  const patchRes = await fetch(`${BASE_URL}/v1/ageRatingDeclarations/${declarationRef.id}`, {
+    method: 'PATCH',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      data: {
+        type: 'ageRatingDeclarations',
+        id: declarationRef.id,
+        attributes: baseAttrs,
+      },
+    }),
+  });
+  await handleResponse(patchRes);
+}
+
+/**
+ * Set the primary App Store category via PATCH /v1/appInfos/{id}.
+ * Convenience wrapper over setAppCategory using a category id constant.
+ *
+ * Common categoryId values:
+ *  - 'PRODUCTIVITY' for utility apps
+ *  - 'HEALTH_AND_FITNESS' for meditation/timer apps
+ *  - 'LIFESTYLE'
+ *  - 'EDUCATION'
+ */
+export async function setAppPrimaryCategory(
+  jwt: string,
+  ascAppId: string,
+  categoryId: string,
+): Promise<void> {
+  return setAppCategory(jwt, ascAppId, categoryId);
+}

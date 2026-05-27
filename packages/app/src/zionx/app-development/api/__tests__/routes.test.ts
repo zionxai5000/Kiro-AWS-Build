@@ -37,9 +37,9 @@ function createMockDeps() {
 // ---------------------------------------------------------------------------
 
 describe('createAppDevRoutes', () => {
-  it('returns 8 routes', () => {
+  it('returns 15 routes', () => {
     const routes = createAppDevRoutes(createMockDeps());
-    expect(routes).toHaveLength(8);
+    expect(routes).toHaveLength(15);
   });
 
   it('all routes have /app-dev/ prefix', () => {
@@ -61,6 +61,13 @@ describe('createAppDevRoutes', () => {
     expect(routeMap).toContain('POST /app-dev/projects/:id/confirm-submit');
     expect(routeMap).toContain('GET /app-dev/projects/:id');
     expect(routeMap).toContain('GET /app-dev/projects/:id/files');
+    expect(routeMap).toContain('GET /app-dev/projects/:id/submission-logs');
+    expect(routeMap).toContain('GET /app-dev/projects/:id/submission-logs/:easBuildId');
+    expect(routeMap).toContain('POST /app-dev/projects/:id/auto-submit-and-watch');
+    expect(routeMap).toContain('POST /app-dev/webhooks/sentry');
+    expect(routeMap).toContain('GET /app-dev/metrics');
+    expect(routeMap).toContain('GET /app-dev/health');
+    expect(routeMap).toContain('GET /app-dev/escalations');
   });
 
   it('confirm-submit has requireHumanOrigin: true', () => {
@@ -72,7 +79,11 @@ describe('createAppDevRoutes', () => {
 
   it('other routes do not have requireHumanOrigin', () => {
     const routes = createAppDevRoutes(createMockDeps());
-    const humanOnlyPaths = ['/app-dev/projects/:id/confirm-submit', '/app-dev/projects/:id/build'];
+    const humanOnlyPaths = [
+      '/app-dev/projects/:id/confirm-submit',
+      '/app-dev/projects/:id/build',
+      '/app-dev/projects/:id/auto-submit-and-watch',
+    ];
     const otherRoutes = routes.filter(r => !humanOnlyPaths.includes(r.path));
     for (const route of otherRoutes) {
       expect(route.requireHumanOrigin).toBeUndefined();

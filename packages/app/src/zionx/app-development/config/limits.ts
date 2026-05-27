@@ -92,4 +92,20 @@ export const LIMITS = {
 
   /** Per-user daily budget for paid API calls (USD) */
   dailyBudgetUsd: 10.0,
+
+  /** Sentry provisioner timeout (ms) */
+  sentryProvisionerTimeoutMs: 60_000,
+
+  /**
+   * Escalation watchdog default timeout per hook (ms).
+   * If a hook's run() doesn't return within this window, the escalation
+   * bridge fires a self-heal attempt, then surfaces it to operators.
+   */
+  escalationWatchdogMs: 30_000,
+
+  /** Self-heal agent max LLM tokens per repair attempt */
+  selfHealMaxTokens: 4_000,
+
+  /** Self-heal agent timeout (ms) */
+  selfHealTimeoutMs: 45_000,
 } as const;

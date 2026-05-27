@@ -386,3 +386,229 @@ export class DashboardWebSocket {
     }, this.reconnectDelay);
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// App Development Endpoints (Phase 10 wiring)
+// ---------------------------------------------------------------------------
+
+export interface AppDevProject {
+  projectId: string;
+  name: string;
+  description?: string;
+  platform: 'ios' | 'android' | 'both';
+  status: string;
+  fileCount?: number;
+  createdAt?: string;
+}
+
+export interface AppDevFileEntry {
+  path: string;
+  size?: number;
+}
+
+export interface AppDevHealth {
+  status: 'healthy' | 'degraded';
+  hooks: { total: number; enabled: number; killSwitchOn: boolean };
+  watcher: { healthy: boolean };
+  recentErrorRate: number;
+  checkedAt: string;
+}
+
+export interface AppDevHookMetric {
+  hookId: string;
+  invocations: number;
+  successes: number;
+  failures: number;
+  avgDurationMs: number;
+  lastFailureAt?: string;
+  lastError?: string;
+}
+
+export interface AppDevEscalation {
+  id: string;
+  projectId: string;
+  hookId: string;
+  reason: string;
+  status: 'open' | 'self_healing' | 'resolved' | 'operator_required';
+  createdAt: string;
+  resolvedAt?: string;
+  notes?: string;
+}
+
+async function apiPost<T>(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const baseUrl = getBaseUrl();
+  const url = baseUrl + path;
+  const isDirectALB = baseUrl.includes('elb.amazonaws.com');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!isDirectALB) {
+    const token = await getAuthToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401 && !isDirectALB) {
+    const newToken = await reauthenticate();
+    const retry = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${newToken}` },
+      body: JSON.stringify(body),
+    });
+    if (!retry.ok) throw new Error(`POST ${path} failed: ${retry.status}`);
+    return retry.json() as Promise<T>;
+  }
+  if (!response.ok) throw new Error(`POST ${path} failed: ${response.status}`);
+  return response.json() as Promise<T>;
+}
+
+/** POST /app-dev/projects — create a workspace + DB record. */
+export async function createAppDevProject(input: {
+  name: string;
+  description?: string;
+  platform?: 'ios' | 'android' | 'both';
+}): Promise<AppDevProject> {
+  return apiPost<AppDevProject>('/app-dev/projects', input as Record<string, unknown>);
+}
+
+/** GET /app-dev/projects/:id — restore session. */
+export async function getAppDevProject(projectId: string): Promise<AppDevProject> {
+  return apiFetch<AppDevProject>(`/app-dev/projects/${encodeURIComponent(projectId)}`);
+}
+
+/** GET /app-dev/projects/:id/files — render file tree. */
+export async function listAppDevFiles(projectId: string): Promise<{ projectId: string; files: string[]; count: number }> {
+  return apiFetch<{ projectId: string; files: string[]; count: number }>(
+    `/app-dev/projects/${encodeURIComponent(projectId)}/files`,
+  );
+}
+
+/** POST /app-dev/projects/:id/build — kick a build (requires human-origin auth). */
+export async function startBuild(
+  projectId: string,
+  body: { platform: 'ios' | 'android'; autoSubmit?: boolean },
+): Promise<{ buildId: string; status: string; message: string }> {
+  return apiPost(`/app-dev/projects/${encodeURIComponent(projectId)}/build`, body as Record<string, unknown>);
+}
+
+/** POST /app-dev/projects/:id/auto-submit-and-watch — ship a finished build. */
+export async function autoSubmitAndWatch(
+  projectId: string,
+  body: { platform: 'ios' | 'android'; easBuildId: string; androidTrack?: string },
+): Promise<{ status: string; watcher: string; message: string }> {
+  return apiPost(`/app-dev/projects/${encodeURIComponent(projectId)}/auto-submit-and-watch`, body as Record<string, unknown>);
+}
+
+/** GET /app-dev/health — pipeline health for the dashboard. */
+export async function fetchAppDevHealth(): Promise<AppDevHealth> {
+  return apiFetch<AppDevHealth>('/app-dev/health');
+}
+
+/** GET /app-dev/metrics — per-hook counters. */
+export async function fetchAppDevMetrics(): Promise<{ hooks: AppDevHookMetric[]; recentErrorRate: number; collectedAt: string }> {
+  return apiFetch<{ hooks: AppDevHookMetric[]; recentErrorRate: number; collectedAt: string }>('/app-dev/metrics');
+}
+
+/** GET /app-dev/escalations — list unresolved escalations for operator panel. */
+export async function fetchAppDevEscalations(status?: string): Promise<{ count: number; escalations: AppDevEscalation[] }> {
+  const params = status ? { status } : undefined;
+  return apiFetch<{ count: number; escalations: AppDevEscalation[] }>('/app-dev/escalations', params);
+}
+
+/**
+ * Stream code generation via SSE.
+ *
+ * The browser EventSource API doesn't support custom headers, so we use fetch
+ * with manual streaming + ReadableStream parsing to attach the bearer token.
+ *
+ * Returns an AbortController so the caller can cancel a long-running stream.
+ */
+export interface SSEStreamCallbacks {
+  onToken?: (text: string) => void;
+  onFileStart?: (path: string) => void;
+  onFileEnd?: (path: string) => void;
+  onComplete?: (files: string[]) => void;
+  onError?: (message: string) => void;
+}
+
+export async function streamGenerateCode(
+  projectId: string,
+  prompt: string,
+  callbacks: SSEStreamCallbacks,
+): Promise<AbortController> {
+  const baseUrl = getBaseUrl();
+  const isDirectALB = baseUrl.includes('elb.amazonaws.com');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
+  if (!isDirectALB) {
+    const token = await getAuthToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const abort = new AbortController();
+  const url = baseUrl + `/app-dev/projects/${encodeURIComponent(projectId)}/generate`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ prompt }),
+    signal: abort.signal,
+  });
+
+  if (!response.ok || !response.body) {
+    callbacks.onError?.(`generate failed: ${response.status}`);
+    return abort;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  void (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const json = line.slice('data:'.length).trim();
+          if (!json) continue;
+          try {
+            const evt = JSON.parse(json) as { type: string;[k: string]: unknown };
+            switch (evt.type) {
+              case 'token':
+                callbacks.onToken?.(evt['content'] as string);
+                break;
+              case 'file_start':
+                callbacks.onFileStart?.(evt['path'] as string);
+                break;
+              case 'file_end':
+                callbacks.onFileEnd?.(evt['path'] as string);
+                break;
+              case 'done':
+                callbacks.onComplete?.((evt['files'] as string[]) ?? []);
+                break;
+              case 'error':
+                callbacks.onError?.((evt['message'] as string) ?? 'unknown');
+                break;
+            }
+          } catch {
+            /* ignore malformed line */
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        callbacks.onError?.((err as Error).message);
+      }
+    }
+  })();
+
+  return abort;
+}

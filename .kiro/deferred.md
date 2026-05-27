@@ -357,3 +357,32 @@ in ~5 min. Submitted to TestFlight via `eas submit` — Submission ID
 `d692ceb8-fc0b-47a0-9da5-e26f2aaeba5d`. Now in Apple processing queue.
 Awaiting "ready to test" email; user can verify on iPhone once
 processing completes (~5-10 min).
+
+
+---
+
+## Phase 9.4 — Secrets Manager audit (2026-05-27)
+
+Swept every TypeScript file under `packages/app/src/zionx/app-development/`
+for `process.env.*` reads. All findings are operational config or test gates,
+NOT credential reads:
+
+| File | Env var | Purpose | Status |
+|------|---------|---------|--------|
+| workspace.ts | SERAPHIM_WORKSPACE_ROOT | Workspace base path | OK — config, not credential |
+| watcher-snapshot.ts | SERAPHIM_RECOVERY_BULK_THRESHOLD, SERAPHIM_WATCHER_STATE_ROOT | Watcher recovery tuning | OK — config |
+| 09-submission-prep.ts | GOOGLE_PLAY_SERVICE_ACCOUNT_SECRET | Override default secret name | OK — names a secret, doesn't read its value |
+| api/handlers.ts | SERAPHIM_BUILD_RATE_LIMIT_PER_HOUR, SENTRY_WEBHOOK_SECRET | Operational config + webhook signing key | OK — webhook secret is short-lived, can move to AWS SM in Phase 9.5 follow-up |
+| services/__tests__/llm-integration.test.ts | ANTHROPIC_API_KEY | Integration test gate; only used when `APPDEV_INTEGRATION_TEST=true` | OK — tests only |
+
+ALL credential consumers go through `credentialManager.getCredential()`:
+LLMService, OpenAIImagesClient, NpmRegistryClient, build-runner, store-listing-writer,
+sentry-provisioner, self-heal-agent, asc-jwt signing pulls, EAS submitter,
+TestFlight watcher.
+
+DEFERRED for Phase 9.5 follow-up: move SENTRY_WEBHOOK_SECRET from process.env
+to a CredentialManager lookup once we add a "sentry-webhook" key to the
+seraphim/sentry secret payload. Low priority — webhook signing keys are
+operational, rotated independently from API tokens, and the current env-var
+path keeps the public webhook endpoint independent from app-store credentials.
+

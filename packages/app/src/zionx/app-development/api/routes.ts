@@ -62,5 +62,41 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
       path: '/app-dev/projects/:id/files',
       handler: h.listProjectFiles,
     },
+    {
+      method: 'GET',
+      path: '/app-dev/projects/:id/submission-logs',
+      handler: h.listSubmissionLogs,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/projects/:id/submission-logs/:easBuildId',
+      handler: h.getSubmissionLog,
+    },
+    {
+      method: 'POST',
+      path: '/app-dev/projects/:id/auto-submit-and-watch',
+      requireHumanOrigin: true,
+      handler: h.autoSubmitAndWatch,
+    },
+    {
+      method: 'POST',
+      path: '/app-dev/webhooks/sentry',
+      handler: h.sentryWebhook,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/metrics',
+      handler: h.getMetrics,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/health',
+      handler: h.getHealth,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/escalations',
+      handler: h.listEscalations,
+    },
   ];
 }

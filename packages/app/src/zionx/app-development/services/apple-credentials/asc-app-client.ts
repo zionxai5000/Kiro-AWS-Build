@@ -664,3 +664,69 @@ export async function getBuildBetaDetail(
     externalBuildState: json.data.attributes.externalBuildState ?? null,
   };
 }
+
+
+/**
+ * Set the "What to Test" copy on a build's beta localization.
+ *
+ * Apple recommends having a non-empty whatsNew string on every TestFlight
+ * build — without it, the TestFlight client app occasionally surfaces
+ * generic errors before its caches refresh. This is idempotent: a 409
+ * response for an existing (build, locale) record triggers a PATCH instead
+ * of a POST.
+ *
+ * Errors other than 409 are surfaced via AscApiError so the caller can decide
+ * whether to fail the submission or continue.
+ */
+export async function setBetaWhatsNew(
+  jwt: string,
+  buildId: string,
+  whatsNew: string,
+  locale = 'en-US',
+): Promise<void> {
+  const response = await fetch(`${BASE_URL}/v1/betaBuildLocalizations`, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      data: {
+        type: 'betaBuildLocalizations',
+        attributes: { locale, whatsNew },
+        relationships: {
+          build: { data: { type: 'builds', id: buildId } },
+        },
+      },
+    }),
+  });
+
+  if (response.status === 201) return;
+
+  if (response.status === 409) {
+    // Localization already exists for this build+locale — PATCH it instead.
+    const listRes = await fetch(
+      `${BASE_URL}/v1/builds/${encodeURIComponent(buildId)}/betaBuildLocalizations`,
+      { method: 'GET', headers: authHeaders(jwt) },
+    );
+    if (!listRes.ok) return; // best-effort — don't throw
+    const data = (await listRes.json()) as {
+      data: Array<{ id: string; attributes: { locale: string } }>;
+    };
+    const existing = data.data.find((d) => d.attributes.locale === locale);
+    if (!existing) return;
+
+    await fetch(`${BASE_URL}/v1/betaBuildLocalizations/${existing.id}`, {
+      method: 'PATCH',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({
+        data: {
+          type: 'betaBuildLocalizations',
+          id: existing.id,
+          attributes: { whatsNew },
+        },
+      }),
+    });
+    return;
+  }
+
+  const body = await response.text().catch(() => '');
+  throw new AscApiError(response.status, 'WHATS_NEW_FAILED', body.slice(0, 200));
+}

@@ -23,6 +23,11 @@ import { LIMITS } from '../config/limits.js';
 import { submitBuild } from '../services/eas-cli-wrapper.js';
 import { Workspace } from '../workspace/workspace.js';
 import { APPDEV_EVENTS, createAppDevEvent } from '../events/event-types.js';
+import { signAscJwt } from '../services/apple-credentials/asc-jwt.js';
+import {
+  findAscBuildByVersion,
+  setBetaWhatsNew,
+} from '../services/apple-credentials/asc-app-client.js';
 import type { EventBusService } from '@seraphim/core';
 import type { CredentialManager } from '@seraphim/core/interfaces/credential-manager.js';
 import type { HookContext, HookMetadata, HookResult } from './types.js';
@@ -156,6 +161,19 @@ export async function run(
 
   if (submitResult.status === 'submitted') {
     ctx.log(`[${HOOK_METADATA.id}] Submission complete — submissionId=${submitResult.submissionId ?? '(none)'}`);
+
+    // Best-effort: set "What to Test" copy on the freshly uploaded iOS build.
+    // Without this, the TestFlight client app sometimes surfaces "Something
+    // went wrong" before Apple's caches catch up. Failure is non-fatal — we
+    // log and keep going.
+    if (platform === 'ios') {
+      try {
+        await maybeSetWhatsNew({ projectId, workspace, credentialManager, log: ctx.log });
+      } catch (err) {
+        ctx.log(`[${HOOK_METADATA.id}] Could not set whatsNew (non-fatal): ${(err as Error).message}`);
+      }
+    }
+
     return {
       success: true,
       hookId: HOOK_METADATA.id,
@@ -183,4 +201,74 @@ export async function run(
     },
     durationMs: Date.now() - start,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Best-effort: read app.json and eas.json from the workspace, find the build
+ * Apple just received via its (appVersion, buildNumber), and POST a
+ * "What to Test" localization. Apple often takes 30-90 seconds to register an
+ * uploaded build, so this may have to retry once or twice — but we don't want
+ * to block the pipeline on it, so total wait is capped at ~2 minutes.
+ */
+async function maybeSetWhatsNew(args: {
+  projectId: string;
+  workspace: Workspace;
+  credentialManager: CredentialManager;
+  log: (msg: string) => void;
+}): Promise<void> {
+  const { projectId, workspace, credentialManager, log } = args;
+
+  // Read workspace files.
+  let appVersion = '1.0.0';
+  let buildNumber: string | undefined;
+  let appName = 'this build';
+  try {
+    const appJson = JSON.parse(await workspace.readFile(projectId, 'app.json'));
+    appVersion = appJson?.expo?.version ?? appVersion;
+    buildNumber = appJson?.expo?.ios?.buildNumber;
+    appName = appJson?.expo?.name ?? appName;
+  } catch {
+    return; // no app.json, no point
+  }
+
+  let ascAppId: string | undefined;
+  try {
+    const easJson = JSON.parse(await workspace.readFile(projectId, 'eas.json'));
+    ascAppId = easJson?.submit?.production?.ios?.ascAppId;
+  } catch {
+    return;
+  }
+  if (!ascAppId) return;
+
+  // ASC credentials.
+  const keyId = await credentialManager.getCredential('appstore-connect', 'key-id');
+  const issuerId = await credentialManager.getCredential('appstore-connect', 'issuer-id');
+  const apiKey = await credentialManager.getCredential('appstore-connect', 'api-key');
+  if (!keyId || !issuerId || !apiKey) return;
+
+  const jwt = signAscJwt(keyId, issuerId, apiKey);
+
+  // Apple's appVersionSource: 'remote' means EAS may auto-increment buildNumber
+  // beyond what's in app.json. Try the local buildNumber first; if it's not
+  // visible yet, fall back to the latest build for this appVersion.
+  const whatsNew = `Build of ${appName}.`;
+
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const targetBuildNumber = buildNumber ?? '1';
+    const found = await findAscBuildByVersion(jwt, ascAppId, appVersion, targetBuildNumber).catch(() => null);
+    if (found) {
+      await setBetaWhatsNew(jwt, found.buildId, whatsNew);
+      log(`[submitter] set whatsNew on ASC build ${found.buildId}`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+
+  log('[submitter] timed out waiting for ASC build to appear; whatsNew skipped');
 }

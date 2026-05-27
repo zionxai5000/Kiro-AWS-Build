@@ -5,6 +5,16 @@
   "description": "Application layer: ZionX app factory, ZXMG media production, Zion Alpha trading",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./zionx/*": {
+      "types": "./dist/zionx/*",
+      "default": "./dist/zionx/*"
+    }
+  },
   "dependencies": {
     "@seraphim/core": "*",
     "@seraphim/drivers": "*",

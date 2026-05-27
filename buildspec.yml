@@ -1,0 +1,65 @@
+version: 0.2
+
+# CodeBuild spec — builds the SeraphimOS production-server Docker image,
+# pushes to ECR, and force-deploys the AgentRuntime ECS service so the new
+# /app-dev/* routes go live.
+#
+# Run via: aws codebuild start-build --project-name seraphim-prod-deploy
+#
+# IMAGE_TAG defaults to "main-<commit-sha>". Override via env override.
+
+env:
+  variables:
+    AWS_REGION: us-east-1
+    ACCOUNT_ID: "562887205007"
+    ECR_REPO: cdk-hnb659fds-container-assets-562887205007-us-east-1
+    ECS_CLUSTER: seraphim-agents
+    ECS_SERVICE: Seraphim-dev-Compute-AgentRuntimeServiceA417A3CA-Z1fTovcH1Dpx
+    TASK_FAMILY: SeraphimdevComputeAgentRuntimeTaskDef2B3755BC
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging into ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - export IMAGE_TAG="main-$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)"
+      - echo "Image tag will be $IMAGE_TAG"
+
+  build:
+    commands:
+      - echo "Building Docker image..."
+      - docker build -t $ECR_REPO:$IMAGE_TAG .
+      - docker tag $ECR_REPO:$IMAGE_TAG $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+
+  post_build:
+    commands:
+      - echo "Pushing image to ECR..."
+      - docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+      - echo "Registering new ECS task definition..."
+      - aws ecs describe-task-definition --task-definition $TASK_FAMILY --region $AWS_REGION --query 'taskDefinition' > current-td.json
+      - |
+        node -e "
+          const fs = require('fs');
+          const td = JSON.parse(fs.readFileSync('current-td.json'));
+          td.containerDefinitions[0].image = '$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG';
+          const out = {
+            family: td.family,
+            networkMode: td.networkMode,
+            requiresCompatibilities: td.requiresCompatibilities,
+            cpu: td.cpu,
+            memory: td.memory,
+            executionRoleArn: td.executionRoleArn,
+            taskRoleArn: td.taskRoleArn,
+            containerDefinitions: td.containerDefinitions,
+          };
+          fs.writeFileSync('new-td.json', JSON.stringify(out));
+        "
+      - NEW_ARN=$(aws ecs register-task-definition --cli-input-json file://new-td.json --region $AWS_REGION --query 'taskDefinition.taskDefinitionArn' --output text)
+      - echo "Registered $NEW_ARN"
+      - echo "Forcing ECS deployment..."
+      - aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $NEW_ARN --force-new-deployment --region $AWS_REGION --query 'service.deployments[0].status' --output text
+      - echo "Deployment kicked off — ECS will pull image and start new task."
+
+artifacts:
+  files:
+    - new-td.json

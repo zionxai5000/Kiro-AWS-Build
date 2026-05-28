@@ -81,11 +81,21 @@ export class ShaarAPIRouter {
    */
   async authenticateRequest(req: APIRequest): Promise<MiddlewareResult> {
     if (!this.authMiddleware) {
-      // No auth middleware configured — skip JWT validation (backward compatible)
+      // No auth middleware configured — skip JWT validation (backward compatible).
+      // Default context is treated as human-origin: the only path that reaches
+      // the production server today is the operator dashboard. Once a Cognito
+      // IDP-backed AuthMiddleware is wired in, the principalType will come
+      // from the actual JWT claims and this fallback is bypassed.
       return {
         authorized: true,
         context: {
-          user: { userId: req.userId, tenantId: req.tenantId, role: req.role as 'king' | 'queen', email: '' },
+          user: {
+            userId: req.userId,
+            tenantId: req.tenantId,
+            role: req.role as 'king' | 'queen',
+            email: '',
+            principalType: 'human',
+          },
           tenantId: req.tenantId,
           role: req.role,
         },

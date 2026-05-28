@@ -1,0 +1,105 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'Dockerfile'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Build image, push to ECR, force-deploy ECS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and tag image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPOSITORY: cdk-hnb659fds-container-assets-562887205007-us-east-1
+        run: |
+          IMAGE_TAG="main-$(echo $GITHUB_SHA | cut -c1-7)"
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "Building $IMAGE_URI"
+          docker build -t "$IMAGE_URI" .
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Push image
+        env:
+          IMAGE_URI: ${{ steps.build.outputs.image_uri }}
+        run: docker push "$IMAGE_URI"
+
+      - name: Register new task definition
+        id: register
+        env:
+          IMAGE_URI: ${{ steps.build.outputs.image_uri }}
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition SeraphimdevComputeAgentRuntimeTaskDef2B3755BC \
+            --region us-east-1 \
+            --query 'taskDefinition' > current-td.json
+          node -e "
+            const fs = require('fs');
+            const td = JSON.parse(fs.readFileSync('current-td.json'));
+            td.containerDefinitions[0].image = process.env.IMAGE_URI;
+            const out = {
+              family: td.family,
+              networkMode: td.networkMode,
+              requiresCompatibilities: td.requiresCompatibilities,
+              cpu: td.cpu,
+              memory: td.memory,
+              executionRoleArn: td.executionRoleArn,
+              taskRoleArn: td.taskRoleArn,
+              containerDefinitions: td.containerDefinitions,
+            };
+            fs.writeFileSync('new-td.json', JSON.stringify(out));
+          "
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-td.json \
+            --region us-east-1 \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "Registered $NEW_ARN"
+          echo "task_def_arn=$NEW_ARN" >> $GITHUB_OUTPUT
+
+      - name: Force-deploy ECS service
+        env:
+          NEW_ARN: ${{ steps.register.outputs.task_def_arn }}
+        run: |
+          aws ecs update-service \
+            --cluster seraphim-agents \
+            --service Seraphim-dev-Compute-AgentRuntimeServiceA417A3CA-Z1fTovcH1Dpx \
+            --task-definition "$NEW_ARN" \
+            --force-new-deployment \
+            --region us-east-1 \
+            --query 'service.deployments[0].status' --output text
+
+      - name: Summary
+        env:
+          IMAGE_URI: ${{ steps.build.outputs.image_uri }}
+          NEW_ARN: ${{ steps.register.outputs.task_def_arn }}
+        run: |
+          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: \`$IMAGE_URI\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Task definition: \`$NEW_ARN\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Service: \`seraphim-agents/Seraphim-dev-Compute-AgentRuntimeServiceA417A3CA\`" >> $GITHUB_STEP_SUMMARY

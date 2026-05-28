@@ -18,17 +18,24 @@ export interface HooksConfigMap {
 export const HOOKS_CONFIG: HooksConfigMap = {
   globalKillSwitch: false,
   hooks: {
-    'prompt-sanitizer':     { enabled: true, dryRun: true },
-    'code-generator':       { enabled: true, dryRun: true },
-    'dependency-validator': { enabled: true, dryRun: true },
-    'secret-scanner':       { enabled: true, dryRun: true },
+    // Code generation pipeline — these MUST run live for the dashboard
+    // chat narration and file streaming to work end-to-end.
+    'prompt-sanitizer':     { enabled: true, dryRun: false },
+    'code-generator':       { enabled: true, dryRun: false },
+    'dependency-validator': { enabled: true, dryRun: false },
+    'secret-scanner':       { enabled: true, dryRun: false },
     'preview-refresher':    { enabled: true, dryRun: true },
+
+    // Build + ship pipeline — keep dry-run by default so a stray click
+    // never spends real EAS/ASC quota. Operators flip these explicitly
+    // before a real build.
     'build-preparer':       { enabled: true, dryRun: true },
-    'sentry-provisioner':   { enabled: true, dryRun: true },
     'build-runner':         { enabled: true, dryRun: true },
     'asset-generator':      { enabled: true, dryRun: true },
     'store-listing-writer': { enabled: true, dryRun: true },
     'submission-prep':      { enabled: true, dryRun: true },
+
+    // Already verified end-to-end — safe to run live.
     'submitter':            { enabled: true, dryRun: false },
     'testflight-watcher':   { enabled: true, dryRun: false },
     'crash-watcher':        { enabled: true, dryRun: false },

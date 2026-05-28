@@ -16,6 +16,13 @@ import { initSentry } from './sentry.js';
 // authentication or app bootstrap.
 initSentry();
 
+// Build-time SHA banner so we can verify which bundle the user is loading.
+// Vite injects __BUILD_SHA__ at build time via define config.
+declare const __BUILD_SHA__: string;
+const buildSha = typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : 'dev';
+console.log(`%c[ZionX] dashboard build: ${buildSha}`, 'color:#6c8cff;font-weight:bold');
+(window as unknown as { __ZIONX_BUILD__?: string }).__ZIONX_BUILD__ = buildSha;
+
 const root = document.getElementById('root');
 
 if (!root) {

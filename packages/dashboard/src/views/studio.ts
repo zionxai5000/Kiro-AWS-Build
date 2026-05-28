@@ -17,6 +17,26 @@
  */
 
 import * as monaco from 'monaco-editor';
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+
+// Wire Monaco's web workers — without this, Monaco falls back to the main
+// thread for syntax + IntelliSense and throws "Unexpected usage" the first
+// time a TypeScript file opens. Vite's ?worker suffix turns each module
+// into a Worker constructor.
+(self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
+  getWorker(_workerId: string, label: string): Worker {
+    if (label === 'json') return new jsonWorker();
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
+    if (label === 'typescript' || label === 'javascript') return new tsWorker();
+    return new editorWorker();
+  },
+};
+
 import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
 import { captureUserAction, captureUserError } from '../sentry.js';
@@ -1081,15 +1101,30 @@ export class StudioView {
     });
 
     this.container.querySelector('#studio-send')?.addEventListener('click', () => {
+      captureUserAction('studio.sendButton.click', { activeTab: this.state.activeTab });
       const input = this.container.querySelector('#studio-input') as HTMLTextAreaElement | null;
-      if (!input) return;
+      if (!input) {
+        captureUserError(new Error('Send button: input element not found'), { activeTab: this.state.activeTab });
+        return;
+      }
       const text = input.value.trim();
+      captureUserAction('studio.sendButton.text', { length: text.length, preview: text.slice(0, 80) });
+      if (!text) {
+        captureUserAction('studio.sendButton.empty');
+        return;
+      }
       input.value = '';
-      void this.sendPrompt(text);
+      try {
+        void this.sendPrompt(text);
+        captureUserAction('studio.sendPrompt.invoked');
+      } catch (err) {
+        captureUserError(err, { stage: 'sendPrompt-sync-throw', text: text.slice(0, 80) });
+      }
     });
     this.container.querySelector('#studio-input')?.addEventListener('keydown', (e: Event) => {
       const ev = e as KeyboardEvent;
       if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+        captureUserAction('studio.sendKeyboard');
         ev.preventDefault();
         const input = ev.currentTarget as HTMLTextAreaElement;
         const text = input.value.trim();

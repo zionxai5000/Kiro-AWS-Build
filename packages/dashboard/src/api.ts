@@ -548,25 +548,54 @@ export async function streamGenerateCode(
   prompt: string,
   callbacks: SSEStreamCallbacks,
 ): Promise<AbortController> {
+  // Use console.log so every stage is visible in the browser devtools too.
+  // These breadcrumbs are the single source of truth when chat narration
+  // doesn't appear — they tell us exactly which stage of the SSE stream
+  // pipeline broke.
+  const log = (msg: string, extra?: Record<string, unknown>) => {
+    // eslint-disable-next-line no-console
+    console.log(`[stream] ${msg}`, extra ?? '');
+  };
+
+  log('streamGenerateCode start', { projectId, promptLength: prompt.length });
   const baseUrl = getBaseUrl();
   const isDirectALB = baseUrl.includes('elb.amazonaws.com');
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
   if (!isDirectALB) {
-    const token = await getAuthToken();
-    headers['Authorization'] = `Bearer ${token}`;
+    log('streamGenerateCode fetching auth token');
+    try {
+      const token = await getAuthToken();
+      headers['Authorization'] = `Bearer ${token}`;
+      log('streamGenerateCode auth token attached', { tokenLength: token.length });
+    } catch (err) {
+      log('streamGenerateCode auth token failed', { error: (err as Error).message });
+      callbacks.onError?.(`auth token failed: ${(err as Error).message}`);
+      return new AbortController();
+    }
   }
 
   const abort = new AbortController();
   const url = baseUrl + `/app-dev/projects/${encodeURIComponent(projectId)}/generate`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ prompt }),
-    signal: abort.signal,
-  });
+  log('streamGenerateCode POST', { url });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ prompt }),
+      signal: abort.signal,
+    });
+  } catch (err) {
+    log('streamGenerateCode fetch threw', { error: (err as Error).message });
+    callbacks.onError?.(`fetch threw: ${(err as Error).message}`);
+    return abort;
+  }
+  log('streamGenerateCode fetch returned', { status: response.status, hasBody: !!response.body });
 
   if (!response.ok || !response.body) {
-    callbacks.onError?.(`generate failed: ${response.status}`);
+    const text = await response.text().catch(() => '');
+    log('streamGenerateCode non-2xx', { status: response.status, body: text.slice(0, 200) });
+    callbacks.onError?.(`generate failed: ${response.status} ${text.slice(0, 200)}`);
     return abort;
   }
 

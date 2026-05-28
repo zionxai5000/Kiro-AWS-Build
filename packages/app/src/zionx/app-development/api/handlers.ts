@@ -1376,15 +1376,53 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         };
       }
       try {
-        const sentryConfig = JSON.parse(
-          await credentialManager.getCredential('sentry', 'config'),
-        ) as { authToken: string; org?: string; project?: string };
+        // Resolve Sentry credentials. Prefer individual env-var-mapped fields
+        // (auth-token, org, project) which is what production loads from
+        // seraphim/sentry. Fall back to a `config` JSON blob for legacy
+        // deployments that store the bundle as a single secret.
+        let authToken = '';
+        let org = 'zionxai';
+        let project = 'zionx-dashboard';
+        try {
+          authToken = await credentialManager.getCredential('sentry', 'auth-token');
+          const orgVal = await credentialManager.getCredential('sentry', 'org');
+          const projVal = await credentialManager.getCredential('sentry', 'project');
+          if (orgVal) org = orgVal;
+          if (projVal) project = projVal;
+        } catch {
+          // ignore — try config blob next
+        }
+        if (!authToken) {
+          try {
+            const blob = await credentialManager.getCredential('sentry', 'config');
+            if (blob) {
+              const parsed = JSON.parse(blob) as {
+                authToken?: string;
+                org?: string;
+                project?: string;
+              };
+              if (parsed.authToken) authToken = parsed.authToken;
+              if (parsed.org) org = parsed.org;
+              if (parsed.project) project = parsed.project;
+            }
+          } catch {
+            // both lookups exhausted; respond with a structured 503.
+          }
+        }
+        if (!authToken) {
+          return {
+            statusCode: 503,
+            body: {
+              error: 'Sentry credentials not configured',
+              hint: 'Set SENTRY_AUTH_TOKEN/SENTRY_ORG/SENTRY_PROJECT or seraphim/sentry secret with config.authToken',
+            },
+          };
+        }
         const { evaluateRecentSession } = await import('../services/spec-runner.js');
         const report = await evaluateRecentSession({
-          authToken: sentryConfig.authToken,
-          org: sentryConfig.org ?? 'zionxai',
-          // The dashboard browser app is the source of UX breadcrumbs.
-          project: sentryConfig.project ?? 'zionx-dashboard',
+          authToken,
+          org,
+          project,
           issueLimit: 25,
         });
         return { statusCode: 200, body: report };

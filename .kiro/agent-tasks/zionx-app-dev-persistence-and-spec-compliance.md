@@ -190,3 +190,54 @@ Going to research VibeCode (vibecodeapp.com) and Rork end-to-end:
 - Any settings / model picker / palette controls
 
 Output: `docs/research/vibecode-functionality-audit.md` with cited URLs.
+
+
+### 2026-05-28 — Streams B + C + D + E COMPLETE
+- Commit: `a28b819 feat(app-dev): VibeCode/Rork research + expanded spec runner + boot-time + hourly compliance`
+- Pushed to `origin/main`
+- 6 files changed, 713 insertions
+
+**Stream C (research)**: `docs/research/vibecode-functionality-audit.md` written end-to-end with citations to:
+- vibecodeapp.com/docs (index, creating-first-app, pinch-to-build, native-ui-components, sharing-app, deploy-app-store, troubleshooting, faqs)
+- rork.com/faq + docs.rork.com (build-your-first-app, prompting-strategy, rork-expo)
+All citations are direct URLs. Verbatim quotes capped at 30 words per source per licensing rules.
+
+**Stream B (spec doc)**: Already comprehensive — covers layout, screen states, 22 buttons, all backend contracts, SSE event taxonomy, project lifecycle, persistence guarantees, acceptance criteria, expected failure modes, out-of-scope. No additional work needed.
+
+**Stream D (rule expansion)**: 7 → 16 rules. Coverage expanded to:
+- Project list rehydration (the persistence guarantee)
+- Tab switching
+- Preview lifecycle resolution
+- Build queue → completion lifecycle
+- Deploy lifecycle
+- Cancel/abort handling
+- Health endpoint visibility
+- Branding picker iteration
+- Spec evaluation feedback
+
+**Stream E (continuous compliance)**:
+- `studio.session.start` fires on every dashboard mount with a stable sessionId
+- `evaluateSpecInBackground()` runs on mount → calls `/app-dev/spec/evaluate` → reports violations to Logs tab + Sentry as captured errors
+- `production-server.ts` schedules hourly spec cron with 5min initial delay, logs `[spec-cron] OK` or `[spec-cron] N violations`
+- All violations surface in Sentry's existing issue tracker → operator gets notified via existing alert rules
+
+### What's left: Stream F — Run the loop
+After this commit deploys, the next step is to:
+1. Open the live ZionX dashboard
+2. Click around (Send a prompt, Build, Deploy, etc.)
+3. Wait 5 min, check `/app-dev/spec/evaluate` in the Logs tab
+4. For each violation reported: trace to the breadcrumb, find the code path, fix
+5. Loop until violations.length = 0
+
+Stream F is operational, not coding — it requires real session data. The infrastructure to detect drift is done.
+
+### Status as of this checkpoint
+- [x] Stream A — Persistence (S3 mirror, hydrate at boot, /health durable flag) — DEPLOYED PENDING
+- [x] Stream B — Spec doc — `docs/zionx-studio-spec.md` complete
+- [x] Stream C — Research audit — `docs/research/vibecode-functionality-audit.md` complete
+- [x] Stream D — Rule set expanded 7 → 16
+- [x] Stream E — Boot + hourly compliance loop wired
+- [ ] Stream F — Run live and fix violations (operational, requires deploy + real traffic)
+
+### Next recommended action
+Push the new container so Stream A's persistence and Stream E's hourly cron go live. Tell King the loop is active, wait for the first cron run, surface findings.

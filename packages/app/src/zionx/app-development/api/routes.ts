@@ -118,5 +118,15 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
       path: '/app-dev/projects/:id/preview',
       handler: h.createPreview,
     },
+    {
+      method: 'GET',
+      path: '/app-dev/spec',
+      handler: h.getSpec,
+    },
+    {
+      method: 'POST',
+      path: '/app-dev/spec/evaluate',
+      handler: h.evaluateSpec,
+    },
   ];
 }

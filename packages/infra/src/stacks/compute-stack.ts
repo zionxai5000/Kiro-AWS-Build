@@ -203,6 +203,7 @@ export class ComputeStack extends cdk.Stack {
         PORT: '3000',
         SERAPHIM_MODE: 'production',
         AURORA_SECRET_NAME: 'SeraphimAuroraSecret3FC3811-bVxbXGVUFH2L',
+        ARTIFACTS_BUCKET: artifactsBucket.bucketName,
       },
       portMappings: [{ containerPort: 3000, protocol: ecs.Protocol.TCP }],
       healthCheck: {

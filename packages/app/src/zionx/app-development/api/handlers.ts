@@ -84,6 +84,10 @@ export interface AppDevHandlers {
   writeProjectFile: (req: APIRequest) => Promise<APIResponse>;
   /** POST /app-dev/projects/:id/preview — bundle workspace into an Expo Snack and return embed URL. */
   createPreview: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/spec — returns the canonical Studio behavior spec (markdown). */
+  getSpec: (req: APIRequest) => Promise<APIResponse>;
+  /** POST /app-dev/spec/evaluate — pull recent Sentry breadcrumbs and grade against the spec. */
+  evaluateSpec: (req: APIRequest) => Promise<APIResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,6 +1059,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       const watcherHealthy = watcherSupervisor.isHealthy();
       const hookCount = Object.keys(HOOKS_CONFIG.hooks).length;
       const enabledCount = Object.values(HOOKS_CONFIG.hooks).filter((h) => h.enabled).length;
+      const durable = workspace.hasDurableStore();
 
       return {
         statusCode: 200,
@@ -1066,6 +1071,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
             killSwitchOn: HOOKS_CONFIG.globalKillSwitch,
           },
           watcher: { healthy: watcherHealthy },
+          persistence: { durable },
           recentErrorRate: getRecentErrorRate(),
           checkedAt: new Date().toISOString(),
         },
@@ -1316,5 +1322,84 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         };
       }
     },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/spec
+    //   Returns the canonical ZionX Studio behavior spec — the contract the
+    //   dashboard MUST satisfy. Loaded from docs/zionx-studio-spec.md at the
+    //   monorepo root. The spec-runner uses this as the source of truth when
+    //   evaluating Sentry breadcrumb traces.
+    // -----------------------------------------------------------------------
+    async getSpec(_req: APIRequest): Promise<APIResponse> {
+      try {
+        const { readFile } = await import('node:fs/promises');
+        const { join } = await import('node:path');
+        // The repo root is two levels up from the WORKSPACE_ROOT
+        // (workspaces sits at <repo>/workspaces/, spec at <repo>/docs/).
+        const { WORKSPACE_ROOT } = await import('../workspace/workspace.js');
+        const repoRoot = join(WORKSPACE_ROOT, '..');
+        const specPath = join(repoRoot, 'docs', 'zionx-studio-spec.md');
+        const content = await readFile(specPath, 'utf-8');
+        const stat = await (await import('node:fs/promises')).stat(specPath);
+        return {
+          statusCode: 200,
+          body: {
+            version: extractSpecVersion(content) ?? '1.0.0',
+            content,
+            lastModified: stat.mtime.toISOString(),
+            bytes: content.length,
+          },
+        };
+      } catch (err) {
+        return {
+          statusCode: 404,
+          body: {
+            error: 'Spec document not found',
+            details: (err as Error).message,
+            hint: 'Expected at <repo>/docs/zionx-studio-spec.md',
+          },
+        };
+      }
+    },
+
+    // -----------------------------------------------------------------------
+    // POST /app-dev/spec/evaluate
+    //   Pulls the last N breadcrumbs from Sentry and runs them through the
+    //   spec-runner. Returns the report inline. The dashboard's compliance
+    //   tab can call this after a long session to grade itself.
+    // -----------------------------------------------------------------------
+    async evaluateSpec(_req: APIRequest): Promise<APIResponse> {
+      if (!credentialManager) {
+        return {
+          statusCode: 500,
+          body: { error: 'Credential manager not configured' },
+        };
+      }
+      try {
+        const sentryConfig = JSON.parse(
+          await credentialManager.getCredential('sentry', 'config'),
+        ) as { authToken: string; org?: string; project?: string };
+        const { evaluateRecentSession } = await import('../services/spec-runner.js');
+        const report = await evaluateRecentSession({
+          authToken: sentryConfig.authToken,
+          org: sentryConfig.org ?? 'zionxai',
+          // The dashboard browser app is the source of UX breadcrumbs.
+          project: sentryConfig.project ?? 'zionx-dashboard',
+          issueLimit: 25,
+        });
+        return { statusCode: 200, body: report };
+      } catch (err) {
+        return {
+          statusCode: 500,
+          body: { error: 'Spec evaluation failed', details: (err as Error).message },
+        };
+      }
+    },
   };
+}
+
+/** Pull the **Version** line out of the spec markdown front-matter. */
+function extractSpecVersion(content: string): string | null {
+  const match = content.match(/^\*\*Version\*\*:\s*([^\n]+)$/m);
+  return match ? match[1]!.trim() : null;
 }

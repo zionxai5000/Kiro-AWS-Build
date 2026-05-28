@@ -423,6 +423,9 @@ export class StudioView {
           };
           const prefix = icon[event.phase] ?? '•';
           this.state.liveNarration = `${prefix} ${event.message}`;
+          // Spec-runner aligned breadcrumb so the runner can observe
+          // streamStart and verify it eventually produces a streamDone.
+          if (event.phase === 'start') captureUserAction('studio.streamStart', { projectId });
           updateLive();
         },
         onToken: (chunk) => {
@@ -457,6 +460,8 @@ export class StudioView {
           this.state.liveAssistantIndex = null;
           this.state.liveNarration = null;
           this.state.generating = false;
+          // Spec-runner aligned: confirm the stream resolved successfully.
+          captureUserAction('studio.streamDone', { fileCount: realFiles.length });
           // Generate a short app summary for the preview pane
           this.generateAppSummary(text, realFiles);
           void this.refreshFiles();
@@ -473,6 +478,7 @@ export class StudioView {
           }
           this.state.liveAssistantIndex = null;
           this.state.liveNarration = null;
+          captureUserAction('studio.streamError', { message: msg });
           captureUserError(new Error(msg), { stage: 'generate-stream' });
           this.state.generating = false;
           this.renderAll();
@@ -594,6 +600,8 @@ export class StudioView {
       const snack: SnackPreview = await createPreview(this.state.projectId);
       this.state.previewUrl = snack.embedUrl;
       this.state.previewStatus = 'ready';
+      // Spec-runner aligned: preview success.
+      captureUserAction('studio.previewReady', { snackId: snack.snackId, fileCount: snack.fileCount });
       this.messages.push({
         role: 'assistant',
         text: `✨ Preview is live. Your app is rendering in the right panel — ${snack.fileCount} files bundled.`,
@@ -602,6 +610,7 @@ export class StudioView {
       const msg = (err as Error).message;
       this.state.previewStatus = 'error';
       this.state.previewError = msg;
+      captureUserAction('studio.previewError', { message: msg.slice(0, 200) });
       this.messages.push({
         role: 'assistant',
         text: `❌ Preview build failed: ${msg}\n\nThe code itself is fine — Snack rejects some native packages on web preview. Use Build iOS to ship the real version.`,
@@ -625,8 +634,11 @@ export class StudioView {
       const res = await startBuild(this.state.projectId, { platform, autoSubmit: false });
       this.state.latestBuildId = res.buildId;
       this.state.buildEvents.push(`${platform} build queued: ${res.buildId}`);
+      // Spec-runner aligned: build response received.
+      captureUserAction('studio.buildQueued', { platform, buildId: res.buildId });
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
+      captureUserAction('studio.buildError', { message: (err as Error).message.slice(0, 200) });
       this.messages.push({ role: 'assistant', text: `Build failed: ${(err as Error).message}` });
       captureUserError(err, { stage: 'start-build', platform });
     }
@@ -645,8 +657,11 @@ export class StudioView {
         platform,
         easBuildId: this.state.latestBuildId,
       });
+      // Spec-runner aligned: deploy started successfully.
+      captureUserAction('studio.deployStarted', { platform });
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
+      captureUserAction('studio.deployError', { message: (err as Error).message.slice(0, 200) });
       this.messages.push({ role: 'assistant', text: `Deploy failed: ${(err as Error).message}` });
       captureUserError(err, { stage: 'auto-submit', platform });
     }

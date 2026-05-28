@@ -134,6 +134,42 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
           "Statement": [
             {
               "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":ecr:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":repository/",
+                    {
+                      "Fn::Sub": "cdk-hnb659fds-container-assets-\${AWS::AccountId}-\${AWS::Region}",
+                    },
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": "ecr:GetAuthorizationToken",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
                 "logs:CreateLogStream",
                 "logs:PutLogEvents",
               ],
@@ -186,7 +222,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
             "Rollback": true,
           },
           "MaximumPercent": 200,
-          "MinimumHealthyPercent": 50,
+          "MinimumHealthyPercent": 100,
         },
         "DeploymentController": {
           "Type": "ECS",
@@ -325,6 +361,24 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
                   "Ref": "AWS::Region",
                 },
               },
+              {
+                "Name": "PORT",
+                "Value": "3000",
+              },
+              {
+                "Name": "SERAPHIM_MODE",
+                "Value": "production",
+              },
+              {
+                "Name": "AURORA_SECRET_NAME",
+                "Value": "SeraphimAuroraSecret3FC3811-bVxbXGVUFH2L",
+              },
+              {
+                "Name": "ARTIFACTS_BUCKET",
+                "Value": {
+                  "Fn::ImportValue": "TestDataStack:ExportsOutputRefArtifactsBucket2AAC55442DB5E6C9",
+                },
+              },
             ],
             "Essential": true,
             "HealthCheck": {
@@ -332,12 +386,14 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
                 "CMD-SHELL",
                 "curl -f http://localhost:3000/health || exit 1",
               ],
-              "Interval": 10,
-              "Retries": 3,
-              "StartPeriod": 30,
+              "Interval": 15,
+              "Retries": 5,
+              "StartPeriod": 60,
               "Timeout": 5,
             },
-            "Image": "node:20-slim",
+            "Image": {
+              "Fn::Sub": "\${AWS::AccountId}.dkr.ecr.\${AWS::Region}.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-\${AWS::AccountId}-\${AWS::Region}:8e09947626f0c74cf7a5bd3ddd35366f241e9d3d5c6c90eefceb96a31c937e62",
+            },
             "LogConfiguration": {
               "LogDriver": "awslogs",
               "Options": {
@@ -373,7 +429,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
           "FARGATE",
         ],
         "RuntimePlatform": {
-          "CpuArchitecture": "ARM64",
+          "CpuArchitecture": "X86_64",
           "OperatingSystemFamily": "LINUX",
         },
         "TaskRoleArn": {
@@ -577,24 +633,10 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               "Action": [
                 "secretsmanager:GetSecretValue",
                 "secretsmanager:DescribeSecret",
+                "secretsmanager:ListSecrets",
               ],
               "Effect": "Allow",
-              "Resource": {
-                "Fn::Join": [
-                  "",
-                  [
-                    "arn:aws:secretsmanager:",
-                    {
-                      "Ref": "AWS::Region",
-                    },
-                    ":",
-                    {
-                      "Ref": "AWS::AccountId",
-                    },
-                    ":secret:seraphim/*",
-                  ],
-                ],
-              },
+              "Resource": "*",
               "Sid": "SecretsManagerAccess",
             },
             {
@@ -661,15 +703,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::IAM::Policy",
     },
-    "AlertDLQC893C774": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "MessageRetentionPeriod": 1209600,
-        "QueueName": "seraphim-alert-events-dlq",
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
-    },
     "AlertHandler13C27ADA": {
       "DependsOn": [
         "LambdaExecutionRoleDefaultPolicy6D69732F",
@@ -732,14 +765,11 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
-    "AlertHandlerSqsEventSourceTestComputeStackAlertQueueA9B4D52E0B25F17E": {
+    "AlertHandlerSqsEventSourceTestMessagingStackAlertQueue41C06B4EC1FD8764": {
       "Properties": {
         "BatchSize": 5,
         "EventSourceArn": {
-          "Fn::GetAtt": [
-            "AlertQueue78A7D684",
-            "Arn",
-          ],
+          "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttAlertQueue78A7D684ArnD2227F3C",
         },
         "FunctionName": {
           "Ref": "AlertHandler13C27ADA",
@@ -747,33 +777,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
         "MaximumBatchingWindowInSeconds": 2,
       },
       "Type": "AWS::Lambda::EventSourceMapping",
-    },
-    "AlertQueue78A7D684": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "QueueName": "seraphim-alert-events",
-        "RedrivePolicy": {
-          "deadLetterTargetArn": {
-            "Fn::GetAtt": [
-              "AlertDLQC893C774",
-              "Arn",
-            ],
-          },
-          "maxReceiveCount": 3,
-        },
-        "VisibilityTimeout": 60,
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
-    },
-    "AuditDLQ88DC7299": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "MessageRetentionPeriod": 1209600,
-        "QueueName": "seraphim-audit-events-dlq",
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
     "AuditHandlerD2AD8C41": {
       "DependsOn": [
@@ -837,39 +840,17 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
-    "AuditHandlerSqsEventSourceTestComputeStackAuditQueueB42A2592E4C84BE7": {
+    "AuditHandlerSqsEventSourceTestMessagingStackAuditQueueF9A43400A5633BD7": {
       "Properties": {
         "BatchSize": 10,
         "EventSourceArn": {
-          "Fn::GetAtt": [
-            "AuditQueue1D3C234B",
-            "Arn",
-          ],
+          "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttAuditQueue1D3C234BArn6DFF590A",
         },
         "FunctionName": {
           "Ref": "AuditHandlerD2AD8C41",
         },
-        "MaximumBatchingWindowInSeconds": 5,
       },
       "Type": "AWS::Lambda::EventSourceMapping",
-    },
-    "AuditQueue1D3C234B": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "QueueName": "seraphim-audit-events",
-        "RedrivePolicy": {
-          "deadLetterTargetArn": {
-            "Fn::GetAtt": [
-              "AuditDLQ88DC7299",
-              "Arn",
-            ],
-          },
-          "maxReceiveCount": 3,
-        },
-        "VisibilityTimeout": 60,
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
     "LambdaExecutionRoleD5C26073": {
       "Properties": {
@@ -1021,10 +1002,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               ],
               "Effect": "Allow",
               "Resource": {
-                "Fn::GetAtt": [
-                  "AuditQueue1D3C234B",
-                  "Arn",
-                ],
+                "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttAuditQueue1D3C234BArn6DFF590A",
               },
             },
             {
@@ -1037,10 +1015,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               ],
               "Effect": "Allow",
               "Resource": {
-                "Fn::GetAtt": [
-                  "MemoryQueue4814398B",
-                  "Arn",
-                ],
+                "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttMemoryQueue4814398BArnE5E381FF",
               },
             },
             {
@@ -1053,10 +1028,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               ],
               "Effect": "Allow",
               "Resource": {
-                "Fn::GetAtt": [
-                  "AlertQueue78A7D684",
-                  "Arn",
-                ],
+                "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttAlertQueue78A7D684ArnD2227F3C",
               },
             },
             {
@@ -1069,10 +1041,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               ],
               "Effect": "Allow",
               "Resource": {
-                "Fn::GetAtt": [
-                  "WorkflowQueue883428C9",
-                  "Arn",
-                ],
+                "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttWorkflowQueue883428C9Arn1D8EB324",
               },
             },
             {
@@ -1085,10 +1054,7 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
               ],
               "Effect": "Allow",
               "Resource": {
-                "Fn::GetAtt": [
-                  "LearningQueue6E327ECF",
-                  "Arn",
-                ],
+                "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttLearningQueue6E327ECFArnE2D4E24D",
               },
             },
             {
@@ -1155,15 +1121,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::IAM::Policy",
     },
-    "LearningDLQ3FF2C584": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "MessageRetentionPeriod": 1209600,
-        "QueueName": "seraphim-learning-events-dlq",
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
-    },
     "LearningHandlerA545A44C": {
       "DependsOn": [
         "LambdaExecutionRoleDefaultPolicy6D69732F",
@@ -1226,14 +1183,11 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
-    "LearningHandlerSqsEventSourceTestComputeStackLearningQueueFEB0A0FFFEE57BC8": {
+    "LearningHandlerSqsEventSourceTestMessagingStackLearningQueueDDF3CDF2EF78208F": {
       "Properties": {
         "BatchSize": 10,
         "EventSourceArn": {
-          "Fn::GetAtt": [
-            "LearningQueue6E327ECF",
-            "Arn",
-          ],
+          "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttLearningQueue6E327ECFArnE2D4E24D",
         },
         "FunctionName": {
           "Ref": "LearningHandlerA545A44C",
@@ -1241,33 +1195,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
         "MaximumBatchingWindowInSeconds": 10,
       },
       "Type": "AWS::Lambda::EventSourceMapping",
-    },
-    "LearningQueue6E327ECF": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "QueueName": "seraphim-learning-events",
-        "RedrivePolicy": {
-          "deadLetterTargetArn": {
-            "Fn::GetAtt": [
-              "LearningDLQ3FF2C584",
-              "Arn",
-            ],
-          },
-          "maxReceiveCount": 3,
-        },
-        "VisibilityTimeout": 60,
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
-    },
-    "MemoryDLQ4E6BFD76": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "MessageRetentionPeriod": 1209600,
-        "QueueName": "seraphim-memory-events-dlq",
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
     "MemoryHandler88AB4C1A": {
       "DependsOn": [
@@ -1331,14 +1258,11 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
-    "MemoryHandlerSqsEventSourceTestComputeStackMemoryQueue3FAB03F8AAC00D9D": {
+    "MemoryHandlerSqsEventSourceTestMessagingStackMemoryQueue29B1B6043685ED00": {
       "Properties": {
         "BatchSize": 10,
         "EventSourceArn": {
-          "Fn::GetAtt": [
-            "MemoryQueue4814398B",
-            "Arn",
-          ],
+          "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttMemoryQueue4814398BArnE5E381FF",
         },
         "FunctionName": {
           "Ref": "MemoryHandler88AB4C1A",
@@ -1346,24 +1270,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
         "MaximumBatchingWindowInSeconds": 5,
       },
       "Type": "AWS::Lambda::EventSourceMapping",
-    },
-    "MemoryQueue4814398B": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "QueueName": "seraphim-memory-events",
-        "RedrivePolicy": {
-          "deadLetterTargetArn": {
-            "Fn::GetAtt": [
-              "MemoryDLQ4E6BFD76",
-              "Arn",
-            ],
-          },
-          "maxReceiveCount": 3,
-        },
-        "VisibilityTimeout": 60,
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
     "SeraphimCluster57FD387C": {
       "Properties": {
@@ -1376,15 +1282,6 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
         ],
       },
       "Type": "AWS::ECS::Cluster",
-    },
-    "WorkflowDLQDFB65C35": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "MessageRetentionPeriod": 1209600,
-        "QueueName": "seraphim-workflow-events-dlq",
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
     "WorkflowHandler6AB65591": {
       "DependsOn": [
@@ -1448,39 +1345,17 @@ exports[`ComputeStack > should match the CloudFormation snapshot 1`] = `
       },
       "Type": "AWS::Lambda::Function",
     },
-    "WorkflowHandlerSqsEventSourceTestComputeStackWorkflowQueueFE33C78EAEF61B38": {
+    "WorkflowHandlerSqsEventSourceTestMessagingStackWorkflowQueue5A4D7BEF6D2DC019": {
       "Properties": {
         "BatchSize": 10,
         "EventSourceArn": {
-          "Fn::GetAtt": [
-            "WorkflowQueue883428C9",
-            "Arn",
-          ],
+          "Fn::ImportValue": "TestMessagingStack:ExportsOutputFnGetAttWorkflowQueue883428C9Arn1D8EB324",
         },
         "FunctionName": {
           "Ref": "WorkflowHandler6AB65591",
         },
-        "MaximumBatchingWindowInSeconds": 5,
       },
       "Type": "AWS::Lambda::EventSourceMapping",
-    },
-    "WorkflowQueue883428C9": {
-      "DeletionPolicy": "Delete",
-      "Properties": {
-        "QueueName": "seraphim-workflow-events",
-        "RedrivePolicy": {
-          "deadLetterTargetArn": {
-            "Fn::GetAtt": [
-              "WorkflowDLQDFB65C35",
-              "Arn",
-            ],
-          },
-          "maxReceiveCount": 3,
-        },
-        "VisibilityTimeout": 60,
-      },
-      "Type": "AWS::SQS::Queue",
-      "UpdateReplacePolicy": "Delete",
     },
   },
   "Rules": {

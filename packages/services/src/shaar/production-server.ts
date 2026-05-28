@@ -1294,9 +1294,43 @@ async function main() {
   try {
     const { createAppDevRoutes } = await import('@seraphim/app/zionx/app-development/api/routes.js');
     const { WatcherSupervisor } = await import('@seraphim/app/zionx/app-development/events/watcher-supervisor.js');
-    const { Workspace } = await import('@seraphim/app/zionx/app-development/workspace/workspace.js');
+    const { Workspace, WORKSPACE_ROOT } = await import('@seraphim/app/zionx/app-development/workspace/workspace.js');
+    const { S3WorkspaceStore } = await import('@seraphim/app/zionx/app-development/services/s3-workspace-store.js');
 
     const appDevWorkspace = new Workspace();
+
+    // Wire durable persistence so workspaces survive Fargate task restarts.
+    // Bucket name comes from CDK (ARTIFACTS_BUCKET env). Fallback to the
+    // verified production bucket name. If neither resolves, run in
+    // local-only mode and warn loudly.
+    const artifactsBucket =
+      process.env.ARTIFACTS_BUCKET ??
+      'seraphim-dev-data-artifactsbucket2aac5544-gal6kvabins7';
+    if (artifactsBucket) {
+      try {
+        const store = new S3WorkspaceStore({
+          bucketName: artifactsBucket,
+          region: process.env.AWS_REGION ?? 'us-east-1',
+        });
+        // Hydrate at boot so any project written before the last restart is
+        // restored before the file watcher starts walking the tree.
+        const report = await store.hydrateAll(WORKSPACE_ROOT);
+        console.log(
+          `✅ [app-dev] Hydrated ${report.projectsRestored} project(s), ` +
+          `${report.filesRestored} file(s) from s3://${artifactsBucket} in ${report.durationMs}ms`,
+        );
+        appDevWorkspace.setDurableStore(store);
+        console.log('✅ [app-dev] Durable workspace mirror wired (writes mirror to S3)');
+      } catch (s3Err) {
+        console.warn(
+          '[app-dev] Durable workspace store failed to initialize — projects will NOT survive restart:',
+          (s3Err as Error).message,
+        );
+      }
+    } else {
+      console.warn('[app-dev] No ARTIFACTS_BUCKET — running in ephemeral mode (projects do NOT survive restart)');
+    }
+
     const appDevSupervisor = new WatcherSupervisor({
       eventBus: eventBusService as any,
       stabilityThresholdMs: 300,

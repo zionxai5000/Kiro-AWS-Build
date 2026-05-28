@@ -33,7 +33,7 @@ async function api(token: string, path: string) {
 const seenIssues = new Set<string>();
 
 async function pollOnce(token: string, org: string, project: string) {
-  const issues = await api(token, `/projects/${org}/${project}/issues/?statsPeriod=1h&sort=date`);
+  const issues = await api(token, `/projects/${org}/${project}/issues/?statsPeriod=24h&sort=date`);
   if (issues.status !== 200) {
     console.log(`Sentry API error: ${issues.status} ${JSON.stringify(issues.body).slice(0, 200)}`);
     return;

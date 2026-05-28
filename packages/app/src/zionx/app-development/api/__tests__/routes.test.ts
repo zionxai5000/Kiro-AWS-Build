@@ -37,9 +37,9 @@ function createMockDeps() {
 // ---------------------------------------------------------------------------
 
 describe('createAppDevRoutes', () => {
-  it('returns 19 routes', () => {
+  it('returns 21 routes', () => {
     const routes = createAppDevRoutes(createMockDeps());
-    expect(routes).toHaveLength(19);
+    expect(routes).toHaveLength(21);
   });
 
   it('all routes have /app-dev/ prefix', () => {
@@ -72,6 +72,8 @@ describe('createAppDevRoutes', () => {
     expect(routeMap).toContain('GET /app-dev/projects/:id/file');
     expect(routeMap).toContain('PUT /app-dev/projects/:id/file');
     expect(routeMap).toContain('POST /app-dev/projects/:id/preview');
+    expect(routeMap).toContain('GET /app-dev/spec');
+    expect(routeMap).toContain('POST /app-dev/spec/evaluate');
   });
 
   it('confirm-submit has requireHumanOrigin: true', () => {

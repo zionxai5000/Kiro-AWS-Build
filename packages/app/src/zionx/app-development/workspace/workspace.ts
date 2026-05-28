@@ -17,6 +17,7 @@
 import { resolve, join, relative, isAbsolute, dirname } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { readFile as readFileAsync, writeFile as writeFileAsync, mkdir, readdir, stat } from 'node:fs/promises';
+import type { S3WorkspaceStore } from '../services/s3-workspace-store.js';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -139,6 +140,32 @@ function validateProjectId(projectId: string): void {
 // ---------------------------------------------------------------------------
 
 export class Workspace {
+  /**
+   * Optional durable storage backend. When set, every writeFile / writeBinaryFile
+   * mirrors to S3 in the background so workspaces survive Fargate restarts.
+   * Reads always go through the local filesystem; the S3 store is hydrated to
+   * disk at server boot via S3WorkspaceStore.hydrateAll().
+   */
+  private durableStore: S3WorkspaceStore | null = null;
+
+  /**
+   * Inject the S3 store at boot (after hydrateAll completes). Optional.
+   * If never set, Workspace operates in local-only mode (matches pre-Phase-A
+   * behavior).
+   */
+  setDurableStore(store: S3WorkspaceStore): void {
+    this.durableStore = store;
+  }
+
+  /**
+   * Inspect whether durable persistence is wired. Used by /app-dev/health to
+   * surface "projects are persistent" vs "projects are ephemeral" to the
+   * dashboard.
+   */
+  hasDurableStore(): boolean {
+    return this.durableStore !== null;
+  }
+
   /**
    * Get the absolute path to a project's workspace directory.
    */
@@ -264,6 +291,10 @@ export class Workspace {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     await writeFileAsync(filePath, content, 'utf-8');
+    // Mirror to durable storage (best-effort, never blocks).
+    if (this.durableStore) {
+      void this.durableStore.mirrorFile(projectId, relativePath, content);
+    }
   }
 
   /**
@@ -279,6 +310,10 @@ export class Workspace {
     const dir = dirname(filePath);
     await mkdir(dir, { recursive: true });
     await writeFileAsync(filePath, content);
+    // Mirror to durable storage (best-effort, never blocks).
+    if (this.durableStore) {
+      void this.durableStore.mirrorFile(projectId, relativePath, content);
+    }
   }
 
   /**

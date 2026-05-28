@@ -26,6 +26,7 @@ import { run as runSubmissionPrep } from '../pipeline/09-submission-prep.js';
 import { run as runSubmitter } from '../pipeline/09b-submitter.js';
 import { run as runTestFlightWatcher } from '../pipeline/10b-testflight-watcher.js';
 import { run as runCrashWatcher, verifySentrySignature } from '../pipeline/10-crash-watcher.js';
+import { run as runSecretScanner } from '../pipeline/04-secret-scanner.js';
 import { LLMService } from '../services/llm-service.js';
 import { isHookDryRun } from '../config/hooks.config.js';
 import { HOOKS_CONFIG } from '../config/hooks.config.js';
@@ -74,6 +75,12 @@ export interface AppDevHandlers {
   getHealth: (req: APIRequest) => Promise<APIResponse>;
   /** GET /app-dev/escalations — list unresolved escalations. */
   listEscalations: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/projects — list every workspace with metadata. */
+  listProjects: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/projects/:id/file?path=... — read a single file. */
+  readProjectFile: (req: APIRequest) => Promise<APIResponse>;
+  /** PUT /app-dev/projects/:id/file?path=... — write a single file (with secret-scan). */
+  writeProjectFile: (req: APIRequest) => Promise<APIResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +135,16 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
 
       // Create workspace directory
       await workspace.ensureProjectDir(projectId);
+
+      // Persist project metadata so the dashboard project list can show
+      // friendly names and original prompts on revisit.
+      await workspace.writeProjectMeta(projectId, {
+        name: body.name,
+        description: body.description,
+        prompt: body.description,
+      }).catch(() => {
+        /* meta is best-effort; never block creation */
+      });
 
       // Publish event
       await eventBus.publish(createAppDevEvent(
@@ -187,6 +204,25 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
             res.write(`data: ${JSON.stringify(data)}\n\n`);
           };
 
+          // Send a narration update to the client AND log to CloudWatch so
+          // operators can watch progress from both ends.
+          const narrate = (
+            phase: string,
+            message: string,
+            extra: Record<string, unknown> = {},
+          ) => {
+            const payload = {
+              type: 'phase',
+              phase,
+              message,
+              timestamp: new Date().toISOString(),
+              projectId,
+              ...extra,
+            };
+            console.log(`[code-gen][${projectId}] ${phase}: ${message}`);
+            sendEvent(payload);
+          };
+
           // Dry-run path (Refinement 5)
           if (dryRun) {
             sendEvent({
@@ -199,18 +235,25 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
             return;
           }
 
+          narrate('start', `Generation started for project ${projectId} (prompt length: ${prompt.length} chars)`);
+
           // Run sanitizer (Hook 1) synchronously
           const sanitizerCtx = {
             executionId: randomUUID(),
             dryRun: false,
             startedAt: new Date().toISOString(),
-            log: (msg: string) => { /* silent in SSE context */ },
+            log: (msg: string) => console.log(`[sanitizer][${projectId}] ${msg}`),
           };
+
+          narrate('sanitize', 'Scanning prompt for secrets and sensitive data');
 
           runSanitizer({ promptId: randomUUID(), raw: prompt, projectId }, sanitizerCtx)
             .then(async (sanitizerResult) => {
               // Check for halt-severity secrets
               if (!sanitizerResult.success || (sanitizerResult.data && !sanitizerResult.data.passed)) {
+                narrate('blocked', 'Halt-severity secrets detected in prompt — generation aborted', {
+                  warnings: sanitizerResult.data?.warnings ?? [],
+                });
                 sendEvent({
                   type: 'error',
                   reason: 'secrets_detected',
@@ -220,39 +263,84 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                 return;
               }
 
+              const warnings = sanitizerResult.data?.warnings ?? [];
+              if (warnings.length > 0) {
+                narrate(
+                  'sanitize-warnings',
+                  `${warnings.length} non-blocking warning${warnings.length === 1 ? '' : 's'} from sanitizer`,
+                  { warnings },
+                );
+              } else {
+                narrate('sanitize-clean', 'No secrets detected — proceeding to LLM');
+              }
+
               const sanitizedPrompt = sanitizerResult.data?.sanitized ?? prompt;
 
               // Set up LLM service
               if (!credentialManager) {
+                narrate('error', 'Credential manager not configured — cannot reach Anthropic');
                 sendEvent({ type: 'error', message: 'Credential manager not configured' });
                 res.end();
                 return;
               }
+
+              narrate('llm-connect', 'Calling Anthropic Claude (claude-sonnet-4) with full system prompt');
 
               const llmService = new LLMService({
                 credentialManager,
                 recentWrites: watcherSupervisor.getWatcher()?.getRecentWrites(),
               });
 
+              let filesWritten = 0;
+              let tokensReceived = 0;
+              let lastTokenReport = 0;
+
               try {
                 const result = await llmService.streamGeneration(sanitizedPrompt, {
                   onToken: (text) => {
+                    tokensReceived += text.length;
+                    // Throttled progress beacon every ~2k chars
+                    if (tokensReceived - lastTokenReport > 2000) {
+                      narrate('streaming', `Streaming from Claude — ${tokensReceived} chars received`, {
+                        bytesReceived: tokensReceived,
+                      });
+                      lastTokenReport = tokensReceived;
+                    }
                     sendEvent({ type: 'token', content: text });
                   },
                   onFileStart: (path) => {
+                    narrate('file-start', `Starting to write ${path}`, { path });
                     sendEvent({ type: 'file_start', path });
                   },
                   onFileEnd: async (path, content) => {
                     // Write completed file to workspace
                     await workspace.writeFile(projectId, path, content);
+                    filesWritten += 1;
+                    narrate('file-end', `Wrote ${path} (${content.length} bytes)`, {
+                      path,
+                      bytes: content.length,
+                      filesWritten,
+                    });
                     sendEvent({ type: 'file_end', path });
                   },
                   onComplete: (files) => {
+                    narrate('complete', `Generation complete — ${files.length} files written`, {
+                      files,
+                      tokensReceived,
+                    });
                     sendEvent({ type: 'done', files });
                   },
                   onError: (error) => {
+                    narrate('error', `LLM error: ${error.message}`, { error: error.message });
                     sendEvent({ type: 'error', message: error.message });
                   },
+                });
+
+                narrate('summary', `Done. ${result.files.length} files, ${result.tokensUsed.input}+${result.tokensUsed.output} tokens, ${result.durationMs}ms`, {
+                  fileCount: result.files.length,
+                  inputTokens: result.tokensUsed.input,
+                  outputTokens: result.tokensUsed.output,
+                  durationMs: result.durationMs,
                 });
 
                 // Publish hook completed event
@@ -271,6 +359,9 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                   req.tenantId,
                 ));
               } catch (error) {
+                narrate('error', `Generation threw: ${(error as Error).message}`, {
+                  error: (error as Error).message,
+                });
                 sendEvent({ type: 'error', message: (error as Error).message });
 
                 // Publish hook failed event
@@ -996,6 +1087,139 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           escalations: records.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         },
       };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects
+    //   Returns every workspace with file count, mtimes, and the original
+    //   prompt (when stored under .meta/project.json). Used by the studio
+    //   sidebar to populate the saved-projects list.
+    // -----------------------------------------------------------------------
+    async listProjects(_req: APIRequest): Promise<APIResponse> {
+      const ids = await workspace.listProjects();
+      const records = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return await workspace.getProjectMeta(id);
+          } catch {
+            return { projectId: id, fileCount: 0, createdAt: null, updatedAt: null };
+          }
+        }),
+      );
+      // newest first
+      records.sort((a, b) => {
+        const aT = a.updatedAt ?? a.createdAt ?? '';
+        const bT = b.updatedAt ?? b.createdAt ?? '';
+        return bT.localeCompare(aT);
+      });
+      return {
+        statusCode: 200,
+        body: { count: records.length, projects: records },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/file?path=relative/path.ts
+    //   Single-file read used by the in-browser code editor. Returns plain
+    //   text (UTF-8) plus the resolved relative path so the client can verify.
+    // -----------------------------------------------------------------------
+    async readProjectFile(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      const filePath = req.query?.['path'] as string | undefined;
+      if (!projectId) {
+        return { statusCode: 400, body: { error: 'project id is required' } };
+      }
+      if (!filePath) {
+        return { statusCode: 400, body: { error: 'query parameter "path" is required' } };
+      }
+
+      try {
+        const content = await workspace.readFile(projectId, filePath);
+        return {
+          statusCode: 200,
+          body: { projectId, path: filePath, content },
+        };
+      } catch (err) {
+        const msg = (err as Error).message ?? '';
+        if (msg.includes('ENOENT')) {
+          return { statusCode: 404, body: { error: 'file not found', path: filePath } };
+        }
+        return { statusCode: 400, body: { error: msg } };
+      }
+    },
+
+    // -----------------------------------------------------------------------
+    // PUT /app-dev/projects/:id/file?path=...
+    //   Body: { content: string }
+    //   Runs Hook 4 (secret-scanner) before writing. Halt-severity matches
+    //   short-circuit and the file is rejected; warn-only matches still write
+    //   but the response includes the warnings list.
+    // -----------------------------------------------------------------------
+    async writeProjectFile(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      const filePath = req.query?.['path'] as string | undefined;
+      const body = req.body as { content?: string } | null;
+
+      if (!projectId) {
+        return { statusCode: 400, body: { error: 'project id is required' } };
+      }
+      if (!filePath) {
+        return { statusCode: 400, body: { error: 'query parameter "path" is required' } };
+      }
+      if (!body || typeof body.content !== 'string') {
+        return { statusCode: 400, body: { error: 'body.content (string) is required' } };
+      }
+
+      // Secret scan the proposed content before persisting
+      const ctx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: () => {},
+      };
+      const scanResult = await runSecretScanner(
+        { projectId, filePath, content: body.content },
+        ctx,
+      );
+      const scanWarnings = scanResult.data?.warnings ?? [];
+      const halt = scanResult.success === false;
+      if (halt) {
+        return {
+          statusCode: 422,
+          body: {
+            error: 'secret-scanner blocked write',
+            warnings: scanWarnings,
+          },
+        };
+      }
+
+      try {
+        await workspace.writeFile(projectId, filePath, body.content);
+        // Best-effort: refresh updatedAt on existing meta without clobbering
+        // the original name/prompt
+        try {
+          const existing = JSON.parse(await workspace.readFile(projectId, '.meta/project.json'));
+          await workspace.writeProjectMeta(projectId, {
+            name: existing?.name ?? filePath,
+            prompt: existing?.prompt,
+            description: existing?.description,
+          });
+        } catch { /* meta optional */ }
+        return {
+          statusCode: 200,
+          body: {
+            projectId,
+            path: filePath,
+            bytesWritten: Buffer.byteLength(body.content, 'utf-8'),
+            warnings: scanWarnings,
+          },
+        };
+      } catch (err) {
+        return {
+          statusCode: 500,
+          body: { error: (err as Error).message },
+        };
+      }
     },
   };
 }

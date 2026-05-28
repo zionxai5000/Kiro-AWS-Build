@@ -1,24 +1,32 @@
 /**
- * ZionX App Development Studio — Dashboard View
+ * ZionX App Development Studio — VibeCode/Rork-parity view.
  *
- * Wired end-to-end to the backend pipeline (Phase 10):
- *  - Send button → POST /app-dev/projects then SSE-stream /generate
- *  - File tree panel reflects workspace contents
- *  - Build button → POST /app-dev/projects/:id/build
- *  - Deploy button → POST /app-dev/projects/:id/auto-submit-and-watch
- *  - Logs panel pulls metrics + recent crash events
- *  - Escalations panel polls /app-dev/escalations
- *  - Preview pane: fallback to latest screenshot + Expo Go QR until live preview lands.
- *  - Auth: every fetch uses Cognito bearer token via api.ts helpers.
+ * Layout:
+ *   ┌──────────────┬─────────────────────────┬─────────────┬──────────┐
+ *   │ Project list │ Chat / Code / Files /    │ Preview     │ Tools    │
+ *   │ (sidebar)    │ Logs / Design (tabs)     │ (iframe)    │ (rail)   │
+ *   └──────────────┴─────────────────────────┴─────────────┴──────────┘
+ *
+ *   Chat tab: prompt input + streaming generation
+ *   Files tab: live tree, click any file to open it in the Code tab
+ *   Code tab: Monaco editor on the selected file, save back to workspace
+ *   Logs tab: build/SSE/error events
+ *   Design tab: branding library
+ *
+ * Every button below calls a real backend endpoint via api.ts. No mock data.
  */
 
+import * as monaco from 'monaco-editor';
 import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
 import { captureUserAction, captureUserError } from '../sentry.js';
 import {
   createAppDevProject,
   getAppDevProject,
+  listAppDevProjects,
   listAppDevFiles,
+  readAppDevFile,
+  writeAppDevFile,
   startBuild,
   autoSubmitAndWatch,
   fetchAppDevEscalations,
@@ -26,204 +34,77 @@ import {
   streamGenerateCode,
   type AppDevEscalation,
   type AppDevHealth,
+  type AppDevProjectListEntry,
   DashboardWebSocket,
   type WebSocketMessage,
 } from '../api.js';
 
 // ---------------------------------------------------------------------------
-// Local-storage keys (so a refresh restores the studio session)
+// Types
 // ---------------------------------------------------------------------------
 
-const LS_KEYS = {
-  projectId: 'zionx_studio_project_id',
-} as const;
+type StudioTab = 'chat' | 'files' | 'code' | 'logs' | 'design';
 
-// ---------------------------------------------------------------------------
-// Tool Panel Content Generators (kept compact — heavy panels live elsewhere)
-// ---------------------------------------------------------------------------
-
-function renderPreviewPanel(state: StudioState): string {
-  const screenshotUrl = state.projectId
-    ? `${window.location.origin}/api/app-dev/projects/${state.projectId}/files?path=assets/icon.png`
-    : '';
-  const qrTarget =
-    state.projectId
-      ? `exp://expo.dev/--/projects/${state.projectId}`
-      : 'https://expo.dev';
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qrTarget)}`;
-  return `
-    <div class="studio__panel">
-      <h3 class="studio__panel-title">👁️ Preview</h3>
-      <div class="studio__panel-section">
-        <div style="background:#f5f5f7;border-radius:12px;padding:12px;text-align:center;">
-          ${screenshotUrl ? `<img src="${screenshotUrl}" alt="latest icon" style="max-width:100%;border-radius:8px;" onerror="this.style.display='none'"/>` : '<p>Build the app to see a preview.</p>'}
-        </div>
-        <p class="studio__panel-desc" style="margin-top:8px;font-size:11px;color:#999;">Live Expo preview lands tomorrow — for now we show the latest generated icon.</p>
-      </div>
-      <div class="studio__panel-section">
-        <h4>Open on a real device (Expo Go)</h4>
-        <div style="text-align:center;background:#fff;padding:12px;border-radius:12px;">
-          <img src="${qrUrl}" alt="Expo Go QR code" />
-        </div>
-      </div>
-    </div>
-  `;
+interface FileNode {
+  path: string;
+  status: 'streaming' | 'complete';
 }
 
-function renderFilesPanel(state: StudioState): string {
-  if (!state.projectId) {
-    return `
-      <div class="studio__panel">
-        <h3 class="studio__panel-title">📁 Files</h3>
-        <p class="studio__panel-desc">Send your first prompt to generate a project.</p>
-      </div>
-    `;
-  }
-  const tree = state.files.length === 0
-    ? '<div class="studio__panel-empty">No files generated yet.</div>'
-    : state.files.map((f) => `<div class="studio__file-item">📄 ${f}</div>`).join('');
-  return `
-    <div class="studio__panel">
-      <h3 class="studio__panel-title">📁 Files (${state.files.length})</h3>
-      <div class="studio__panel-section">
-        <div class="studio__file-tree-mini">${tree}</div>
-      </div>
-      <div class="studio__panel-section">
-        <button class="studio__btn studio__btn--ghost" data-action="refresh-files">🔁 Refresh</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderLogsPanel(state: StudioState): string {
-  const buildLogs = state.buildEvents.length === 0
-    ? '<code>No build activity yet.</code>'
-    : state.buildEvents.slice(-10).map((e) => `<code>${escapeHtml(e)}</code>`).join('<br/>');
-  const crashes = state.crashes.length === 0
-    ? '<div class="studio__panel-empty">No crashes observed.</div>'
-    : state.crashes.slice(-5).map((c) => `<div class="studio__file-item">⚠️ ${escapeHtml(c)}</div>`).join('');
-  return `
-    <div class="studio__panel">
-      <h3 class="studio__panel-title">📋 Logs</h3>
-      <div class="studio__panel-section">
-        <h4>Build Output</h4>
-        <div class="studio__panel-logs">${buildLogs}</div>
-      </div>
-      <div class="studio__panel-section">
-        <h4>Recent Crashes (Sentry)</h4>
-        ${crashes}
-      </div>
-    </div>
-  `;
-}
-
-function renderDeployPanel(_state: StudioState): string {
-  return `
-    <div class="studio__panel">
-      <h3 class="studio__panel-title">🚀 Deploy</h3>
-      <div class="studio__panel-section">
-        <h4>iOS — TestFlight</h4>
-        <button class="studio__btn studio__btn--primary" data-action="deploy-ios">📤 Submit to TestFlight</button>
-      </div>
-      <div class="studio__panel-section">
-        <h4>Android — Play (Internal)</h4>
-        <button class="studio__btn studio__btn--primary" data-action="deploy-android">📤 Submit to Internal Track</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderEscalationsPanel(state: StudioState): string {
-  const items = state.escalations.length === 0
-    ? '<div class="studio__panel-empty">No active escalations — all hooks are healthy.</div>'
-    : state.escalations.map((e) => `
-        <div class="studio__file-item" style="border-left:3px solid #ffd166;padding-left:8px;margin-bottom:8px;">
-          <strong>${escapeHtml(e.hookId)}</strong> · ${e.status} · ${escapeHtml(e.reason)}
-          ${e.notes ? `<div style="font-size:11px;color:#666;">${escapeHtml(e.notes)}</div>` : ''}
-          <button class="studio__btn studio__btn--ghost studio__btn--sm" data-action="take-over" data-escalation-id="${e.id}">Take Over</button>
-        </div>
-      `).join('');
-  const health = state.health
-    ? `<div class="studio__panel-empty">Status: ${state.health.status} · errorRate ${(state.health.recentErrorRate * 100).toFixed(1)}%</div>`
-    : '';
-  return `
-    <div class="studio__panel">
-      <h3 class="studio__panel-title">⚠️ Escalations</h3>
-      ${health}
-      <div class="studio__panel-section">${items}</div>
-    </div>
-  `;
-}
-
-function renderDesignPanel(): string {
-  const categoryTabs = BRANDING_CATEGORIES.map(c =>
-    `<button class="studio__branding-tab" data-branding-category="${c.id}">${c.icon} ${c.label}</button>`
-  ).join('');
-  const styleCards = BRANDING_STYLES.map(s =>
-    `<div class="studio__branding-card" data-branding-style="${s.id}" data-style-category="${s.category}">
-      <div class="studio__branding-swatch" style="background: ${s.gradient}"></div>
-      <div class="studio__branding-info">
-        <span class="studio__branding-badge">${s.category}</span>
-        <h5 class="studio__branding-name">${s.name}</h5>
-        <p class="studio__branding-desc">${s.description}</p>
-        <span class="studio__branding-inspiration">Inspired by ${s.inspiration}</span>
-        <button class="studio__btn studio__btn--primary studio__btn--sm studio__branding-apply" data-prompt="Apply the ${s.name} branding style to my app. This style is inspired by ${s.inspiration}: ${s.description}">Use This Style</button>
-      </div>
-    </div>`
-  ).join('');
-  return `
-    <div class="studio__panel studio__panel--branding">
-      <h3 class="studio__panel-title">🎨 Branding Library</h3>
-      <p class="studio__panel-desc">50 branding styles — pick one to instantly apply a professional design system.</p>
-      <div class="studio__branding-search"><input type="text" class="studio__panel-input" placeholder="Search styles..." id="branding-search" /></div>
-      <div class="studio__branding-tabs" id="branding-tabs">${categoryTabs}</div>
-      <div class="studio__branding-grid" id="branding-grid">${styleCards}</div>
-    </div>
-  `;
+interface StudioState {
+  projects: AppDevProjectListEntry[];
+  projectId: string | null;
+  files: FileNode[];
+  openFilePath: string | null;
+  openFileContent: string;
+  openFileDirty: boolean;
+  activeTab: StudioTab;
+  generating: boolean;
+  buildEvents: string[];
+  health: AppDevHealth | null;
+  escalations: AppDevEscalation[];
+  latestBuildId: string | null;
+  brandingFilter: string;
+  brandingSearch: string;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+const LS_PROJECT_KEY = 'zionx_studio_project_id';
+
 function escapeHtml(s: string): string {
   return s
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
-interface StudioState {
-  projectId: string | null;
-  files: string[];
-  buildEvents: string[];
-  crashes: string[];
-  escalations: AppDevEscalation[];
-  health: AppDevHealth | null;
-  latestBuildId: string | null;
-  generating: boolean;
+function fmtTime(iso: string | null): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Tool Definitions
-// ---------------------------------------------------------------------------
-
-interface ToolDef {
-  id: string;
-  icon: string;
-  label: string;
-  renderPanel: (state: StudioState) => string;
+function langForPath(path: string): string {
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
+  if (path.endsWith('.js') || path.endsWith('.jsx') || path.endsWith('.mjs')) return 'javascript';
+  if (path.endsWith('.json')) return 'json';
+  if (path.endsWith('.md')) return 'markdown';
+  if (path.endsWith('.css')) return 'css';
+  if (path.endsWith('.html')) return 'html';
+  if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'yaml';
+  if (path.endsWith('.py')) return 'python';
+  if (path.endsWith('.sh')) return 'shell';
+  if (path.endsWith('.patch')) return 'diff';
+  return 'plaintext';
 }
-
-const TOOLS: ToolDef[] = [
-  { id: 'preview', icon: '👁️', label: 'Preview', renderPanel: renderPreviewPanel },
-  { id: 'files', icon: '📁', label: 'Files', renderPanel: renderFilesPanel },
-  { id: 'design', icon: '🎨', label: 'Design', renderPanel: renderDesignPanel },
-  { id: 'logs', icon: '📋', label: 'Logs', renderPanel: renderLogsPanel },
-  { id: 'deploy', icon: '🚀', label: 'Deploy', renderPanel: renderDeployPanel },
-  { id: 'escalations', icon: '⚠️', label: 'Help', renderPanel: renderEscalationsPanel },
-];
 
 // ---------------------------------------------------------------------------
 // Studio View
@@ -231,81 +112,100 @@ const TOOLS: ToolDef[] = [
 
 export class StudioView {
   private container: HTMLElement;
-  private messages: { role: 'user' | 'assistant' | 'system'; text: string }[] = [
-    { role: 'system', text: 'Welcome to ZionX Studio. Describe the app you want to build.' },
-  ];
-  private activeTool = 'preview';
-  private toolPanelOpen = false;
   private state: StudioState = {
+    projects: [],
     projectId: null,
     files: [],
-    buildEvents: [],
-    crashes: [],
-    escalations: [],
-    health: null,
-    latestBuildId: null,
+    openFilePath: null,
+    openFileContent: '',
+    openFileDirty: false,
+    activeTab: 'chat',
     generating: false,
+    buildEvents: [],
+    health: null,
+    escalations: [],
+    latestBuildId: null,
+    brandingFilter: 'all',
+    brandingSearch: '',
   };
+  private messages: { role: 'user' | 'assistant' | 'system'; text: string }[] = [
+    { role: 'system', text: 'Welcome to ZionX Studio. Describe an app to start, or pick a saved project from the left.' },
+  ];
+  private editor: monaco.editor.IStandaloneCodeEditor | null = null;
   private ws: DashboardWebSocket | null = null;
-  private escalationPollHandle: number | null = null;
-  private currentStreamAbort: AbortController | null = null;
+  private pollHandle: number | null = null;
+  private currentStream: AbortController | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
   }
 
   async mount(): Promise<void> {
-    // Try to restore prior session.
-    const saved = localStorage.getItem(LS_KEYS.projectId);
-    if (saved) {
-      this.state.projectId = saved;
-      try {
-        const project = await getAppDevProject(saved);
-        this.messages.push({
-          role: 'system',
-          text: `Restored project ${project.projectId} (${project.fileCount ?? 0} files).`,
-        });
-        await this.refreshFiles();
-      } catch {
-        localStorage.removeItem(LS_KEYS.projectId);
-        this.state.projectId = null;
-      }
+    this.render();
+    this.attachListeners();
+
+    // Restore last project + load saved project list
+    const savedId = localStorage.getItem(LS_PROJECT_KEY);
+    if (savedId) this.state.projectId = savedId;
+
+    await this.refreshProjectList();
+    await this.refreshHealth();
+    await this.refreshEscalations();
+    if (this.state.projectId) {
+      await this.refreshFiles();
     }
+    this.renderAll();
 
-    // Start escalation polling (every 15s)
-    this.escalationPollHandle = window.setInterval(() => this.refreshEscalations(), 15_000);
-    void this.refreshEscalations();
-    void this.refreshHealth();
+    // Periodic refresh: escalations + health every 15s
+    this.pollHandle = window.setInterval(() => {
+      void this.refreshEscalations();
+      void this.refreshHealth();
+    }, 15_000);
 
-    // WebSocket — listen for build status + crashes
+    // WebSocket for build/crash updates
     this.ws = new DashboardWebSocket();
     this.ws.connect();
     this.ws.on('agent.state.changed', (msg: WebSocketMessage) => {
-      // Repurpose generic event channel — we filter by source/type at app-dev level
       const data = msg.data as Record<string, unknown>;
-      if (typeof data['hookId'] === 'string') {
-        this.state.buildEvents.push(`${msg.timestamp}: ${data['hookId']} ${data['success'] ? 'ok' : 'failed'}`);
-      }
+      const text = typeof data['hookId'] === 'string'
+        ? `${msg.timestamp}: ${data['hookId']} ${data['success'] ? 'ok' : 'failed'}`
+        : `${msg.timestamp}: ${msg.type}`;
+      this.state.buildEvents.push(text);
+      if (this.state.activeTab === 'logs') this.renderAll();
     });
-
-    this.render();
-    this.attachListeners();
   }
 
   unmount(): void {
     this.container.innerHTML = '';
+    this.editor?.dispose();
+    this.editor = null;
     this.ws?.disconnect();
-    if (this.escalationPollHandle) window.clearInterval(this.escalationPollHandle);
-    this.currentStreamAbort?.abort();
+    if (this.pollHandle) window.clearInterval(this.pollHandle);
+    this.currentStream?.abort();
   }
 
-  private async refreshEscalations(): Promise<void> {
+  // -------------------------------------------------------------------------
+  // Backend calls
+  // -------------------------------------------------------------------------
+
+  private async refreshProjectList(): Promise<void> {
     try {
-      const result = await fetchAppDevEscalations();
-      this.state.escalations = result.escalations.filter((e) => e.status !== 'resolved');
-      if (this.toolPanelOpen && this.activeTool === 'escalations') this.renderAndAttach();
-    } catch {
-      /* network blip — try again next tick */
+      const res = await listAppDevProjects();
+      this.state.projects = res.projects;
+    } catch (err) {
+      captureUserError(err, { stage: 'list-projects' });
+    }
+  }
+
+  private async refreshFiles(): Promise<void> {
+    if (!this.state.projectId) return;
+    try {
+      const res = await listAppDevFiles(this.state.projectId);
+      this.state.files = res.files
+        .filter((f) => !f.startsWith('.meta/'))
+        .map((f) => ({ path: f, status: 'complete' as const }));
+    } catch (err) {
+      captureUserError(err, { stage: 'list-files' });
     }
   }
 
@@ -317,24 +217,82 @@ export class StudioView {
     }
   }
 
-  private async refreshFiles(): Promise<void> {
-    if (!this.state.projectId) return;
+  private async refreshEscalations(): Promise<void> {
     try {
-      const result = await listAppDevFiles(this.state.projectId);
-      this.state.files = result.files;
-      if (this.toolPanelOpen && this.activeTool === 'files') this.renderAndAttach();
+      const res = await fetchAppDevEscalations();
+      this.state.escalations = res.escalations.filter((e) => e.status !== 'resolved');
+    } catch { /* network blip */ }
+  }
+
+  private async openFile(path: string): Promise<void> {
+    if (!this.state.projectId) return;
+    if (this.state.openFileDirty) {
+      const ok = confirm('Discard unsaved changes?');
+      if (!ok) return;
+    }
+    captureUserAction('studio.openFile', { path });
+    try {
+      const res = await readAppDevFile(this.state.projectId, path);
+      this.state.openFilePath = path;
+      this.state.openFileContent = res.content;
+      this.state.openFileDirty = false;
+      this.state.activeTab = 'code';
+      this.renderAll();
+      this.mountEditor();
     } catch (err) {
-      this.messages.push({ role: 'system', text: `Failed to load files: ${(err as Error).message}` });
+      this.messages.push({ role: 'system', text: `Open failed: ${(err as Error).message}` });
+      captureUserError(err, { stage: 'read-file', path });
+      this.renderAll();
     }
   }
 
-  private async handleSend(text: string): Promise<void> {
+  private async saveOpenFile(): Promise<void> {
+    if (!this.state.projectId || !this.state.openFilePath || !this.editor) return;
+    captureUserAction('studio.saveFile', { path: this.state.openFilePath });
+    const content = this.editor.getValue();
+    try {
+      const res = await writeAppDevFile(this.state.projectId, this.state.openFilePath, content);
+      this.state.openFileContent = content;
+      this.state.openFileDirty = false;
+      this.messages.push({
+        role: 'system',
+        text: `Saved ${this.state.openFilePath} (${res.bytesWritten} bytes)${res.warnings?.length ? ` with ${res.warnings.length} warnings` : ''}.`,
+      });
+      this.renderAll();
+    } catch (err) {
+      const msg = (err as Error).message;
+      this.messages.push({ role: 'system', text: `Save failed: ${msg}` });
+      captureUserError(err, { stage: 'write-file', path: this.state.openFilePath });
+      this.renderAll();
+    }
+  }
+
+  private async loadProject(projectId: string): Promise<void> {
+    captureUserAction('studio.loadProject', { projectId });
+    try {
+      await getAppDevProject(projectId);
+    } catch {
+      this.messages.push({ role: 'system', text: `Project ${projectId} not found.` });
+      this.renderAll();
+      return;
+    }
+    this.state.projectId = projectId;
+    localStorage.setItem(LS_PROJECT_KEY, projectId);
+    this.state.openFilePath = null;
+    this.state.openFileContent = '';
+    this.state.openFileDirty = false;
+    await this.refreshFiles();
+    this.state.activeTab = 'files';
+    this.messages.push({ role: 'system', text: `Loaded project ${projectId} (${this.state.files.length} files).` });
+    this.renderAll();
+  }
+
+  private async sendPrompt(text: string): Promise<void> {
     if (!text || this.state.generating) return;
-    captureUserAction('studio.send', { textLength: text.length });
+    captureUserAction('studio.send', { textLength: text.length, hasProject: !!this.state.projectId });
     this.messages.push({ role: 'user', text });
     this.state.generating = true;
 
-    // Create a project if we don't have one yet.
     if (!this.state.projectId) {
       try {
         const project = await createAppDevProject({
@@ -343,59 +301,81 @@ export class StudioView {
           platform: 'both',
         });
         this.state.projectId = project.projectId;
-        localStorage.setItem(LS_KEYS.projectId, project.projectId);
-        this.messages.push({ role: 'system', text: `Project created: ${project.projectId}` });
+        localStorage.setItem(LS_PROJECT_KEY, project.projectId);
+        this.messages.push({ role: 'system', text: `Created project ${project.projectId}` });
+        await this.refreshProjectList();
       } catch (err) {
         this.messages.push({ role: 'assistant', text: `Could not create project: ${(err as Error).message}` });
         captureUserError(err, { stage: 'create-project', prompt: text.slice(0, 100) });
         this.state.generating = false;
-        this.renderAndAttach();
+        this.renderAll();
         return;
       }
     }
 
     const projectId = this.state.projectId!;
-    this.messages.push({ role: 'assistant', text: 'Generating…' });
-    this.renderAndAttach();
+    this.messages.push({ role: 'assistant', text: '⏳ Generating files…' });
+    this.state.activeTab = 'files';
+    this.renderAll();
 
-    const filesGenerated: string[] = [];
+    // Reset file tree; files will be added live as they stream in
+    this.state.files = [];
+
     try {
       const abort = await streamGenerateCode(projectId, text, {
         onFileStart: (path) => {
-          this.state.buildEvents.push(`generate: file ${path}`);
+          if (path.startsWith('.meta/')) return;
+          const existing = this.state.files.find((f) => f.path === path);
+          if (existing) {
+            existing.status = 'streaming';
+          } else {
+            this.state.files.push({ path, status: 'streaming' });
+          }
+          if (this.state.activeTab === 'files') this.renderFilesPanel();
         },
         onFileEnd: (path) => {
-          filesGenerated.push(path);
+          if (path.startsWith('.meta/')) return;
+          const existing = this.state.files.find((f) => f.path === path);
+          if (existing) {
+            existing.status = 'complete';
+          } else {
+            this.state.files.push({ path, status: 'complete' });
+          }
+          if (this.state.activeTab === 'files') this.renderFilesPanel();
         },
         onComplete: (files) => {
-          this.messages.push({ role: 'assistant', text: `Generated ${files.length} files.` });
+          this.messages.push({ role: 'assistant', text: `✓ Generated ${files.length} files. Click any file to open it in the editor.` });
           this.state.generating = false;
-          this.renderAndAttach();
           void this.refreshFiles();
+          void this.refreshProjectList();
+          this.renderAll();
         },
         onError: (msg) => {
           this.messages.push({ role: 'assistant', text: `Generation failed: ${msg}` });
+          captureUserError(new Error(msg), { stage: 'generate-stream' });
           this.state.generating = false;
-          this.renderAndAttach();
+          this.renderAll();
         },
       });
-      this.currentStreamAbort = abort;
+      this.currentStream = abort;
     } catch (err) {
       this.messages.push({ role: 'assistant', text: `Stream error: ${(err as Error).message}` });
+      captureUserError(err, { stage: 'generate-stream-init' });
       this.state.generating = false;
-      this.renderAndAttach();
+      this.renderAll();
     }
   }
 
-  private async handleBuild(platform: 'ios' | 'android'): Promise<void> {
+  private async startBuildFor(platform: 'ios' | 'android'): Promise<void> {
     captureUserAction('studio.build', { platform, projectId: this.state.projectId });
     if (!this.state.projectId) {
       this.messages.push({ role: 'system', text: 'Generate a project first.' });
-      this.renderAndAttach();
+      this.renderAll();
       return;
     }
-    this.messages.push({ role: 'assistant', text: `Starting ${platform} build…` });
-    this.renderAndAttach();
+    this.messages.push({ role: 'assistant', text: `🚀 Starting ${platform} build...` });
+    this.state.activeTab = 'logs';
+    this.renderAll();
     try {
       const res = await startBuild(this.state.projectId, { platform, autoSubmit: false });
       this.state.latestBuildId = res.buildId;
@@ -403,16 +383,16 @@ export class StudioView {
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
       this.messages.push({ role: 'assistant', text: `Build failed: ${(err as Error).message}` });
-      captureUserError(err, { stage: 'start-build', platform, projectId: this.state.projectId });
+      captureUserError(err, { stage: 'start-build', platform });
     }
-    this.renderAndAttach();
+    this.renderAll();
   }
 
-  private async handleDeploy(platform: 'ios' | 'android'): Promise<void> {
-    captureUserAction('studio.deploy', { platform, projectId: this.state.projectId });
+  private async deployFor(platform: 'ios' | 'android'): Promise<void> {
+    captureUserAction('studio.deploy', { platform });
     if (!this.state.projectId || !this.state.latestBuildId) {
       this.messages.push({ role: 'system', text: 'Run a successful build first, then deploy.' });
-      this.renderAndAttach();
+      this.renderAll();
       return;
     }
     try {
@@ -423,221 +403,437 @@ export class StudioView {
       this.messages.push({ role: 'assistant', text: res.message });
     } catch (err) {
       this.messages.push({ role: 'assistant', text: `Deploy failed: ${(err as Error).message}` });
-      captureUserError(err, { stage: 'auto-submit-and-watch', platform, projectId: this.state.projectId });
+      captureUserError(err, { stage: 'auto-submit', platform });
     }
-    this.renderAndAttach();
+    this.renderAll();
   }
 
-  private renderAndAttach(): void {
+  // -------------------------------------------------------------------------
+  // Rendering
+  // -------------------------------------------------------------------------
+
+  private renderAll(): void {
     this.render();
     this.attachListeners();
+    if (this.state.activeTab === 'code') {
+      this.mountEditor();
+    }
     const msgs = this.container.querySelector('#studio-messages');
     if (msgs) msgs.scrollTop = msgs.scrollHeight;
   }
 
+  private renderFilesPanel(): void {
+    const panel = this.container.querySelector('#studio-tab-panel');
+    if (!panel || this.state.activeTab !== 'files') return;
+    panel.innerHTML = this.renderFilesContent();
+    this.attachFilesListeners();
+  }
+
   private render(): void {
-    const toolPanelContent = this.toolPanelOpen
-      ? TOOLS.find(t => t.id === this.activeTool)?.renderPanel(this.state) ?? ''
-      : '';
-
-    const escalationBadge = this.state.escalations.length > 0
-      ? `<span style="background:#ff4757;color:#fff;border-radius:9999px;padding:1px 6px;font-size:10px;margin-left:4px;">${this.state.escalations.length}</span>`
-      : '';
-
     this.container.innerHTML = `
-      <div class="studio ${this.toolPanelOpen ? 'studio--panel-open' : ''}">
-        <div class="studio__chat">
-          <div class="studio__chat-header">
-            <h2 class="studio__chat-title">ZionX Studio</h2>
-            ${this.state.projectId ? `<span style="font-size:11px;color:#999;">${this.state.projectId}</span>` : ''}
+      <div class="studio">
+        <!-- LEFT SIDEBAR: Project list -->
+        <aside class="studio-sidebar">
+          <div class="studio-sidebar__header">
+            <h3>Projects</h3>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-new-project" title="Start fresh">+ New</button>
           </div>
-          <div class="studio__chat-messages" id="studio-messages">
-            ${this.renderMessages()}
+          <div class="studio-sidebar__list">
+            ${this.renderProjectList()}
           </div>
-          <div class="studio__chat-input-area">
-            <textarea
-              class="studio__chat-input"
-              id="studio-input"
-              placeholder="Describe your app, or tell me what to change..."
-              rows="4"
-              ${this.state.generating ? 'disabled' : ''}
-            ></textarea>
-            <div class="studio__chat-actions">
-              <button class="studio__btn studio__btn--primary" id="studio-send" ${this.state.generating ? 'disabled' : ''}>
-                ${this.state.generating ? 'Generating…' : 'Build App →'}
-              </button>
-              <button class="studio__btn studio__btn--ghost" id="studio-build-ios" title="Build iOS">📱 iOS</button>
-              <button class="studio__btn studio__btn--ghost" id="studio-build-android" title="Build Android">🤖 Android</button>
-            </div>
+          <div class="studio-sidebar__footer">
+            ${this.renderHealthBadge()}
           </div>
-        </div>
+        </aside>
 
-        <div class="studio__preview">
-          <div class="studio__preview-toolbar">
-            ${renderDeviceSelector({ devices: DEFAULT_DEVICES, selectedDeviceId: 'iphone-15' })}
-            <div class="studio__preview-controls">
-              <button class="studio__btn studio__btn--icon" id="studio-reload" title="Reload">↻</button>
-              <button class="studio__btn studio__btn--icon" id="studio-qr" title="Open on phone">📱</button>
-            </div>
+        <!-- CENTER: Chat / Files / Code / Logs / Design tabs -->
+        <main class="studio-main">
+          <nav class="studio-tabs">
+            <button class="studio-tab ${this.state.activeTab === 'chat' ? 'is-active' : ''}" data-tab="chat">💬 Chat</button>
+            <button class="studio-tab ${this.state.activeTab === 'files' ? 'is-active' : ''}" data-tab="files">📁 Files (${this.state.files.length})</button>
+            <button class="studio-tab ${this.state.activeTab === 'code' ? 'is-active' : ''}" data-tab="code">💻 Code${this.state.openFileDirty ? ' •' : ''}</button>
+            <button class="studio-tab ${this.state.activeTab === 'logs' ? 'is-active' : ''}" data-tab="logs">📋 Logs</button>
+            <button class="studio-tab ${this.state.activeTab === 'design' ? 'is-active' : ''}" data-tab="design">🎨 Design</button>
+            <span class="studio-tabs__spacer"></span>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-build-ios" title="Build iOS">📱 iOS</button>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-build-android" title="Build Android">🤖 Android</button>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-deploy-ios" title="Submit to TestFlight">🚀 Deploy iOS</button>
+          </nav>
+
+          <div class="studio-tab-panel" id="studio-tab-panel">
+            ${this.renderTabContent()}
           </div>
-          <div class="studio__preview-device">
-            <div class="studio__device-frame">
-              <div class="studio__device-notch"></div>
-              <div class="studio__device-screen" id="studio-screen">
+        </main>
+
+        <!-- RIGHT: Preview -->
+        <aside class="studio-preview">
+          <div class="studio-preview__toolbar">
+            ${renderDeviceSelector({ devices: DEFAULT_DEVICES, selectedDeviceId: 'iphone-15' })}
+          </div>
+          <div class="studio-preview__device">
+            <div class="studio-device-frame">
+              <div class="studio-device-screen">
                 ${this.renderPreviewBody()}
               </div>
-              <div class="studio__device-home-indicator"></div>
             </div>
           </div>
-        </div>
+          ${this.renderEscalationsBadge()}
+        </aside>
+      </div>
 
-        <div class="studio__tools">
-          ${TOOLS.map(t => `
-            <button class="studio__tool-item ${t.id === this.activeTool && this.toolPanelOpen ? 'studio__tool-item--active' : ''}" data-tool="${t.id}" title="${t.label}">
-              <span class="studio__tool-icon">${t.icon}</span>
-              <span class="studio__tool-label">${t.label}${t.id === 'escalations' ? escalationBadge : ''}</span>
-            </button>
-          `).join('')}
-        </div>
+      <style>
+        .studio { display: grid; grid-template-columns: 240px 1fr 360px; height: 100%; min-height: calc(100vh - 80px); background: var(--bg, #0f1115); color: var(--text, #e6e6e6); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .studio-sidebar { border-right: 1px solid #222; display: flex; flex-direction: column; }
+        .studio-sidebar__header { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #222; }
+        .studio-sidebar__header h3 { margin: 0; font-size: 13px; font-weight: 600; opacity: 0.8; }
+        .studio-sidebar__list { flex: 1; overflow-y: auto; }
+        .studio-project { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; cursor: pointer; }
+        .studio-project:hover { background: #1a1a1f; }
+        .studio-project.is-active { background: #1f2330; border-left: 2px solid #6c8cff; }
+        .studio-project__name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .studio-project__meta { font-size: 11px; opacity: 0.55; margin-top: 2px; }
+        .studio-sidebar__footer { padding: 10px 12px; border-top: 1px solid #222; font-size: 11px; }
+        .studio-main { display: flex; flex-direction: column; min-width: 0; }
+        .studio-tabs { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid #222; background: #14161b; }
+        .studio-tab { background: transparent; border: 0; color: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .studio-tab.is-active { background: #2a2f3d; color: #fff; }
+        .studio-tab:hover:not(.is-active) { background: #1f2230; }
+        .studio-tabs__spacer { flex: 1; }
+        .studio-tab-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+        .studio-btn { padding: 6px 12px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: 12px; }
+        .studio-btn--primary { background: #6c8cff; color: #0d0f15; font-weight: 600; border-color: #6c8cff; }
+        .studio-btn--primary:hover:not(:disabled) { background: #4a6dff; }
+        .studio-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .studio-btn--ghost { background: transparent; color: #ccc; border-color: #333; }
+        .studio-btn--ghost:hover { background: #1a1a1f; }
+        .studio-btn--sm { padding: 4px 8px; font-size: 11px; }
+        .studio-chat { display: flex; flex-direction: column; height: 100%; padding: 12px; }
+        .studio-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+        .studio-msg { max-width: 80%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+        .studio-msg--user { align-self: flex-end; background: #6c8cff; color: #0d0f15; }
+        .studio-msg--assistant { align-self: flex-start; background: #2a2f3d; }
+        .studio-msg--system { align-self: center; background: #1a1a1f; font-size: 11px; opacity: 0.7; max-width: 100%; }
+        .studio-input-row { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid #222; padding-top: 12px; }
+        .studio-input { flex: 1; background: #14161b; color: #e6e6e6; border: 1px solid #333; border-radius: 8px; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; min-height: 60px; }
+        .studio-files { padding: 12px; overflow-y: auto; height: 100%; }
+        .studio-file { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 8px; }
+        .studio-file:hover { background: #1a1a1f; }
+        .studio-file.is-streaming { color: #ffd166; }
+        .studio-file.is-streaming::before { content: '⏳ '; }
+        .studio-file.is-complete::before { content: '📄 '; }
+        .studio-file.is-active { background: #2a2f3d; }
+        .studio-code { display: flex; flex-direction: column; height: 100%; }
+        .studio-code__header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #222; background: #14161b; }
+        .studio-code__path { font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.8; }
+        .studio-code__editor { flex: 1; min-height: 0; }
+        .studio-logs { padding: 12px; overflow-y: auto; height: 100%; font-family: ui-monospace, monospace; font-size: 11px; }
+        .studio-log-line { padding: 2px 0; opacity: 0.85; }
+        .studio-design { padding: 12px; overflow-y: auto; height: 100%; }
+        .studio-branding-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+        .studio-branding-card { background: #14161b; border: 1px solid #2a2f3d; border-radius: 8px; overflow: hidden; }
+        .studio-branding-card__swatch { height: 80px; }
+        .studio-branding-card__body { padding: 10px; }
+        .studio-branding-card__name { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+        .studio-branding-card__desc { font-size: 11px; opacity: 0.7; margin: 0 0 8px; line-height: 1.4; }
+        .studio-preview { border-left: 1px solid #222; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+        .studio-device-frame { background: #1a1a1f; border-radius: 30px; padding: 8px; aspect-ratio: 9 / 19; max-width: 280px; margin: 0 auto; }
+        .studio-device-screen { background: #0f1115; border-radius: 24px; height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; flex-direction: column; gap: 8px; font-size: 12px; opacity: 0.7; }
+        .studio-escalation-badge { background: #ff4757; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+      </style>
+    `;
+  }
 
-        ${this.toolPanelOpen ? `
-          <div class="studio__tool-panel">
-            <button class="studio__tool-panel-close" id="close-tool-panel">✕</button>
-            ${toolPanelContent}
-          </div>
-        ` : ''}
+  private renderProjectList(): string {
+    if (this.state.projects.length === 0) {
+      return `<div style="padding:14px;font-size:12px;opacity:0.6;">No projects yet. Send a prompt to create one.</div>`;
+    }
+    return this.state.projects.map((p) => `
+      <div class="studio-project ${p.projectId === this.state.projectId ? 'is-active' : ''}" data-project-id="${escapeHtml(p.projectId)}">
+        <div class="studio-project__name">${escapeHtml(p.name ?? p.projectId)}</div>
+        <div class="studio-project__meta">${p.fileCount} files · ${fmtTime(p.updatedAt ?? p.createdAt)}</div>
+      </div>
+    `).join('');
+  }
+
+  private renderHealthBadge(): string {
+    if (!this.state.health) return `<span style="opacity:0.5;">Backend offline</span>`;
+    const dot = this.state.health.status === 'healthy' ? '🟢' : '🟡';
+    return `<span>${dot} ${this.state.health.status} · ${this.state.health.hooks.enabled}/${this.state.health.hooks.total} hooks</span>`;
+  }
+
+  private renderEscalationsBadge(): string {
+    if (this.state.escalations.length === 0) return '';
+    return `
+      <div class="studio-escalation-badge" id="studio-show-escalations">
+        ⚠️ ${this.state.escalations.length} stuck pipeline${this.state.escalations.length === 1 ? '' : 's'} need attention
       </div>
     `;
   }
 
   private renderPreviewBody(): string {
     if (!this.state.projectId) {
-      return `
-        <div class="studio__device-placeholder">
-          <div class="studio__device-placeholder-icon">📱</div>
-          <p class="studio__device-placeholder-title">Your app preview</p>
-          <p class="studio__device-placeholder-text">Describe your app to get started.</p>
-        </div>
-      `;
+      return `<div>📱</div><div>Send your first prompt to see the app preview.</div>`;
     }
     return `
-      <div class="studio__device-placeholder">
-        <div class="studio__device-placeholder-icon">⏳</div>
-        <p class="studio__device-placeholder-title">Live preview lands tomorrow</p>
-        <p class="studio__device-placeholder-text">Open the Preview panel for the latest screenshot + Expo Go QR.</p>
+      <div>📱</div>
+      <div><strong>${escapeHtml(this.state.projectId)}</strong></div>
+      <div style="font-size:11px;opacity:0.7;">${this.state.files.length} files</div>
+      <div style="font-size:10px;opacity:0.5;margin-top:8px;">Live Expo preview lands in Phase 11. For now, build to TestFlight.</div>
+    `;
+  }
+
+  private renderTabContent(): string {
+    switch (this.state.activeTab) {
+      case 'chat': return this.renderChatContent();
+      case 'files': return this.renderFilesContent();
+      case 'code': return this.renderCodeContent();
+      case 'logs': return this.renderLogsContent();
+      case 'design': return this.renderDesignContent();
+    }
+  }
+
+  private renderChatContent(): string {
+    const msgs = this.messages.map((m) => {
+      const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
+      return `<div class="studio-msg ${cls}">${escapeHtml(m.text)}</div>`;
+    }).join('');
+    return `
+      <div class="studio-chat">
+        <div class="studio-messages" id="studio-messages">${msgs}</div>
+        <div class="studio-input-row">
+          <textarea class="studio-input" id="studio-input" placeholder="${this.state.projectId ? 'Iterate on this app, or describe a new feature...' : 'Describe the app you want to build...'}" rows="3" ${this.state.generating ? 'disabled' : ''}></textarea>
+          <button class="studio-btn studio-btn--primary" id="studio-send" ${this.state.generating ? 'disabled' : ''}>${this.state.generating ? 'Generating…' : 'Send →'}</button>
+        </div>
       </div>
     `;
   }
 
-  private renderMessages(): string {
-    return this.messages.map(msg => {
-      const cls = msg.role === 'user'
-        ? 'studio__msg--user'
-        : msg.role === 'assistant'
-          ? 'studio__msg--assistant'
-          : 'studio__msg--system';
-      return `<div class="studio__msg ${cls}"><p>${escapeHtml(msg.text)}</p></div>`;
-    }).join('');
+  private renderFilesContent(): string {
+    if (this.state.files.length === 0) {
+      const msg = this.state.projectId
+        ? 'No files yet. Generation will populate them here.'
+        : 'Pick a saved project or send a prompt to create one.';
+      return `<div class="studio-files"><div style="opacity:0.5;font-size:12px;">${msg}</div></div>`;
+    }
+    const tree = this.state.files
+      .slice()
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .map((f) => {
+        const cls = `studio-file is-${f.status}${f.path === this.state.openFilePath ? ' is-active' : ''}`;
+        return `<div class="${cls}" data-file-path="${escapeHtml(f.path)}">${escapeHtml(f.path)}</div>`;
+      })
+      .join('');
+    return `<div class="studio-files">${tree}</div>`;
   }
 
+  private renderCodeContent(): string {
+    if (!this.state.openFilePath) {
+      return `<div style="padding:24px;opacity:0.5;font-size:13px;text-align:center;">Click a file in the Files tab to open it here.</div>`;
+    }
+    return `
+      <div class="studio-code">
+        <div class="studio-code__header">
+          <div class="studio-code__path">${escapeHtml(this.state.openFilePath)}${this.state.openFileDirty ? ' • unsaved' : ''}</div>
+          <div>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-revert" ${this.state.openFileDirty ? '' : 'disabled'}>Revert</button>
+            <button class="studio-btn studio-btn--primary studio-btn--sm" id="studio-save" ${this.state.openFileDirty ? '' : 'disabled'}>Save (⌘S)</button>
+          </div>
+        </div>
+        <div class="studio-code__editor" id="studio-editor"></div>
+      </div>
+    `;
+  }
+
+  private renderLogsContent(): string {
+    const events = this.state.buildEvents.slice(-100);
+    const lines = events.length === 0
+      ? `<div style="opacity:0.5;font-size:12px;">No events yet. Build the project to see logs.</div>`
+      : events.map((e) => `<div class="studio-log-line">${escapeHtml(e)}</div>`).join('');
+    return `<div class="studio-logs">${lines}</div>`;
+  }
+
+  private renderDesignContent(): string {
+    const tabs = BRANDING_CATEGORIES.map((c) => `
+      <button class="studio-btn studio-btn--ghost studio-btn--sm" data-branding-cat="${c.id}" style="${c.id === this.state.brandingFilter ? 'border-color:#6c8cff;color:#fff;' : ''}">${c.icon} ${c.label}</button>
+    `).join('');
+    const cards = BRANDING_STYLES
+      .filter((s) => this.state.brandingFilter === 'all' || s.category === this.state.brandingFilter)
+      .filter((s) => {
+        if (!this.state.brandingSearch) return true;
+        const q = this.state.brandingSearch.toLowerCase();
+        return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.inspiration.toLowerCase().includes(q);
+      })
+      .map((s) => `
+        <div class="studio-branding-card">
+          <div class="studio-branding-card__swatch" style="background:${s.gradient}"></div>
+          <div class="studio-branding-card__body">
+            <h5 class="studio-branding-card__name">${escapeHtml(s.name)}</h5>
+            <p class="studio-branding-card__desc">${escapeHtml(s.description)} <em>Inspired by ${escapeHtml(s.inspiration)}.</em></p>
+            <button class="studio-btn studio-btn--primary studio-btn--sm" data-apply-style="${escapeHtml(s.id)}">Apply this style</button>
+          </div>
+        </div>
+      `).join('');
+    return `
+      <div class="studio-design">
+        <input class="studio-input" id="studio-branding-search" placeholder="Search branding styles..." value="${escapeHtml(this.state.brandingSearch)}" style="margin-bottom:8px;min-height:auto;padding:6px 10px;font-size:12px;" />
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${tabs}</div>
+        <div class="studio-branding-grid">${cards}</div>
+      </div>
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // Listeners
+  // -------------------------------------------------------------------------
+
   private attachListeners(): void {
-    const sendBtn = this.container.querySelector('#studio-send') as HTMLButtonElement | null;
-    const input = this.container.querySelector('#studio-input') as HTMLTextAreaElement | null;
-    if (sendBtn && input) {
-      sendBtn.addEventListener('click', () => {
+    this.container.querySelector('#studio-new-project')?.addEventListener('click', () => {
+      this.state.projectId = null;
+      localStorage.removeItem(LS_PROJECT_KEY);
+      this.state.files = [];
+      this.state.openFilePath = null;
+      this.state.activeTab = 'chat';
+      this.messages.push({ role: 'system', text: 'Started a fresh session. Describe the app you want to build.' });
+      this.renderAll();
+    });
+
+    this.container.querySelectorAll('[data-project-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = (el as HTMLElement).dataset.projectId!;
+        if (id !== this.state.projectId) void this.loadProject(id);
+      });
+    });
+
+    this.container.querySelectorAll('[data-tab]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const tab = (el as HTMLElement).dataset.tab as StudioTab;
+        this.state.activeTab = tab;
+        this.renderAll();
+      });
+    });
+
+    this.container.querySelector('#studio-send')?.addEventListener('click', () => {
+      const input = this.container.querySelector('#studio-input') as HTMLTextAreaElement | null;
+      if (!input) return;
+      const text = input.value.trim();
+      input.value = '';
+      void this.sendPrompt(text);
+    });
+    this.container.querySelector('#studio-input')?.addEventListener('keydown', (e: Event) => {
+      const ev = e as KeyboardEvent;
+      if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+        ev.preventDefault();
+        const input = ev.currentTarget as HTMLTextAreaElement;
         const text = input.value.trim();
         input.value = '';
-        void this.handleSend(text);
+        void this.sendPrompt(text);
+      }
+    });
+
+    this.container.querySelector('#studio-build-ios')?.addEventListener('click', () => void this.startBuildFor('ios'));
+    this.container.querySelector('#studio-build-android')?.addEventListener('click', () => void this.startBuildFor('android'));
+    this.container.querySelector('#studio-deploy-ios')?.addEventListener('click', () => void this.deployFor('ios'));
+
+    this.container.querySelector('#studio-show-escalations')?.addEventListener('click', () => {
+      this.state.activeTab = 'logs';
+      const lines = this.state.escalations.map((e) => `[escalation] ${e.hookId}: ${e.reason} (${e.status})${e.notes ? ' — ' + e.notes : ''}`);
+      this.state.buildEvents.push(...lines);
+      this.renderAll();
+    });
+
+    this.attachFilesListeners();
+    this.attachCodeListeners();
+    this.attachDesignListeners();
+  }
+
+  private attachFilesListeners(): void {
+    this.container.querySelectorAll('[data-file-path]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const path = (el as HTMLElement).dataset.filePath!;
+        void this.openFile(path);
       });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          const text = input.value.trim();
-          input.value = '';
-          void this.handleSend(text);
-        }
+    });
+  }
+
+  private attachCodeListeners(): void {
+    this.container.querySelector('#studio-save')?.addEventListener('click', () => void this.saveOpenFile());
+    this.container.querySelector('#studio-revert')?.addEventListener('click', () => {
+      if (!this.editor) return;
+      this.editor.setValue(this.state.openFileContent);
+      this.state.openFileDirty = false;
+      this.renderAll();
+    });
+  }
+
+  private attachDesignListeners(): void {
+    this.container.querySelectorAll('[data-branding-cat]').forEach((el) => {
+      el.addEventListener('click', () => {
+        this.state.brandingFilter = (el as HTMLElement).dataset.brandingCat!;
+        this.renderAll();
       });
+    });
+    this.container.querySelector('#studio-branding-search')?.addEventListener('input', (e: Event) => {
+      this.state.brandingSearch = (e.currentTarget as HTMLInputElement).value;
+      const panel = this.container.querySelector('#studio-tab-panel');
+      if (panel) panel.innerHTML = this.renderDesignContent();
+      this.attachDesignListeners();
+    });
+    this.container.querySelectorAll('[data-apply-style]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const styleId = (el as HTMLElement).dataset.applyStyle!;
+        const style = BRANDING_STYLES.find((s) => s.id === styleId);
+        if (!style) return;
+        const prompt = `Apply the ${style.name} branding style. ${style.description} Inspired by ${style.inspiration}.`;
+        void this.sendPrompt(prompt);
+      });
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Monaco editor
+  // -------------------------------------------------------------------------
+
+  private mountEditor(): void {
+    const host = this.container.querySelector('#studio-editor') as HTMLElement | null;
+    if (!host || !this.state.openFilePath) return;
+
+    if (this.editor) {
+      this.editor.dispose();
+      this.editor = null;
     }
 
-    this.container.querySelector('#studio-build-ios')?.addEventListener('click', () => void this.handleBuild('ios'));
-    this.container.querySelector('#studio-build-android')?.addEventListener('click', () => void this.handleBuild('android'));
+    this.editor = monaco.editor.create(host, {
+      value: this.state.openFileContent,
+      language: langForPath(this.state.openFilePath),
+      theme: 'vs-dark',
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontSize: 13,
+      wordWrap: 'on',
+    });
 
-    this.container.querySelectorAll('[data-tool]').forEach((item) => {
-      item.addEventListener('click', () => {
-        const toolId = (item as HTMLElement).dataset.tool!;
-        if (this.activeTool === toolId && this.toolPanelOpen) {
-          this.toolPanelOpen = false;
-        } else {
-          this.activeTool = toolId;
-          this.toolPanelOpen = true;
+    this.editor.onDidChangeModelContent(() => {
+      const dirty = this.editor!.getValue() !== this.state.openFileContent;
+      if (dirty !== this.state.openFileDirty) {
+        this.state.openFileDirty = dirty;
+        // Light re-render of just the header
+        const header = this.container.querySelector('.studio-code__header');
+        if (header) {
+          (header.querySelector('.studio-code__path') as HTMLElement).textContent =
+            (this.state.openFilePath ?? '') + (dirty ? ' • unsaved' : '');
+          (header.querySelector('#studio-save') as HTMLButtonElement).disabled = !dirty;
+          (header.querySelector('#studio-revert') as HTMLButtonElement).disabled = !dirty;
         }
-        this.renderAndAttach();
-      });
+        // Update tab indicator
+        const codeTab = this.container.querySelector('[data-tab="code"]') as HTMLElement | null;
+        if (codeTab) codeTab.textContent = '💻 Code' + (dirty ? ' •' : '');
+      }
     });
 
-    this.container.querySelector('#close-tool-panel')?.addEventListener('click', () => {
-      this.toolPanelOpen = false;
-      this.renderAndAttach();
-    });
-
-    this.container.querySelectorAll('[data-prompt]').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        const prompt = (chip as HTMLElement).dataset.prompt!;
-        this.toolPanelOpen = false;
-        void this.handleSend(prompt);
-      });
-    });
-
-    this.container.querySelectorAll('[data-action]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const action = (btn as HTMLElement).dataset.action!;
-        switch (action) {
-          case 'refresh-files':
-            void this.refreshFiles();
-            break;
-          case 'deploy-ios':
-            void this.handleDeploy('ios');
-            break;
-          case 'deploy-android':
-            void this.handleDeploy('android');
-            break;
-          case 'take-over': {
-            const id = (btn as HTMLElement).dataset.escalationId!;
-            this.messages.push({
-              role: 'system',
-              text: `Operator taking over escalation ${id}. Investigate and resolve manually.`,
-            });
-            this.renderAndAttach();
-            break;
-          }
-        }
-      });
-    });
-
-    // Branding categories — keep prior behavior
-    this.container.querySelectorAll('[data-branding-category]').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        const category = (tab as HTMLElement).dataset.brandingCategory!;
-        this.container.querySelectorAll('[data-branding-category]').forEach((t) => t.classList.remove('studio__branding-tab--active'));
-        tab.classList.add('studio__branding-tab--active');
-        this.container.querySelectorAll('[data-branding-style]').forEach((card) => {
-          const cardCategory = (card as HTMLElement).dataset.styleCategory;
-          (card as HTMLElement).style.display = category === 'all' || cardCategory === category ? '' : 'none';
-        });
-      });
-    });
-    const brandingSearch = this.container.querySelector('#branding-search') as HTMLInputElement | null;
-    if (brandingSearch) {
-      brandingSearch.addEventListener('input', () => {
-        const query = brandingSearch.value.toLowerCase().trim();
-        this.container.querySelectorAll('[data-branding-style]').forEach((card) => {
-          const el = card as HTMLElement;
-          const text = (el.textContent ?? '').toLowerCase();
-          el.style.display = !query || text.includes(query) ? '' : 'none';
-        });
-      });
-    }
-    const allTab = this.container.querySelector('[data-branding-category="all"]');
-    if (allTab) allTab.classList.add('studio__branding-tab--active');
+    // ⌘S / Ctrl+S to save
+    this.editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      () => void this.saveOpenFile(),
+    );
   }
 }

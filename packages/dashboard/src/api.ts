@@ -534,6 +534,13 @@ export interface SSEStreamCallbacks {
   onFileEnd?: (path: string) => void;
   onComplete?: (files: string[]) => void;
   onError?: (message: string) => void;
+  /** Backend narration event — phase, message, and optional details. */
+  onPhase?: (event: {
+    phase: string;
+    message: string;
+    timestamp: string;
+    [key: string]: unknown;
+  }) => void;
 }
 
 export async function streamGenerateCode(
@@ -582,6 +589,14 @@ export async function streamGenerateCode(
           try {
             const evt = JSON.parse(json) as { type: string;[k: string]: unknown };
             switch (evt.type) {
+              case 'phase':
+                callbacks.onPhase?.({
+                  phase: (evt['phase'] as string) ?? 'unknown',
+                  message: (evt['message'] as string) ?? '',
+                  timestamp: (evt['timestamp'] as string) ?? new Date().toISOString(),
+                  ...evt,
+                });
+                break;
               case 'token':
                 callbacks.onToken?.(evt['content'] as string);
                 break;
@@ -611,4 +626,73 @@ export async function streamGenerateCode(
   })();
 
   return abort;
+}
+
+
+// ---------------------------------------------------------------------------
+// Project list + file read/write (VibeCode-parity rewrite)
+// ---------------------------------------------------------------------------
+
+export interface AppDevProjectListEntry {
+  projectId: string;
+  fileCount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  name?: string;
+  prompt?: string;
+}
+
+/** GET /app-dev/projects — every workspace this server knows about. */
+export async function listAppDevProjects(): Promise<{ count: number; projects: AppDevProjectListEntry[] }> {
+  return apiFetch<{ count: number; projects: AppDevProjectListEntry[] }>('/app-dev/projects');
+}
+
+/** GET /app-dev/projects/:id/file?path=... — read a workspace file. */
+export async function readAppDevFile(
+  projectId: string,
+  path: string,
+): Promise<{ projectId: string; path: string; content: string }> {
+  return apiFetch<{ projectId: string; path: string; content: string }>(
+    `/app-dev/projects/${encodeURIComponent(projectId)}/file`,
+    { path },
+  );
+}
+
+/** PUT /app-dev/projects/:id/file?path=... — save edits back to the workspace. */
+export async function writeAppDevFile(
+  projectId: string,
+  path: string,
+  content: string,
+): Promise<{ projectId: string; path: string; bytesWritten: number; warnings: unknown[] }> {
+  const baseUrl = getBaseUrl();
+  const isDirectALB = baseUrl.includes('elb.amazonaws.com');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!isDirectALB) {
+    const token = await getAuthToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const url = new URL(baseUrl + `/app-dev/projects/${encodeURIComponent(projectId)}/file`);
+  url.searchParams.set('path', path);
+
+  const response = await fetch(url.toString(), {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ content }),
+  });
+
+  if (response.status === 401 && !isDirectALB) {
+    const newToken = await reauthenticate();
+    const retry = await fetch(url.toString(), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${newToken}` },
+      body: JSON.stringify({ content }),
+    });
+    if (!retry.ok) throw new Error(`PUT file failed: ${retry.status}`);
+    return retry.json();
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`PUT file failed: ${response.status} ${text}`);
+  }
+  return response.json();
 }

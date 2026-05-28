@@ -16,7 +16,8 @@
     "@seraphim/core": "*",
     "highlight.js": "^11.11.1",
     "marked": "^15.0.7",
-    "mermaid": "^11.6.0"
+    "mermaid": "^11.6.0",
+    "monaco-editor": "^0.50.0"
   },
   "devDependencies": {
     "@types/dompurify": "^3.2.0",

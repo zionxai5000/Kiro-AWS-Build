@@ -26,6 +26,11 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
       handler: h.createProject,
     },
     {
+      method: 'GET',
+      path: '/app-dev/projects',
+      handler: h.listProjects,
+    },
+    {
       method: 'POST',
       path: '/app-dev/projects/:id/generate',
       handler: h.generateCode,
@@ -97,6 +102,16 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
       method: 'GET',
       path: '/app-dev/escalations',
       handler: h.listEscalations,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/projects/:id/file',
+      handler: h.readProjectFile,
+    },
+    {
+      method: 'PUT',
+      path: '/app-dev/projects/:id/file',
+      handler: h.writeProjectFile,
     },
   ];
 }

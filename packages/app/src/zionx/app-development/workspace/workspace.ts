@@ -167,6 +167,67 @@ export class Workspace {
   }
 
   /**
+   * Get metadata for a project: id, file count, mtime of newest file,
+   * and the prompt that started it (read from .meta/prompt.txt if present).
+   */
+  async getProjectMeta(projectId: string): Promise<{
+    projectId: string;
+    fileCount: number;
+    createdAt: string | null;
+    updatedAt: string | null;
+    name?: string;
+    prompt?: string;
+  }> {
+    const projectPath = this.getProjectPath(projectId);
+    if (!existsSync(projectPath)) {
+      return { projectId, fileCount: 0, createdAt: null, updatedAt: null };
+    }
+
+    const files = await this.listFiles(projectId);
+    let newest = 0;
+    let oldest = Number.POSITIVE_INFINITY;
+    for (const f of files) {
+      try {
+        const fp = join(projectPath, f);
+        const s = await stat(fp);
+        const m = s.mtimeMs;
+        if (m > newest) newest = m;
+        const c = s.ctimeMs;
+        if (c < oldest) oldest = c;
+      } catch { /* skip */ }
+    }
+    if (oldest === Number.POSITIVE_INFINITY) oldest = newest;
+
+    let name: string | undefined;
+    let prompt: string | undefined;
+    try {
+      const meta = JSON.parse(await this.readFile(projectId, '.meta/project.json'));
+      name = meta?.name;
+      prompt = meta?.prompt;
+    } catch { /* meta optional */ }
+
+    return {
+      projectId,
+      fileCount: files.length,
+      createdAt: oldest ? new Date(oldest).toISOString() : null,
+      updatedAt: newest ? new Date(newest).toISOString() : null,
+      name,
+      prompt,
+    };
+  }
+
+  /**
+   * Persist project-level metadata (name, original prompt) under .meta/project.json.
+   * Used by the createProject API and the dashboard project list.
+   */
+  async writeProjectMeta(projectId: string, meta: { name: string; prompt?: string; description?: string }): Promise<void> {
+    await this.writeFile(projectId, '.meta/project.json', JSON.stringify({
+      ...meta,
+      updatedAt: new Date().toISOString(),
+    }, null, 2));
+  }
+
+  /**
    * Read a file from a project's workspace.
    * @param projectId - The project identifier.
    * @param relativePath - Path relative to the project directory.

@@ -49,6 +49,26 @@ async function main() {
   page.on('requestfailed', (req) => {
     events.push({ ts: new Date().toISOString(), type: 'request', message: `FAILED ${req.method()} ${req.url()} — ${req.failure()?.errorText}` });
   });
+  // Capture every request to the Sentry tunnel so we can inspect the envelopes
+  page.on('request', (req) => {
+    if (/sentry-tunnel|sentry\.io/i.test(req.url())) {
+      const body = req.postData() ?? '';
+      events.push({
+        ts: new Date().toISOString(),
+        type: 'request',
+        message: `OUT ${req.method()} ${req.url().slice(0, 80)} body=${body.replace(/\n/g, '\\n')}`,
+      });
+    }
+  });
+  page.on('response', (res) => {
+    if (/sentry-tunnel|sentry\.io/i.test(res.url())) {
+      events.push({
+        ts: new Date().toISOString(),
+        type: 'response',
+        message: `IN ${res.status()} ${res.url().slice(0, 80)}`,
+      });
+    }
+  });
 
   console.log('Loading dashboard...');
   await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle', timeout: 30_000 });

@@ -285,3 +285,106 @@ The 5-min initial spec cron fired successfully, contacted Sentry, returned 0 bre
 5. Fix → redeploy → loop until violations stay at 0
 
 The infrastructure is fully operational. Closed loop is live.
+
+
+### 2026-05-28 — Stream F PROVEN LIVE
+
+End-to-end demonstration of the closed-loop self-healing system:
+
+**Synthetic harness** (`scripts/stream-f-synthetic-traffic.ts`):
+- Launches headless Chromium against the live dashboard
+- Bypasses the Cognito login overlay using fake JWT tokens (same approach
+  as Shaar Guardian's playwright-observer)
+- Expands the ZionX nav section, navigates to App Development tab
+- Clicks every center-pane tab (Files, Code, Logs, Design, Chat)
+- Types a prompt and hits Send (kicks off generate stream)
+- Waits 90s for the stream to complete
+- Clicks a file in the file list, clicks Build iOS
+- Calls `/api/app-dev/spec/evaluate` and persists the report
+
+**Hits found by the harness, fixed in-flight this session**:
+
+1. ❌ `Studio container present: false` — the dashboard requires Cognito
+   login that the harness wasn't doing.
+   ✅ Fixed: harness injects fake JWT tokens before navigating, matching
+   the playwright-observer pattern.
+
+2. ❌ `available sidebar links: []` — ZionX section is collapsed by default.
+   ✅ Fixed: harness clicks `.sidebar-section-header[data-section="zionx"]`
+   before clicking the App Development link.
+
+3. ❌ Sentry envelope POST blocked: `net::ERR_ABORTED` on
+   `o4511463725989888.ingest.us.sentry.io`. Mixed-content blocking
+   (dashboard is HTTP, Sentry ingest is HTTPS).
+   ✅ Fixed: added `POST /api/sentry-tunnel` server-side proxy that
+   forwards envelopes to Sentry's HTTPS ingest. Browser sees same-origin
+   request, no mixed content. Verified live: `Sentry init (tunnel: ...)`,
+   200 responses on every envelope.
+
+4. ❌ `breadcrumbCount: 0` — Sentry only ships breadcrumbs attached to
+   events. Without errors, breadcrumbs stayed buffered client-side.
+   ✅ Fixed: added `flushSessionTrace` that calls `Sentry.captureMessage`
+   periodically (5s after mount + every 60s) so the runner has events to
+   pull breadcrumbs from. Verified: events arrive in Sentry with 17 and
+   41 breadcrumbs respectively.
+
+5. ❌ `breadcrumbCount: 0` even though events arrived. Two-Sentry-API-shape
+   bug: `entries[type='breadcrumbs'].data.values` vs `breadcrumbs.values`.
+   ✅ Fixed: `fetchRecentBreadcrumbs` now reads both shapes.
+
+6. ❌ Wrong project: secret had `project: 'mindful-timer'` (the generated
+   app's project) but events go to `zionx-dashboard`.
+   ✅ Fixed: handler + cron always query `zionx-dashboard` regardless of
+   the secret's `project` field.
+
+7. ❌ `JSON.parse('')` crashed on `/spec/evaluate` because LocalCredentialManager
+   has `sentry/config` pointing at unset `SENTRY_CONFIG`.
+   ✅ Fixed: handler now resolves auth-token / org / project individually,
+   falls back to JSON blob, returns 503 with hint if neither resolves.
+
+**THE FIRST REAL SPEC EVALUATION REPORT** (just now, against live production):
+
+```
+{
+  "summary": {
+    "sessions": 1,
+    "promptsSent": 7,
+    "builds": 3,
+    "successfulGenerations": 0,
+    "successfulPreviews": 0,
+    "deploys": 0
+  },
+  "violations": [
+    "send-creates-or-streams" (multiple) — Send clicked 7 times, none
+      followed by streamGenerateCode/streamStart/POST .../generate within 5s
+    "build-clicks-must-respond" (multiple) — Build clicked 3 times, none
+      followed by buildQueued/buildError within 5s
+  ],
+  "warnings": [
+    "health-on-load" — session.start didn't trigger a /health fetch
+      breadcrumb
+    "evaluate-must-respond" — studio.evaluateSpec didn't have a matching
+      specEvaluated follow-up
+    "load-project-must-fetch" — clicking a project didn't fire a fetch
+    "open-file-must-load" — clicking a file didn't fire a fetch
+  ]
+}
+```
+
+**These violations are not noise — they reflect real bugs King reported**:
+- "Send button doesn't do anything" → maps to `send-creates-or-streams`
+- "Can't preview the app or press buttons" → maps to `build-clicks-must-respond`
+  and `open-file-must-load`
+
+The next concrete Stream F work is: investigate each violation rule, look
+at the breadcrumb sequence the violation cites, find the missing follow-up,
+fix the dashboard or backend so the follow-up actually fires, and re-run
+the harness until violations stay at 0.
+
+Some violations are diagnostics false-positives (e.g. fetch breadcrumbs
+match the regex but the runner's `breadcrumbMessage(b)` returns
+`b.data?.url` only for fetches, not always; rule patterns may need tuning
+for fetch-category breadcrumbs). Tuning vs real fixes will become clear
+session by session.
+
+The infrastructure for this loop is fully operational and proven live.

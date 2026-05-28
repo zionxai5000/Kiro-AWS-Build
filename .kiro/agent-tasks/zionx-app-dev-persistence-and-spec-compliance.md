@@ -241,3 +241,47 @@ Stream F is operational, not coding — it requires real session data. The infra
 
 ### Next recommended action
 Push the new container so Stream A's persistence and Stream E's hourly cron go live. Tell King the loop is active, wait for the first cron run, surface findings.
+
+
+### 2026-05-28 — DEPLOY VERIFIED IN PRODUCTION
+
+Two GitHub Actions Deploy runs:
+- `a28b819` — initial Streams A/B/C/D/E deploy (success)
+- `972dd34` — Sentry credential fix for spec-cron (success)
+
+ECS state: task definition revision 60+, current image `main-972dd34`, 1/1 healthy.
+
+**Verified live at http://seraphim-api-alb-1857113134.us-east-1.elb.amazonaws.com:**
+
+```json
+GET /api/app-dev/health
+{
+  "status": "healthy",
+  "hooks": { "total": 15, "enabled": 15, "killSwitchOn": false },
+  "watcher": { "healthy": true },
+  "persistence": { "durable": true },
+  "recentErrorRate": 0
+}
+```
+
+**Boot sequence observed in /seraphim/agent-runtime logs:**
+```
+17:56:40 [s3-workspace] hydrateAll complete { projectsRestored: 0, filesRestored: 0 }
+17:56:40 ✅ [app-dev] Durable workspace mirror wired (writes mirror to S3)
+17:56:40 ✅ [app-dev] Spec compliance cron scheduled (hourly)
+17:56:40 ✅ [app-dev] Route group registered (21 endpoints)
+17:56:40 ✅ [app-dev] Hook subscribers registered
+17:56:40 ✅ [app-dev] WebSocket broadcaster started
+18:01:41 [spec-cron] OK — 0 rules matched, 0 warnings, 0 violations across 0 breadcrumbs
+```
+
+The 5-min initial spec cron fired successfully, contacted Sentry, returned 0 breadcrumbs (expected — nobody has touched the dashboard yet). It will continue running every 60 minutes from here.
+
+**Stream F (operational) now begins**:
+1. Open the live ZionX dashboard
+2. Click around (Send a prompt → watch generation → check preview → Build → Deploy)
+3. Wait ≤60 min for next cron OR check Logs tab on next page load (boot-time evaluator)
+4. Triage any violations the runner reports
+5. Fix → redeploy → loop until violations stay at 0
+
+The infrastructure is fully operational. Closed loop is live.

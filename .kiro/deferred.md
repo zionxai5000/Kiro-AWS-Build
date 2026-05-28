@@ -386,3 +386,58 @@ seraphim/sentry secret payload. Low priority — webhook signing keys are
 operational, rotated independently from API tokens, and the current env-var
 path keeps the public webhook endpoint independent from app-store credentials.
 
+
+
+---
+
+## Phase 10 — `/build` route human-origin guard (2026-05-28)
+
+User tested the dashboard end-to-end via Sentry. Result:
+
+✅ Page load → `/api/app-dev/escalations` 200 OK  
+✅ `studio.send` → `POST /api/app-dev/projects` 201 Created  
+✅ Project workspace created: `proj-1779927357135-75738d00`  
+✅ `POST /api/app-dev/projects/:id/generate` 200 (SSE streaming)  
+✅ Periodic escalations poll: 200, 200, 200  
+✅ Sentry breadcrumb instrumentation: every click captured  
+❌ `POST /api/app-dev/projects/:id/build` 403 Forbidden  
+
+### Root cause of the 403
+
+`routes.ts` declares `requireHumanOrigin: true` on `/build` and
+`/auto-submit-and-watch`. The router (`api-routes.ts handleRequest()`)
+checks `authResult.context.user.principalType === 'human'`. When no
+`AuthMiddleware` is wired (the case in production-server.ts today), the
+fallback path synthesizes a user object WITHOUT a `principalType` field,
+so the check fails and returns 403.
+
+### Fix in `df615fb`
+
+`packages/services/src/shaar/api-routes.ts` — set `principalType: 'human'`
+in the fallback `MiddlewareResult` so the dashboard (only client today)
+can reach human-only routes. Real Cognito IDP middleware (when added)
+will replace the fallback and pull principalType from JWT claims.
+
+### Why the fix isn't deployed yet
+
+The fix is committed and pushed to `main` at `df615fb`. The deploy path
+(EC2 build VM → docker build → ECR push → ECS update) intermittently
+hangs on `dnf install` due to SSM agent credential issues on the build
+subnet. Two consecutive build attempts (build-3 and build-5) hung at the
+same step and were terminated.
+
+### Workaround / next step
+
+Three viable paths to land `df615fb`:
+
+1. **Use a different subnet** — launch the build VM in a subnet without
+   the SSM agent issue (try one of the other public subnets).
+2. **Pre-built AMI** — bake docker + node into a custom AMI so user-data
+   doesn't need `dnf install`.
+3. **GitHub Actions** — wire the existing CI to push to ECR and roll ECS
+   on push to main (replace the placeholder `echo` deploy steps).
+
+Until the rebuild lands, `/build` and `/auto-submit-and-watch` return 403.
+The rest of the pipeline (project create, generate, files, escalations,
+metrics, health, store-listing, sentry-webhook) all work correctly.
+

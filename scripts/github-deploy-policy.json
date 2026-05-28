@@ -33,6 +33,19 @@
         "arn:aws:iam::562887205007:role/Seraphim-dev-Compute-*",
         "arn:aws:iam::562887205007:role/cdk-hnb659fds-cfn-exec-role-562887205007-us-east-1"
       ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::seraphim-dashboard-live",
+        "arn:aws:s3:::seraphim-dashboard-live/*"
+      ]
     }
   ]
 }

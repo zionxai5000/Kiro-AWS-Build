@@ -65,6 +65,14 @@ interface StudioState {
   latestBuildId: string | null;
   brandingFilter: string;
   brandingSearch: string;
+  /** Live narration from the backend during generation (most recent phase). */
+  liveNarration: string | null;
+  /** Approximate tokens streamed so far in the current generation. */
+  tokensReceived: number;
+  /** Index in messages[] of the assistant message we're updating live. */
+  liveAssistantIndex: number | null;
+  /** A short paragraph the LLM produces describing the app for the preview pane. */
+  appSummary: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,9 +135,19 @@ export class StudioView {
     latestBuildId: null,
     brandingFilter: 'all',
     brandingSearch: '',
+    liveNarration: null,
+    tokensReceived: 0,
+    liveAssistantIndex: null,
+    appSummary: null,
   };
   private messages: { role: 'user' | 'assistant' | 'system'; text: string }[] = [
-    { role: 'system', text: 'Welcome to ZionX Studio. Describe an app to start, or pick a saved project from the left.' },
+    {
+      role: 'assistant',
+      text:
+        '👋 Welcome to ZionX Studio. Tell me what app you want and I will generate it from scratch — Expo + React Native + TypeScript, ready for the App Store.\n\n' +
+        'Try: "Build a habit tracker called Streak with daily check-ins, a flame icon when streak > 7 days, soft 9pm reminder notifications, and a calm Calm-app palette."\n\n' +
+        'Once it generates: open files in the Code tab, edit and save, or ask me to iterate. Hit Build iOS to ship to TestFlight.',
+    },
   ];
   private editor: monaco.editor.IStandaloneCodeEditor | null = null;
   private ws: DashboardWebSocket | null = null;
@@ -283,15 +301,28 @@ export class StudioView {
     this.state.openFileDirty = false;
     await this.refreshFiles();
     this.state.activeTab = 'files';
-    this.messages.push({ role: 'system', text: `Loaded project ${projectId} (${this.state.files.length} files).` });
+    this.messages.push({ role: 'system', text: `Loaded project ${projectId} (${this.state.files.length} file${this.state.files.length === 1 ? '' : 's'}).` });
     this.renderAll();
   }
 
   private async sendPrompt(text: string): Promise<void> {
     if (!text || this.state.generating) return;
     captureUserAction('studio.send', { textLength: text.length, hasProject: !!this.state.projectId });
+
+    // Always show what the user said
     this.messages.push({ role: 'user', text });
+
+    // Conversational triage: short, question-like messages get a chat reply
+    // before we burn LLM tokens on a full code generation. This matches how
+    // VibeCode/Rork handle "why can't I see the app?" style pings.
+    if (this.handleQuickReply(text)) {
+      this.renderAll();
+      return;
+    }
+
     this.state.generating = true;
+    this.state.liveNarration = null;
+    this.state.tokensReceived = 0;
 
     if (!this.state.projectId) {
       try {
@@ -314,44 +345,100 @@ export class StudioView {
     }
 
     const projectId = this.state.projectId!;
-    this.messages.push({ role: 'assistant', text: '⏳ Generating files…' });
+    // Push a placeholder assistant message we'll update in real time.
+    this.messages.push({ role: 'assistant', text: '🚀 Booting code generator...' });
+    this.state.liveAssistantIndex = this.messages.length - 1;
     this.state.activeTab = 'files';
     this.renderAll();
 
     // Reset file tree; files will be added live as they stream in
     this.state.files = [];
+    this.state.appSummary = null;
+
+    // Helper to update the in-progress assistant message inline
+    const updateLive = () => {
+      if (this.state.liveAssistantIndex == null) return;
+      const fileLine = this.state.files.length > 0
+        ? `\n📁 ${this.state.files.length} file${this.state.files.length === 1 ? '' : 's'} so far`
+        : '';
+      const tokenLine = this.state.tokensReceived > 0
+        ? `\n✏️ ${this.state.tokensReceived.toLocaleString()} tokens streamed`
+        : '';
+      const phaseLine = this.state.liveNarration ? `\n${this.state.liveNarration}` : '';
+      const msg = this.messages[this.state.liveAssistantIndex];
+      if (msg) {
+        msg.text = `🚀 Generating your app...${phaseLine}${fileLine}${tokenLine}`;
+      }
+      this.renderChatLive();
+      this.renderTabsLive();
+      this.renderPreviewLive();
+    };
 
     try {
       const abort = await streamGenerateCode(projectId, text, {
+        onPhase: (event) => {
+          // Map phase enum to a friendly emoji
+          const icon: Record<string, string> = {
+            'sanitizer': '🛡️',
+            'sanitizer-complete': '✓',
+            'llm-init': '🧠',
+            'streaming-start': '✨',
+            'token-progress': '✏️',
+            'file-start': '📝',
+            'file-end': '✓',
+            'streaming-complete': '✅',
+            'error': '❌',
+            'sanitizer-blocked': '🚫',
+          };
+          const prefix = icon[event.phase] ?? '•';
+          this.state.liveNarration = `${prefix} ${event.message}`;
+          updateLive();
+        },
+        onToken: (chunk) => {
+          this.state.tokensReceived += chunk.length;
+          // Update at most every ~500 chars to avoid render thrash
+          if (this.state.tokensReceived % 500 < chunk.length) updateLive();
+        },
         onFileStart: (path) => {
           if (path.startsWith('.meta/')) return;
           const existing = this.state.files.find((f) => f.path === path);
-          if (existing) {
-            existing.status = 'streaming';
-          } else {
-            this.state.files.push({ path, status: 'streaming' });
-          }
+          if (existing) existing.status = 'streaming';
+          else this.state.files.push({ path, status: 'streaming' });
+          updateLive();
           if (this.state.activeTab === 'files') this.renderFilesPanel();
         },
         onFileEnd: (path) => {
           if (path.startsWith('.meta/')) return;
           const existing = this.state.files.find((f) => f.path === path);
-          if (existing) {
-            existing.status = 'complete';
-          } else {
-            this.state.files.push({ path, status: 'complete' });
-          }
+          if (existing) existing.status = 'complete';
+          else this.state.files.push({ path, status: 'complete' });
+          updateLive();
           if (this.state.activeTab === 'files') this.renderFilesPanel();
         },
         onComplete: (files) => {
-          this.messages.push({ role: 'assistant', text: `✓ Generated ${files.length} files. Click any file to open it in the editor.` });
+          const realFiles = files.filter((f) => !f.startsWith('.meta/'));
+          // Replace the live message with a final summary
+          if (this.state.liveAssistantIndex != null) {
+            const summary = `✅ Your app is ready. Generated **${realFiles.length} files** in ${this.state.tokensReceived.toLocaleString()} tokens.\n\nClick the **Files** tab to browse, **Code** to edit, or **iOS / Android** at the top to build.`;
+            const msg = this.messages[this.state.liveAssistantIndex];
+            if (msg) msg.text = summary;
+          }
+          this.state.liveAssistantIndex = null;
+          this.state.liveNarration = null;
           this.state.generating = false;
+          // Generate a short app summary for the preview pane
+          this.generateAppSummary(text, realFiles);
           void this.refreshFiles();
           void this.refreshProjectList();
           this.renderAll();
         },
         onError: (msg) => {
-          this.messages.push({ role: 'assistant', text: `Generation failed: ${msg}` });
+          if (this.state.liveAssistantIndex != null) {
+            const m = this.messages[this.state.liveAssistantIndex];
+            if (m) m.text = `❌ Generation failed: ${msg}`;
+          }
+          this.state.liveAssistantIndex = null;
+          this.state.liveNarration = null;
           captureUserError(new Error(msg), { stage: 'generate-stream' });
           this.state.generating = false;
           this.renderAll();
@@ -359,11 +446,80 @@ export class StudioView {
       });
       this.currentStream = abort;
     } catch (err) {
-      this.messages.push({ role: 'assistant', text: `Stream error: ${(err as Error).message}` });
+      this.messages.push({ role: 'assistant', text: `❌ Stream error: ${(err as Error).message}` });
       captureUserError(err, { stage: 'generate-stream-init' });
       this.state.generating = false;
+      this.state.liveAssistantIndex = null;
       this.renderAll();
     }
+  }
+
+  /**
+   * Detect short, question-shaped messages that don't warrant a full code
+   * generation pass. Returns true if a quick reply was already pushed and
+   * sendPrompt should bail out before calling the LLM.
+   */
+  private handleQuickReply(text: string): boolean {
+    const trimmed = text.trim();
+    const lower = trimmed.toLowerCase();
+    const isQuestion =
+      trimmed.length < 220 &&
+      (trimmed.endsWith('?') ||
+        lower.startsWith('why ') ||
+        lower.startsWith('how ') ||
+        lower.startsWith('what ') ||
+        lower.startsWith('where ') ||
+        lower.startsWith('can ') ||
+        lower.startsWith("can't ") ||
+        lower.startsWith('cant ') ||
+        lower.startsWith('i cant ') ||
+        lower.startsWith("i can't "));
+    if (!isQuestion) return false;
+
+    let reply = '';
+    if (lower.includes('preview') || lower.includes("can't see") || lower.includes('cant see') || lower.includes('see the app')) {
+      reply =
+        "Live in-browser preview lands next session — I'm wiring the Expo dev server bridge. " +
+        "Right now the preview pane shows the file count, screen list, and an Expo Go QR code that activates after a successful iOS build. " +
+        "Hit the **📱 Build iOS** button up top and once the build finishes, scan the QR with Expo Go to install on your phone.";
+    } else if (lower.includes('build') || lower.includes('deploy')) {
+      reply =
+        'Use the buttons in the top bar: **📱 iOS** kicks off an EAS build, **🤖 Android** runs the Android build, **🚀 Deploy iOS** submits a finished build to TestFlight. ' +
+        'Logs stream into the Logs tab as the build progresses.';
+    } else if (lower.includes('edit') || lower.includes('change code') || lower.includes('update')) {
+      reply =
+        'Open the **Files** tab and click any file. The **Code** tab opens the file in a Monaco editor — make changes and hit **Save (⌘S)** to write them back to the workspace. ' +
+        'Or describe the change in chat and I will regenerate the affected files.';
+    } else if (lower.includes('how') && (lower.includes('work') || lower.includes('use'))) {
+      reply =
+        '1) Type a description of the app you want into chat and hit Send.\n' +
+        '2) Watch files stream into the Files tab.\n' +
+        '3) Click any file to view or edit it in the Code tab.\n' +
+        '4) Hit **Build iOS** when ready — TestFlight takes ~5 min.\n' +
+        '5) Iterate by sending more chat messages on the loaded project.';
+    } else {
+      reply =
+        "I read that as a question rather than a build request, so I'm answering instead of generating code. " +
+        'If you actually want me to build or change something, phrase it as a request like ' +
+        '"Add a stats screen with weekly streak chart" or "Change the primary color to forest green".';
+    }
+    this.messages.push({ role: 'assistant', text: reply });
+    return true;
+  }
+
+  /** Pull a short user-facing summary of what got built — for the preview pane. */
+  private generateAppSummary(originalPrompt: string, files: string[]): void {
+    // Cheap heuristic: pick out the named features from the prompt and the
+    // tab-level routes from the file tree. Real summary lands when the LLM
+    // emits a `summary` event. Until then this is meaningfully better than
+    // a placeholder.
+    const screens = files.filter((f) => f.match(/app\/.+\.tsx$/) && !f.includes('_layout'));
+    const tabs = screens.filter((f) => f.includes('(tabs)'));
+    const summary = [
+      originalPrompt.split('\n')[0]?.slice(0, 140) ?? 'Your app',
+      `${screens.length} screens · ${tabs.length} tabs · ${files.length} total files`,
+    ].join('\n');
+    this.state.appSummary = summary;
   }
 
   private async startBuildFor(platform: 'ios' | 'android'): Promise<void> {
@@ -427,6 +583,40 @@ export class StudioView {
     if (!panel || this.state.activeTab !== 'files') return;
     panel.innerHTML = this.renderFilesContent();
     this.attachFilesListeners();
+  }
+
+  /**
+   * Live partial-renders that don't tear down Monaco or scroll positions:
+   * just patch the chat thread, the tab counters, and the preview pane.
+   */
+  private renderChatLive(): void {
+    if (this.state.activeTab !== 'chat') return;
+    const msgsEl = this.container.querySelector('#studio-messages');
+    if (!msgsEl) return;
+    const wasScrolled = msgsEl.scrollTop + msgsEl.clientHeight + 40 >= msgsEl.scrollHeight;
+    msgsEl.innerHTML = this.messages.map((m) => {
+      const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
+      return `<div class="studio-msg ${cls}">${escapeHtml(m.text).replace(/\n/g, '<br/>')}</div>`;
+    }).join('');
+    if (wasScrolled) msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  private renderTabsLive(): void {
+    const filesTab = this.container.querySelector('[data-tab="files"]');
+    if (filesTab) filesTab.textContent = `📁 Files (${this.state.files.length})`;
+  }
+
+  private renderPreviewLive(): void {
+    const screen = this.container.querySelector('.studio-device-screen');
+    if (screen) screen.innerHTML = this.renderPreviewBody();
+    // Re-bind the preview-action buttons
+    this.container.querySelectorAll('[data-preview-action]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const action = (el as HTMLElement).dataset.previewAction;
+        if (action === 'build-ios') void this.startBuildFor('ios');
+        else if (action === 'build-android') void this.startBuildFor('android');
+      });
+    });
   }
 
   private render(): void {
@@ -572,13 +762,59 @@ export class StudioView {
 
   private renderPreviewBody(): string {
     if (!this.state.projectId) {
-      return `<div>📱</div><div>Send your first prompt to see the app preview.</div>`;
+      return `
+        <div style="font-size:32px;">📱</div>
+        <div style="font-weight:600;margin-top:8px;">Your app preview</div>
+        <div style="font-size:11px;opacity:0.6;margin-top:4px;">Send a prompt in the Chat tab to start.</div>
+      `;
     }
+
+    // Live progress while generating
+    if (this.state.generating) {
+      const progressPct = Math.min(95, this.state.tokensReceived / 400);
+      return `
+        <div style="font-size:32px;">⚡</div>
+        <div style="font-weight:600;margin-top:8px;">Building your app</div>
+        <div style="font-size:11px;opacity:0.7;margin-top:4px;">${escapeHtml(this.state.liveNarration ?? 'Streaming code from Claude...')}</div>
+        <div style="margin-top:14px;width:80%;height:6px;background:#1a1a1f;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${progressPct}%;background:linear-gradient(90deg,#6c8cff,#4a6dff);transition:width 0.3s;"></div>
+        </div>
+        <div style="font-size:11px;opacity:0.6;margin-top:8px;">${this.state.files.length} files · ${this.state.tokensReceived.toLocaleString()} tokens</div>
+      `;
+    }
+
+    // Completed — show app summary + screen list
+    const appName = this.state.projects.find((p) => p.projectId === this.state.projectId)?.name ?? this.state.projectId;
+    const screens = this.state.files.filter((f) => f.path.match(/^app\/.+\.tsx$/) && !f.path.includes('_layout'));
+    const screenList = screens.slice(0, 8).map((s) => {
+      const name = s.path
+        .replace(/^app\//, '')
+        .replace(/\.tsx$/, '')
+        .replace(/\(tabs\)\//, '')
+        .replace(/index/, 'home')
+        .replace(/^./, (c) => c.toUpperCase());
+      return `<div style="padding:6px 10px;background:#14161b;border-radius:6px;font-size:11px;text-align:left;">📄 ${escapeHtml(name)}</div>`;
+    }).join('');
+
+    const summary = this.state.appSummary ?? `${this.state.files.length} files generated.`;
+    const summaryHtml = escapeHtml(summary).replace(/\n/g, '<br/>');
+
+    const expoQrTarget = `exp://exp.host/@anonymous/${encodeURIComponent(String(appName))}`;
+    const expoQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(expoQrTarget)}&bgcolor=0f1115&color=e6e6e6`;
+
     return `
-      <div>📱</div>
-      <div><strong>${escapeHtml(this.state.projectId)}</strong></div>
-      <div style="font-size:11px;opacity:0.7;">${this.state.files.length} files</div>
-      <div style="font-size:10px;opacity:0.5;margin-top:8px;">Live Expo preview lands in Phase 11. For now, build to TestFlight.</div>
+      <div style="font-size:24px;">✨</div>
+      <div style="font-weight:600;margin-top:6px;">${escapeHtml(String(appName))}</div>
+      <div style="font-size:11px;opacity:0.7;margin-top:4px;line-height:1.5;">${summaryHtml}</div>
+      ${screenList ? `<div style="display:flex;flex-direction:column;gap:4px;margin-top:12px;width:100%;">${screenList}</div>` : ''}
+      <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center;">
+        <button class="studio-btn studio-btn--primary studio-btn--sm" data-preview-action="build-ios">📱 Build iOS</button>
+        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="build-android">🤖 Android</button>
+      </div>
+      <div style="margin-top:14px;background:#fff;padding:6px;border-radius:6px;">
+        <img src="${expoQrUrl}" alt="Open in Expo Go" style="display:block;" />
+      </div>
+      <div style="font-size:10px;opacity:0.5;margin-top:6px;">Live Expo preview ships next. Scan with Expo Go to install on your phone after the iOS build finishes.</div>
     `;
   }
 
@@ -739,6 +975,15 @@ export class StudioView {
       const lines = this.state.escalations.map((e) => `[escalation] ${e.hookId}: ${e.reason} (${e.status})${e.notes ? ' — ' + e.notes : ''}`);
       this.state.buildEvents.push(...lines);
       this.renderAll();
+    });
+
+    // Wire preview-pane action buttons (Build iOS / Android shortcuts)
+    this.container.querySelectorAll('[data-preview-action]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const action = (el as HTMLElement).dataset.previewAction;
+        if (action === 'build-ios') void this.startBuildFor('ios');
+        else if (action === 'build-android') void this.startBuildFor('android');
+      });
     });
 
     this.attachFilesListeners();

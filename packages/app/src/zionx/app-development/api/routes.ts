@@ -113,5 +113,10 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
       path: '/app-dev/projects/:id/file',
       handler: h.writeProjectFile,
     },
+    {
+      method: 'POST',
+      path: '/app-dev/projects/:id/preview',
+      handler: h.createPreview,
+    },
   ];
 }

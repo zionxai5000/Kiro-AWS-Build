@@ -32,9 +32,11 @@ import {
   fetchAppDevEscalations,
   fetchAppDevHealth,
   streamGenerateCode,
+  createPreview,
   type AppDevEscalation,
   type AppDevHealth,
   type AppDevProjectListEntry,
+  type SnackPreview,
   DashboardWebSocket,
   type WebSocketMessage,
 } from '../api.js';
@@ -73,6 +75,12 @@ interface StudioState {
   liveAssistantIndex: number | null;
   /** A short paragraph the LLM produces describing the app for the preview pane. */
   appSummary: string | null;
+  /** Live Snack embed URL — null when no preview has been created yet. */
+  previewUrl: string | null;
+  /** Status of preview creation. */
+  previewStatus: 'idle' | 'building' | 'ready' | 'error';
+  /** Message from preview build error. */
+  previewError: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +147,11 @@ export class StudioView {
     tokensReceived: 0,
     liveAssistantIndex: null,
     appSummary: null,
+    previewUrl: null,
+    previewStatus: 'idle',
+    previewError: null,
   };
-  private messages: { role: 'user' | 'assistant' | 'system'; text: string }[] = [
+  private messages: { role: 'user' | 'assistant' | 'system'; text: string; kind?: 'design-picker' }[] = [
     {
       role: 'assistant',
       text:
@@ -346,7 +357,7 @@ export class StudioView {
 
     const projectId = this.state.projectId!;
     // Push a placeholder assistant message we'll update in real time.
-    this.messages.push({ role: 'assistant', text: '🚀 Booting code generator...' });
+    this.messages.push({ role: 'assistant', text: '🧠 Reading your prompt and planning the app structure...' });
     this.state.liveAssistantIndex = this.messages.length - 1;
     this.state.activeTab = 'files';
     this.renderAll();
@@ -362,12 +373,12 @@ export class StudioView {
         ? `\n📁 ${this.state.files.length} file${this.state.files.length === 1 ? '' : 's'} so far`
         : '';
       const tokenLine = this.state.tokensReceived > 0
-        ? `\n✏️ ${this.state.tokensReceived.toLocaleString()} tokens streamed`
+        ? `\n✏️ ${this.state.tokensReceived.toLocaleString()} characters streamed`
         : '';
       const phaseLine = this.state.liveNarration ? `\n${this.state.liveNarration}` : '';
       const msg = this.messages[this.state.liveAssistantIndex];
       if (msg) {
-        msg.text = `🚀 Generating your app...${phaseLine}${fileLine}${tokenLine}`;
+        msg.text = `🧠 Generating your app${phaseLine}${fileLine}${tokenLine}`;
       }
       this.renderChatLive();
       this.renderTabsLive();
@@ -431,6 +442,9 @@ export class StudioView {
           void this.refreshFiles();
           void this.refreshProjectList();
           this.renderAll();
+          // Kick off the live Snack preview in the background — the iframe
+          // appears in the preview pane the moment Snack returns the embed URL.
+          void this.buildLivePreview();
         },
         onError: (msg) => {
           if (this.state.liveAssistantIndex != null) {
@@ -522,6 +536,61 @@ export class StudioView {
     this.state.appSummary = summary;
   }
 
+  /**
+   * Open the design / branding picker inline in chat. We push a special
+   * message with a `kind: 'design-picker'` marker that renderChatContent
+   * recognizes and renders as the picker grid.
+   */
+  private openDesignPickerInChat(): void {
+    captureUserAction('studio.openDesignPicker');
+    this.state.activeTab = 'chat';
+    // Avoid duplicating the picker if it's already the most-recent message
+    const last = this.messages[this.messages.length - 1];
+    if (last && (last as { kind?: string }).kind === 'design-picker') {
+      this.renderAll();
+      return;
+    }
+    this.messages.push({
+      role: 'assistant',
+      text: 'Pick a branding style — I will iterate on the current app to match it.',
+      kind: 'design-picker',
+    } as { role: 'assistant'; text: string; kind: string });
+    this.renderAll();
+  }
+  private async buildLivePreview(): Promise<void> {
+    if (!this.state.projectId) return;
+    if (this.state.previewStatus === 'building') return;
+    captureUserAction('studio.buildPreview', { projectId: this.state.projectId });
+
+    this.state.previewStatus = 'building';
+    this.state.previewError = null;
+    this.messages.push({
+      role: 'assistant',
+      text: '🪄 Building live preview... bundling your code into an Expo Snack so you can see the app render right here.',
+    });
+    this.renderAll();
+
+    try {
+      const snack: SnackPreview = await createPreview(this.state.projectId);
+      this.state.previewUrl = snack.embedUrl;
+      this.state.previewStatus = 'ready';
+      this.messages.push({
+        role: 'assistant',
+        text: `✨ Preview is live. Your app is rendering in the right panel — ${snack.fileCount} files bundled.`,
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      this.state.previewStatus = 'error';
+      this.state.previewError = msg;
+      this.messages.push({
+        role: 'assistant',
+        text: `❌ Preview build failed: ${msg}\n\nThe code itself is fine — Snack rejects some native packages on web preview. Use Build iOS to ship the real version.`,
+      });
+      captureUserError(err, { stage: 'create-preview' });
+    }
+    this.renderAll();
+  }
+
   private async startBuildFor(platform: 'ios' | 'android'): Promise<void> {
     captureUserAction('studio.build', { platform, projectId: this.state.projectId });
     if (!this.state.projectId) {
@@ -596,9 +665,21 @@ export class StudioView {
     const wasScrolled = msgsEl.scrollTop + msgsEl.clientHeight + 40 >= msgsEl.scrollHeight;
     msgsEl.innerHTML = this.messages.map((m) => {
       const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
+      if (m.kind === 'design-picker') {
+        const cards = BRANDING_STYLES.slice(0, 12).map((s) => `
+          <button class="studio-design-card" data-apply-style="${escapeHtml(s.id)}">
+            <span class="studio-design-card__swatch" style="background:${s.gradient}"></span>
+            <span class="studio-design-card__name">${escapeHtml(s.name)}</span>
+            <span class="studio-design-card__inspo">${escapeHtml(s.inspiration)}</span>
+          </button>
+        `).join('');
+        return `<div class="studio-msg ${cls}" style="max-width:95%;">${escapeHtml(m.text)}<div class="studio-design-grid-inline">${cards}</div></div>`;
+      }
       return `<div class="studio-msg ${cls}">${escapeHtml(m.text).replace(/\n/g, '<br/>')}</div>`;
     }).join('');
     if (wasScrolled) msgsEl.scrollTop = msgsEl.scrollHeight;
+    // Re-bind the inline picker click handlers
+    this.attachDesignListeners();
   }
 
   private renderTabsLive(): void {
@@ -615,6 +696,7 @@ export class StudioView {
         const action = (el as HTMLElement).dataset.previewAction;
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
+        else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
       });
     });
   }
@@ -726,9 +808,18 @@ export class StudioView {
         .studio-branding-card__name { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
         .studio-branding-card__desc { font-size: 11px; opacity: 0.7; margin: 0 0 8px; line-height: 1.4; }
         .studio-preview { border-left: 1px solid #222; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-        .studio-device-frame { background: #1a1a1f; border-radius: 30px; padding: 8px; aspect-ratio: 9 / 19; max-width: 280px; margin: 0 auto; }
-        .studio-device-screen { background: #0f1115; border-radius: 24px; height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; flex-direction: column; gap: 8px; font-size: 12px; opacity: 0.7; }
+        .studio-device-frame { background: #1a1a1f; border-radius: 30px; padding: 8px; aspect-ratio: 9 / 19; max-width: 280px; margin: 0 auto; width: 100%; }
+        .studio-device-screen { background: #0f1115; border-radius: 24px; height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; padding: 0; text-align: center; flex-direction: column; gap: 8px; font-size: 12px; opacity: 1; overflow: hidden; }
+        .studio-device-screen > *:not(iframe) { padding: 0 16px; opacity: 0.9; }
+        .studio-device-screen iframe { display: block; }
+        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
         .studio-escalation-badge { background: #ff4757; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .studio-design-grid-inline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+        .studio-design-card { background: #14161b; border: 1px solid #2a2f3d; border-radius: 8px; padding: 0; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; align-items: stretch; text-align: left; color: inherit; font-family: inherit; }
+        .studio-design-card:hover { border-color: #6c8cff; transform: translateY(-1px); }
+        .studio-design-card__swatch { display: block; height: 40px; }
+        .studio-design-card__name { display: block; padding: 6px 8px 2px; font-size: 11px; font-weight: 600; }
+        .studio-design-card__inspo { display: block; padding: 0 8px 8px; font-size: 10px; opacity: 0.6; }
       </style>
     `;
   }
@@ -783,38 +874,57 @@ export class StudioView {
       `;
     }
 
-    // Completed — show app summary + screen list
+    // Preview building (after generation completes)
+    if (this.state.previewStatus === 'building') {
+      return `
+        <div style="font-size:32px;">🪄</div>
+        <div style="font-weight:600;margin-top:8px;">Bundling preview...</div>
+        <div style="font-size:11px;opacity:0.7;margin-top:4px;">Sending workspace to Expo Snack so you can see the app render.</div>
+        <div style="margin-top:14px;width:80%;height:6px;background:#1a1a1f;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;background:linear-gradient(90deg,#6c8cff,#4a6dff);animation:slide 1.5s ease-in-out infinite;width:50%;"></div>
+        </div>
+      `;
+    }
+
+    // Live Snack iframe — the actual app rendering
+    if (this.state.previewStatus === 'ready' && this.state.previewUrl) {
+      return `
+        <iframe
+          src="${escapeHtml(this.state.previewUrl)}"
+          style="width:100%;height:100%;border:0;border-radius:8px;background:#0f1115;"
+          allow="camera;microphone;clipboard-read;clipboard-write"
+          loading="lazy"
+        ></iframe>
+      `;
+    }
+
+    // Preview failed — fall back to summary card
+    if (this.state.previewStatus === 'error') {
+      return `
+        <div style="font-size:24px;">⚠️</div>
+        <div style="font-weight:600;margin-top:6px;">Preview unavailable</div>
+        <div style="font-size:11px;opacity:0.7;margin-top:4px;line-height:1.4;">${escapeHtml(this.state.previewError ?? 'Snack bundle failed.')}</div>
+        <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center;">
+          <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="retry">↻ Retry preview</button>
+          <button class="studio-btn studio-btn--primary studio-btn--sm" data-preview-action="build-ios">📱 Build iOS</button>
+        </div>
+      `;
+    }
+
+    // Project loaded but no preview built yet — offer to build it
     const appName = this.state.projects.find((p) => p.projectId === this.state.projectId)?.name ?? this.state.projectId;
     const screens = this.state.files.filter((f) => f.path.match(/^app\/.+\.tsx$/) && !f.path.includes('_layout'));
-    const screenList = screens.slice(0, 8).map((s) => {
-      const name = s.path
-        .replace(/^app\//, '')
-        .replace(/\.tsx$/, '')
-        .replace(/\(tabs\)\//, '')
-        .replace(/index/, 'home')
-        .replace(/^./, (c) => c.toUpperCase());
-      return `<div style="padding:6px 10px;background:#14161b;border-radius:6px;font-size:11px;text-align:left;">📄 ${escapeHtml(name)}</div>`;
-    }).join('');
-
-    const summary = this.state.appSummary ?? `${this.state.files.length} files generated.`;
-    const summaryHtml = escapeHtml(summary).replace(/\n/g, '<br/>');
-
-    const expoQrTarget = `exp://exp.host/@anonymous/${encodeURIComponent(String(appName))}`;
-    const expoQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(expoQrTarget)}&bgcolor=0f1115&color=e6e6e6`;
-
     return `
       <div style="font-size:24px;">✨</div>
       <div style="font-weight:600;margin-top:6px;">${escapeHtml(String(appName))}</div>
-      <div style="font-size:11px;opacity:0.7;margin-top:4px;line-height:1.5;">${summaryHtml}</div>
-      ${screenList ? `<div style="display:flex;flex-direction:column;gap:4px;margin-top:12px;width:100%;">${screenList}</div>` : ''}
-      <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center;">
-        <button class="studio-btn studio-btn--primary studio-btn--sm" data-preview-action="build-ios">📱 Build iOS</button>
-        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="build-android">🤖 Android</button>
+      <div style="font-size:11px;opacity:0.7;margin-top:4px;line-height:1.5;">
+        ${this.state.files.length} files · ${screens.length} screens
       </div>
-      <div style="margin-top:14px;background:#fff;padding:6px;border-radius:6px;">
-        <img src="${expoQrUrl}" alt="Open in Expo Go" style="display:block;" />
+      <div style="display:flex;gap:6px;margin-top:14px;flex-direction:column;width:100%;align-items:center;">
+        <button class="studio-btn studio-btn--primary" data-preview-action="build-preview" style="width:90%;">▶️ Show live preview</button>
+        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="build-ios" style="width:90%;">📱 Build iOS for TestFlight</button>
       </div>
-      <div style="font-size:10px;opacity:0.5;margin-top:6px;">Live Expo preview ships next. Scan with Expo Go to install on your phone after the iOS build finishes.</div>
+      <div style="font-size:10px;opacity:0.5;margin-top:8px;">Live preview renders the app via Expo Snack — works best for SDK-54 apps without native modules.</div>
     `;
   }
 
@@ -831,7 +941,22 @@ export class StudioView {
   private renderChatContent(): string {
     const msgs = this.messages.map((m) => {
       const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
-      return `<div class="studio-msg ${cls}">${escapeHtml(m.text)}</div>`;
+      if (m.kind === 'design-picker') {
+        const cards = BRANDING_STYLES.slice(0, 12).map((s) => `
+          <button class="studio-design-card" data-apply-style="${escapeHtml(s.id)}">
+            <span class="studio-design-card__swatch" style="background:${s.gradient}"></span>
+            <span class="studio-design-card__name">${escapeHtml(s.name)}</span>
+            <span class="studio-design-card__inspo">${escapeHtml(s.inspiration)}</span>
+          </button>
+        `).join('');
+        return `
+          <div class="studio-msg ${cls}" style="max-width:95%;">
+            ${escapeHtml(m.text)}
+            <div class="studio-design-grid-inline">${cards}</div>
+          </div>
+        `;
+      }
+      return `<div class="studio-msg ${cls}">${escapeHtml(m.text).replace(/\n/g, '<br/>')}</div>`;
     }).join('');
     return `
       <div class="studio-chat">
@@ -943,6 +1068,13 @@ export class StudioView {
     this.container.querySelectorAll('[data-tab]').forEach((el) => {
       el.addEventListener('click', () => {
         const tab = (el as HTMLElement).dataset.tab as StudioTab;
+        // Design "tab" actually redirects into the chat with a branding
+        // picker rendered as a message — VibeCode-style. The user picks a
+        // style and it gets sent as an iterate prompt.
+        if (tab === 'design') {
+          this.openDesignPickerInChat();
+          return;
+        }
         this.state.activeTab = tab;
         this.renderAll();
       });
@@ -977,12 +1109,13 @@ export class StudioView {
       this.renderAll();
     });
 
-    // Wire preview-pane action buttons (Build iOS / Android shortcuts)
+    // Wire preview-pane action buttons (Build iOS / Android shortcuts + preview)
     this.container.querySelectorAll('[data-preview-action]').forEach((el) => {
       el.addEventListener('click', () => {
         const action = (el as HTMLElement).dataset.previewAction;
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
+        else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
       });
     });
 

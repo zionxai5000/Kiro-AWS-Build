@@ -696,3 +696,38 @@ export async function writeAppDevFile(
   }
   return response.json();
 }
+
+
+// ---------------------------------------------------------------------------
+// Snack preview — bundle workspace and return embed URL
+// ---------------------------------------------------------------------------
+
+export interface SnackPreview {
+  projectId: string;
+  snackId: string;
+  url: string;
+  embedUrl: string;
+  fileCount: number;
+}
+
+/** POST /app-dev/projects/:id/preview — create or refresh the live Snack preview. */
+export async function createPreview(projectId: string): Promise<SnackPreview> {
+  const baseUrl = getBaseUrl();
+  const isDirectALB = baseUrl.includes('elb.amazonaws.com');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (!isDirectALB) {
+    const token = await getAuthToken();
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const url = baseUrl + `/app-dev/projects/${encodeURIComponent(projectId)}/preview`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Preview create failed: ${response.status} ${text.slice(0, 200)}`);
+  }
+  return response.json();
+}

@@ -462,8 +462,19 @@ export async function fetchRecentBreadcrumbs(
       headers: { Authorization: `Bearer ${config.authToken}` },
     });
     if (!eventRes.ok) continue;
-    const event = (await eventRes.json()) as { breadcrumbs?: { values?: SentryBreadcrumb[] } };
-    const values = event.breadcrumbs?.values;
+    // Sentry's REST API returns breadcrumbs under one of two shapes:
+    //   - Old shape:   { breadcrumbs: { values: [...] } }
+    //   - Current API: { entries: [ { type: 'breadcrumbs', data: { values: [...] } }, ... ] }
+    // We accept both so the runner works against any Sentry tier.
+    const event = (await eventRes.json()) as {
+      breadcrumbs?: { values?: SentryBreadcrumb[] };
+      entries?: Array<{ type: string; data?: { values?: SentryBreadcrumb[] } }>;
+    };
+    let values: SentryBreadcrumb[] | undefined = event.breadcrumbs?.values;
+    if (!values || values.length === 0) {
+      const entry = event.entries?.find((e) => e.type === 'breadcrumbs');
+      values = entry?.data?.values;
+    }
     if (!values) continue;
     breadcrumbs.push(...values);
   }

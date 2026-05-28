@@ -178,6 +178,168 @@ const RULES: SequenceRule[] = [
     withinMs: 5000,
     severity: 'violation',
   },
+
+  // -------------------------------------------------------------------------
+  // Project list / project load (spec §3 buttons #2, #18 and §8 acceptance #1, #2)
+  // -------------------------------------------------------------------------
+  {
+    id: 'load-project-must-fetch',
+    description: 'Loading a project from the sidebar must fetch its details',
+    trigger: { messagePattern: /^studio\.loadProject$/ },
+    expect: {
+      messagePattern: /app-dev\/projects\/[^/]+(\/files)?(\?|$)|studio\.projectLoaded/,
+      description: 'a GET /app-dev/projects/:id or files request',
+    },
+    withinMs: 2000,
+    severity: 'warning',
+  },
+  {
+    id: 'refresh-list-must-fetch',
+    description: 'Refresh sidebar must call GET /app-dev/projects',
+    trigger: { messagePattern: /^studio\.refresh$/ },
+    expect: {
+      messagePattern: /app-dev\/projects(\?|$)|studio\.projectsRefreshed/,
+      description: 'a GET /app-dev/projects request',
+    },
+    withinMs: 3000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Tab switching (spec §3 buttons #4-#8)
+  // -------------------------------------------------------------------------
+  {
+    id: 'tab-switch-must-render',
+    description: 'Tab click must produce a render breadcrumb naming that tab',
+    trigger: { messagePattern: /^studio\.tab$/ },
+    expect: {
+      messagePattern: /^studio\.tabRendered$|^studio\.render$/,
+      description: 'a tabRendered breadcrumb',
+    },
+    withinMs: 1000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Preview lifecycle (spec §3 buttons #16, #17 and §2 states)
+  // -------------------------------------------------------------------------
+  {
+    id: 'build-preview-must-resolve',
+    description: 'A buildPreview request must produce a previewReady or previewError',
+    trigger: { messagePattern: /^studio\.buildPreview$/ },
+    expect: {
+      messagePattern: /^studio\.previewReady$|^studio\.previewError$/,
+      description: 'a previewReady or previewError breadcrumb',
+    },
+    withinMs: 60_000,
+    severity: 'violation',
+  },
+
+  // -------------------------------------------------------------------------
+  // Build lifecycle (spec §3 buttons #11, #12 and §6 lifecycle)
+  // -------------------------------------------------------------------------
+  {
+    id: 'build-queued-must-finish',
+    description: 'A buildQueued must eventually be followed by a build complete or fail event',
+    trigger: { messagePattern: /^studio\.buildQueued$/ },
+    expect: {
+      messagePattern: /studio\.(buildComplete|buildFailed)|build\.(completed|failed)/,
+      description: 'a buildComplete or buildFailed event',
+    },
+    // EAS builds typically finish in ~4 min; 30 min is an aggressive safety ceiling
+    withinMs: 30 * 60_000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Deploy lifecycle (spec §3 buttons #13, #14)
+  // -------------------------------------------------------------------------
+  {
+    id: 'deploy-started-must-resolve',
+    description: 'A deployStarted must eventually produce deploySubmitted or deployFailed',
+    trigger: { messagePattern: /^studio\.deployStarted$/ },
+    expect: {
+      messagePattern: /studio\.(deploySubmitted|deployFailed)/,
+      description: 'a deploySubmitted or deployFailed event',
+    },
+    withinMs: 15 * 60_000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Cancel generation (spec §3 button #21)
+  // -------------------------------------------------------------------------
+  {
+    id: 'abort-must-close-stream',
+    description: 'Cancel generation must close the SSE stream',
+    trigger: { messagePattern: /^studio\.abortGeneration$/ },
+    expect: {
+      messagePattern: /^studio\.streamAborted$|^studio\.streamError$|^studio\.streamDone$/,
+      description: 'a streamAborted, streamError, or streamDone breadcrumb',
+    },
+    withinMs: 3000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Health surface (spec §4 endpoints, §3 button #19)
+  // -------------------------------------------------------------------------
+  {
+    id: 'health-on-load',
+    description: 'Studio must call /app-dev/health at least once per session',
+    trigger: { messagePattern: /^studio\.session\.start$/ },
+    expect: {
+      messagePattern: /app-dev\/health|studio\.healthLoaded/,
+      description: 'a GET /app-dev/health call',
+    },
+    withinMs: 5000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Branding picker (spec §3 button #15)
+  // -------------------------------------------------------------------------
+  {
+    id: 'branding-must-iterate',
+    description: 'Selecting a branding style must trigger an iteration prompt',
+    trigger: { messagePattern: /^studio\.applyBrandingStyle$/ },
+    expect: {
+      messagePattern: /studio\.(send|streamStart)/,
+      description: 'a follow-up prompt send / streamStart',
+    },
+    withinMs: 3000,
+    severity: 'warning',
+  },
+
+  // -------------------------------------------------------------------------
+  // Persistence (audit §9 — non-negotiable)
+  // -------------------------------------------------------------------------
+  {
+    id: 'session-start-must-load-projects',
+    description: 'On every session start, the dashboard must fetch the project list',
+    trigger: { messagePattern: /^studio\.session\.start$/ },
+    expect: {
+      messagePattern: /app-dev\/projects(\?|$)|studio\.projectsRefreshed/,
+      description: 'a GET /app-dev/projects call',
+    },
+    withinMs: 5000,
+    severity: 'violation',
+  },
+
+  // -------------------------------------------------------------------------
+  // Spec evaluation itself (audit §13 — failure modes must be observable)
+  // -------------------------------------------------------------------------
+  {
+    id: 'evaluate-must-respond',
+    description: 'Calling /app-dev/spec/evaluate from the dashboard must return a report',
+    trigger: { messagePattern: /^studio\.evaluateSpec$/ },
+    expect: {
+      messagePattern: /studio\.specEvaluated|studio\.specEvaluateError|app-dev\/spec\/evaluate/,
+      description: 'a specEvaluated or specEvaluateError breadcrumb',
+    },
+    withinMs: 30_000,
+    severity: 'warning',
+  },
 ];
 
 // ---------------------------------------------------------------------------

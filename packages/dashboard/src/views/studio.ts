@@ -184,6 +184,14 @@ export class StudioView {
   private ws: DashboardWebSocket | null = null;
   private pollHandle: number | null = null;
   private currentStream: AbortController | null = null;
+  /**
+   * Per-mount session id. Surfaces in every breadcrumb so the spec-runner
+   * can correlate breadcrumbs by session and report drift per-session.
+   */
+  private readonly sessionId: string =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? (crypto as Crypto).randomUUID()
+      : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -192,6 +200,13 @@ export class StudioView {
   async mount(): Promise<void> {
     this.render();
     this.attachListeners();
+
+    // Spec-runner aligned: session.start fires once per mount so the runner
+    // can verify projects were fetched and (optionally) the spec was evaluated.
+    captureUserAction('studio.session.start', {
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString(),
+    });
 
     // Restore last project + load saved project list
     const savedId = localStorage.getItem(LS_PROJECT_KEY);
@@ -210,6 +225,11 @@ export class StudioView {
       void this.refreshEscalations();
       void this.refreshHealth();
     }, 15_000);
+
+    // Spec-runner kickoff: evaluate the recent session in the background so
+    // any in-flight violations from the previous tab/page reload surface in
+    // Sentry without waiting for the hourly cron. Best-effort: never blocks UI.
+    void this.evaluateSpecInBackground();
 
     // WebSocket for build/crash updates
     this.ws = new DashboardWebSocket();
@@ -238,9 +258,13 @@ export class StudioView {
   // -------------------------------------------------------------------------
 
   private async refreshProjectList(): Promise<void> {
+    // Spec-runner aligned: every project list fetch fires a breadcrumb so the
+    // session-start-must-load-projects rule can verify boot rehydration.
+    captureUserAction('studio.projectsRefreshing');
     try {
       const res = await listAppDevProjects();
       this.state.projects = res.projects;
+      captureUserAction('studio.projectsRefreshed', { count: res.projects.length });
     } catch (err) {
       captureUserError(err, { stage: 'list-projects' });
     }
@@ -1263,5 +1287,64 @@ export class StudioView {
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => void this.saveOpenFile(),
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Spec compliance — call /app-dev/spec/evaluate at session start.
+  //   The runner pulls the last N Sentry breadcrumbs from this user's
+  //   recent issues, walks them through the rule set, and returns
+  //   violations + matched rules. Result is logged but never blocks the UI.
+  //   Hourly backend cron does the same thing on its own schedule for
+  //   ambient observability.
+  // -------------------------------------------------------------------------
+  private async evaluateSpecInBackground(): Promise<void> {
+    captureUserAction('studio.evaluateSpec', { sessionId: this.sessionId });
+    try {
+      const res = await fetch('/app-dev/spec/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        // 500 usually means credential manager not configured (dev / first boot).
+        // Don't surface to user — the cron will catch it.
+        captureUserAction('studio.specEvaluateError', { status: res.status });
+        return;
+      }
+      const report = await res.json() as {
+        violations?: Array<{ ruleId: string; message: string }>;
+        warnings?: Array<{ ruleId: string }>;
+        matched?: Array<{ ruleId: string }>;
+        summary?: Record<string, number>;
+      };
+      const violationCount = report.violations?.length ?? 0;
+      const warningCount = report.warnings?.length ?? 0;
+      captureUserAction('studio.specEvaluated', {
+        violations: violationCount,
+        warnings: warningCount,
+        matched: report.matched?.length ?? 0,
+      });
+      // If we have violations, surface them in the Logs tab + Sentry.
+      // Sentry alert rule already configured to ping the operator on issues.
+      if (violationCount > 0 && report.violations) {
+        for (const v of report.violations) {
+          this.state.buildEvents.push(
+            `[spec] VIOLATION: ${v.ruleId} — ${v.message}`,
+          );
+          // Surface to Sentry as a captured error so issue tracking groups them.
+          captureUserError(new Error(`Spec violation: ${v.ruleId}`), {
+            stage: 'spec-runner',
+            ruleId: v.ruleId,
+            message: v.message,
+          });
+        }
+        if (this.state.activeTab === 'logs') this.renderAll();
+      }
+    } catch (err) {
+      // Network errors etc — log to Sentry only.
+      captureUserAction('studio.specEvaluateError', {
+        message: (err as Error).message.slice(0, 200),
+      });
+    }
   }
 }

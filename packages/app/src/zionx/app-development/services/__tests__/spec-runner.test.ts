@@ -116,4 +116,71 @@ describe('Spec Runner — evaluate()', () => {
     const report = evaluate(breadcrumbs);
     expect(report.violations.some((v) => v.ruleId === 'save-file-must-respond')).toBe(true);
   });
+
+  // ---------------------------------------------------------------------------
+  // Expanded rule coverage (spec §3 + audit §9, §13)
+  // ---------------------------------------------------------------------------
+
+  it('violates session-start-must-load-projects when session.start has no projects fetch', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.session.start'),
+      bc(110, 'studio.openFile'), // unrelated
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.violations.some((v) => v.ruleId === 'session-start-must-load-projects')).toBe(true);
+  });
+
+  it('matches session-start-must-load-projects when projects are fetched on boot', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.session.start'),
+      bc(101, 'app-dev/projects'),
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.matched.some((m) => m.ruleId === 'session-start-must-load-projects')).toBe(true);
+    expect(report.violations.some((v) => v.ruleId === 'session-start-must-load-projects')).toBe(false);
+  });
+
+  it('matches build-preview-must-resolve when previewReady follows buildPreview', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.buildPreview'),
+      bc(110, 'studio.previewReady'),
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.matched.some((m) => m.ruleId === 'build-preview-must-resolve')).toBe(true);
+  });
+
+  it('violates build-preview-must-resolve when buildPreview never resolves', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.buildPreview'),
+      // 60+ seconds of nothing
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.violations.some((v) => v.ruleId === 'build-preview-must-resolve')).toBe(true);
+  });
+
+  it('warns abort-must-close-stream when cancel has no follow-up', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.abortGeneration'),
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.warnings.some((w) => w.ruleId === 'abort-must-close-stream')).toBe(true);
+  });
+
+  it('matches refresh-list-must-fetch when refresh triggers a projects fetch', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.refresh'),
+      bc(101, 'app-dev/projects'),
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.matched.some((m) => m.ruleId === 'refresh-list-must-fetch')).toBe(true);
+  });
+
+  it('matches branding-must-iterate when applying a style triggers a send', () => {
+    const breadcrumbs = [
+      bc(100, 'studio.applyBrandingStyle'),
+      bc(101, 'studio.send'),
+    ];
+    const report = evaluate(breadcrumbs);
+    expect(report.matched.some((m) => m.ruleId === 'branding-must-iterate')).toBe(true);
+  });
 });

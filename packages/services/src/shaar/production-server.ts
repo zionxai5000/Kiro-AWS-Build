@@ -1331,6 +1331,58 @@ async function main() {
       console.warn('[app-dev] No ARTIFACTS_BUCKET — running in ephemeral mode (projects do NOT survive restart)');
     }
 
+    // -----------------------------------------------------------------------
+    // Spec compliance cron — every hour, pull recent Sentry breadcrumbs and
+    // run them through the spec-runner. Violations are logged via
+    // captureUserError so Sentry's issue tracker groups them. The dashboard
+    // also runs this on every page load (best effort) so the cron is the
+    // ambient safety net.
+    // -----------------------------------------------------------------------
+    try {
+      const { evaluateRecentSession } = await import('@seraphim/app/zionx/app-development/services/spec-runner.js');
+
+      const SPEC_INTERVAL_MS = 60 * 60_000; // 1 hour
+      const runOnce = async () => {
+        try {
+          const sentryConfig = JSON.parse(
+            await credentialManager.getCredential('sentry', 'config'),
+          ) as {
+            authToken: string;
+            org?: string;
+            project?: string;
+          };
+          const report = await evaluateRecentSession({
+            authToken: sentryConfig.authToken,
+            org: sentryConfig.org ?? 'zionxai',
+            project: sentryConfig.project ?? 'zionx-dashboard',
+            issueLimit: 25,
+          });
+          if (report.violations.length > 0) {
+            console.error(
+              `[spec-cron] ${report.violations.length} violation(s) found across ` +
+              `${report.breadcrumbCount} breadcrumbs:`,
+              report.violations.map((v) => `${v.ruleId}: ${v.message}`).join('; '),
+            );
+          } else {
+            console.log(
+              `[spec-cron] OK — ${report.matched.length} rules matched, ` +
+              `${report.warnings.length} warnings, 0 violations across ${report.breadcrumbCount} breadcrumbs`,
+            );
+          }
+        } catch (err) {
+          console.warn('[spec-cron] evaluation failed:', (err as Error).message);
+        }
+      };
+      // Wait 5 minutes after boot so Sentry has fresh data, then poll hourly
+      setTimeout(() => {
+        void runOnce();
+        setInterval(() => void runOnce(), SPEC_INTERVAL_MS);
+      }, 5 * 60_000);
+      console.log('✅ [app-dev] Spec compliance cron scheduled (hourly)');
+    } catch (specErr) {
+      console.warn('[app-dev] Spec compliance cron failed to wire:', (specErr as Error).message);
+    }
+
     const appDevSupervisor = new WatcherSupervisor({
       eventBus: eventBusService as any,
       stabilityThresholdMs: 300,

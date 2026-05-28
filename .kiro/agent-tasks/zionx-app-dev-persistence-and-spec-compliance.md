@@ -168,3 +168,25 @@ Stray junk files removed at session start: `app.json` (empty placeholder), `c.en
 - Removed stray repo-root junk: `app.json` (placeholder), `c.end())` (botched paste)
 - King approved order: A → C → B → D → E → F
 - **Starting Stream A**: typecheck + test + commit + push the persistence layer
+
+
+### 2026-05-28 — Stream A complete
+- Commit: `9f89b95 feat(app-dev): durable S3 workspaces + Studio spec compliance loop`
+- Pushed to `origin/main`
+- 16 files changed, 1602 insertions, 210 deletions
+- 25 new tests passing, 1994 in app suite still green
+- TS errors against baseline: 3 pre-existing (none introduced)
+- Compute-stack snapshot updated for new ARTIFACTS_BUCKET env var
+- Data-stack snapshot baseline failure was NOT touched (pre-existing, separate concern)
+
+### Next: Stream C — VibeCode functionality audit
+Going to research VibeCode (vibecodeapp.com) and Rork end-to-end:
+- Their UI structure (panels, tabs, buttons, modals)
+- Prompt input UX
+- Chat narration patterns and verbatim sample messages
+- Preview pane states and behaviors
+- Refresh persistence behavior
+- Project list behavior
+- Any settings / model picker / palette controls
+
+Output: `docs/research/vibecode-functionality-audit.md` with cited URLs.

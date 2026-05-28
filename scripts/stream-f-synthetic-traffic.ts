@@ -51,14 +51,73 @@ async function main() {
   });
 
   console.log('Loading dashboard...');
-  await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await page.waitForTimeout(3000); // let hashchange + nav render
+  await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle', timeout: 30_000 });
 
-  // Click the App Development link in the sidebar
+  // Bypass the Cognito login overlay by injecting fake tokens into
+  // localStorage, then reloading. This is the same trick the Shaar Guardian
+  // observer uses for internal review (packages/services/src/shaar-agent/
+  // playwright-observer.ts). The dashboard checks localStorage on boot and
+  // skips the login overlay when tokens are present.
+  console.log('Bypassing Cognito login overlay...');
+  const hasOverlay = await page.evaluate('!!document.getElementById("seraphim-login-overlay")');
+  if (hasOverlay) {
+    await page.evaluate(`(() => {
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+      const payload = btoa(JSON.stringify({
+        sub: 'stream-f-harness',
+        email: 'streamf@seraphimos.internal',
+        'cognito:username': 'StreamFHarness',
+        'cognito:groups': ['king'],
+        exp: Math.floor(Date.now() / 1000) + 86400,
+        iat: Math.floor(Date.now() / 1000),
+      }));
+      const sig = 'stream-f-fake-sig';
+      const token = header + '.' + payload + '.' + sig;
+      localStorage.setItem('seraphim_id_token', token);
+      localStorage.setItem('seraphim_access_token', token);
+      localStorage.setItem('seraphim_refresh_token', 'stream-f-refresh');
+    })()`);
+    await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+    console.log('  ✓ tokens injected, page reloaded');
+  } else {
+    console.log('  (no overlay — already authenticated)');
+  }
+
+  // Wait for the dashboard to actually mount its sidebar.
+  console.log('Waiting for sidebar to render...');
+  try {
+    await page.waitForSelector('a.sidebar-link', { timeout: 20_000, state: 'attached' });
+    console.log('  ✓ sidebar rendered');
+  } catch {
+    console.log('  ✗ sidebar never appeared after 20s — capturing diagnostics');
+    const html = await page.content();
+    writeFileSync(join(OUT_DIR, 'page-html.txt'), html.slice(0, 50_000));
+    const allLinks = await page.locator('a').evaluateAll((els) =>
+      els.slice(0, 50).map((el) => ({
+        href: (el as HTMLAnchorElement).href,
+        text: el.textContent?.trim().slice(0, 60),
+        cls: el.className,
+      })),
+    );
+    writeFileSync(join(OUT_DIR, 'all-anchors.json'), JSON.stringify(allLinks, null, 2));
+  }
+
+  // Click the App Development link in the sidebar.
+  // ZionX section is collapsed by default — click its header to expand
+  // before clicking the App Development link inside it.
   console.log('Navigating to App Development tab...');
   try {
+    console.log('  expanding ZionX nav section...');
+    const headerLocator = page.locator('.sidebar-section-header[data-section="zionx"]');
+    if ((await headerLocator.count()) > 0) {
+      await headerLocator.first().click({ timeout: 5000 });
+      await page.waitForTimeout(800);
+    } else {
+      console.log('  (no zionx section header — section may be auto-expanded)');
+    }
     await page.click('a.sidebar-link[data-view="zionx-app-development"]', { timeout: 10_000 });
     await page.waitForTimeout(3000);
+    console.log('  ✓ navigated to App Development');
   } catch (err) {
     console.log(`  ✗ sidebar link click failed: ${(err as Error).message.slice(0, 120)}`);
     // Fallback: list all sidebar links so we can debug
@@ -66,6 +125,11 @@ async function main() {
       els.map((el) => ({ view: (el as HTMLElement).dataset['view'], label: (el as HTMLElement).textContent?.trim() })),
     );
     console.log('  available sidebar links:', JSON.stringify(links, null, 2).slice(0, 600));
+    // Also dump section headers
+    const headers = await page.locator('.sidebar-section-header').evaluateAll((els) =>
+      els.map((el) => ({ section: (el as HTMLElement).dataset['section'], text: el.textContent?.trim().slice(0, 60) })),
+    );
+    console.log('  available section headers:', JSON.stringify(headers, null, 2).slice(0, 600));
   }
 
   // Take a screenshot of the initial state

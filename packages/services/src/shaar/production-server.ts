@@ -549,6 +549,54 @@ async function main() {
       return;
     }
 
+    // -----------------------------------------------------------------------
+    // Sentry Tunnel — proxies Sentry envelope POSTs from the dashboard
+    // through this same-origin endpoint, bypassing mixed-content blocking
+    // (the dashboard is served over HTTP from S3, but Sentry's ingest is
+    // HTTPS-only — Chrome blocks the cross-protocol request).
+    //
+    // Reference: https://docs.sentry.io/platforms/javascript/troubleshooting/#using-the-tunnel-option
+    //
+    // The request body is a Sentry envelope (newline-delimited JSON, with the
+    // first line containing the DSN). We extract the project ID from the DSN
+    // and forward to the matching Sentry ingest URL with the raw body.
+    // -----------------------------------------------------------------------
+    if (apiPath === '/sentry-tunnel' && req.method === 'POST') {
+      try {
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          req.on('data', (c: Buffer) => chunks.push(c));
+          req.on('end', () => resolve());
+          req.on('error', (err) => reject(err));
+        });
+        const raw = Buffer.concat(chunks);
+        // First line of the envelope is a JSON header with the DSN.
+        const firstNewline = raw.indexOf(0x0a);
+        const headerJson = JSON.parse(raw.slice(0, firstNewline === -1 ? raw.length : firstNewline).toString('utf-8')) as { dsn?: string };
+        if (!headerJson.dsn) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Envelope missing DSN' }));
+          return;
+        }
+        // DSN format: https://<key>@<host>/<projectId>
+        const dsnUrl = new URL(headerJson.dsn);
+        const projectId = dsnUrl.pathname.replace(/^\//, '');
+        const ingestUrl = `https://${dsnUrl.host}/api/${projectId}/envelope/`;
+        const upstream = await fetch(ingestUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-sentry-envelope' },
+          body: raw,
+        });
+        const upstreamText = await upstream.text();
+        res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json' });
+        res.end(upstreamText);
+      } catch (err) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Sentry tunnel failed', details: (err as Error).message }));
+      }
+      return;
+    }
+
     let body: unknown = {};
     if (req.method === 'POST' || req.method === 'PUT') {
       body = await new Promise((resolve) => {

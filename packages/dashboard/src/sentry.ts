@@ -23,8 +23,17 @@ export function initSentry(): void {
   initialized = true;
 
   try {
+    // Determine the same-origin tunnel URL. The dashboard is served from
+    // S3 (HTTP) while Sentry's ingest is HTTPS-only — without a tunnel,
+    // Chrome blocks the cross-protocol envelope POST as mixed content.
+    // window.__SERAPHIM_API_URL__ already points at the ALB, so we route
+    // the envelope through /api/sentry-tunnel which forwards it server-side.
+    const apiBase = (window as unknown as { __SERAPHIM_API_URL__?: string }).__SERAPHIM_API_URL__;
+    const tunnel = apiBase ? `${apiBase.replace(/\/$/, '')}/sentry-tunnel` : undefined;
+
     Sentry.init({
       dsn: DSN,
+      ...(tunnel ? { tunnel } : {}),
       environment: 'production',
       release: 'zionx-dashboard@' + (window.location.host || 'unknown'),
       // Capture useful context, never PII.
@@ -51,7 +60,7 @@ export function initSentry(): void {
     Sentry.setTag('project', 'zionx-dashboard');
     Sentry.setTag('app', 'studio');
     // eslint-disable-next-line no-console
-    console.log('[sentry] initialized');
+    console.log(`[sentry] initialized${tunnel ? ` (tunnel: ${tunnel})` : ' (direct)'}`);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[sentry] init failed:', (err as Error).message);
@@ -66,6 +75,18 @@ export function captureUserAction(name: string, data?: Record<string, unknown>):
     message: name,
     data,
     timestamp: Date.now() / 1000,
+  });
+}
+
+/**
+ * Force a flush of buffered breadcrumbs to Sentry as a low-priority message.
+ * Sentry only ships breadcrumbs attached to events; this lets the spec runner
+ * see breadcrumbs from sessions that didn't error out.
+ */
+export function flushSessionTrace(reason: string, data?: Record<string, unknown>): void {
+  Sentry.captureMessage(`session.trace.${reason}`, {
+    level: 'info',
+    extra: data,
   });
 }
 

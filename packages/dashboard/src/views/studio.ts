@@ -39,7 +39,7 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
-import { captureUserAction, captureUserError } from '../sentry.js';
+import { captureUserAction, captureUserError, flushSessionTrace } from '../sentry.js';
 import {
   createAppDevProject,
   getAppDevProject,
@@ -230,6 +230,16 @@ export class StudioView {
     // any in-flight violations from the previous tab/page reload surface in
     // Sentry without waiting for the hourly cron. Best-effort: never blocks UI.
     void this.evaluateSpecInBackground();
+
+    // Periodic breadcrumb flush so the runner sees activity from healthy
+    // sessions (Sentry only ships breadcrumbs attached to events). Once every
+    // 60 seconds is plenty — the runner pulls the last 25 issues per cron run.
+    window.setInterval(() => {
+      flushSessionTrace('heartbeat', { sessionId: this.sessionId, projectId: this.state.projectId });
+    }, 60_000);
+    // Flush once on mount immediately so the first render's breadcrumbs are
+    // captured before the first cron run.
+    setTimeout(() => flushSessionTrace('mount', { sessionId: this.sessionId }), 5_000);
 
     // WebSocket for build/crash updates
     this.ws = new DashboardWebSocket();

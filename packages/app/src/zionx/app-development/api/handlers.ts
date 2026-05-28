@@ -1422,7 +1422,13 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         const report = await evaluateRecentSession({
           authToken,
           org,
-          project,
+          // The dashboard browser app is the source of UX breadcrumbs.
+          // The seraphim/sentry secret's `project` field points at the
+          // generated-app Sentry project (e.g. "mindful-timer"), so we always
+          // override to "zionx-dashboard" here regardless of what's in the
+          // secret. If a future deployment adds a dedicated dashboard secret
+          // with the right project slug, this override can be removed.
+          project: 'zionx-dashboard',
           issueLimit: 25,
         });
         return { statusCode: 200, body: report };

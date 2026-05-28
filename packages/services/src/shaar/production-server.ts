@@ -1453,7 +1453,10 @@ async function main() {
           const report = await evaluateRecentSession({
             authToken,
             org,
-            project,
+            // Always grade the dashboard project, regardless of what the
+            // seraphim/sentry secret's `project` field says (it points at
+            // the generated-app project, e.g. "mindful-timer").
+            project: 'zionx-dashboard',
             issueLimit: 25,
           });
           if (report.violations.length > 0) {

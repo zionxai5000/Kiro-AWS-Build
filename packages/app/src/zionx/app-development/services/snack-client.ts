@@ -59,8 +59,10 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     'Content-Type': 'application/json',
     'Snack-Api-Version': '3.0.0',
   };
-  if (input.expoToken) {
-    headers['Authorization'] = `Bearer ${input.expoToken}`;
+  // Only attach an Expo bearer token if it's a clean token string (no
+  // newlines, no whitespace, no JSON noise — Headers.append rejects those).
+  if (input.expoToken && /^[A-Za-z0-9._\-]+$/.test(input.expoToken.trim())) {
+    headers['Authorization'] = `Bearer ${input.expoToken.trim()}`;
   }
 
   const body = {

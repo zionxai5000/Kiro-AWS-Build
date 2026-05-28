@@ -39,6 +39,7 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
+import { renderStudioStylesheet } from './studio-tokens.js';
 import { captureUserAction, captureUserError, flushSessionTrace } from '../sentry.js';
 import {
   createAppDevProject,
@@ -101,6 +102,17 @@ interface StudioState {
   previewStatus: 'idle' | 'building' | 'ready' | 'error';
   /** Message from preview build error. */
   previewError: string | null;
+  /**
+   * Latest spec compliance evaluation summary. Populated by
+   * evaluateSpecInBackground(). Drives the compliance pill in the sidebar.
+   */
+  compliance: {
+    state: 'unknown' | 'ok' | 'warn' | 'error';
+    violationCount: number;
+    warningCount: number;
+    matchedCount: number;
+    lastEvaluatedAt: string | null;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +182,13 @@ export class StudioView {
     previewUrl: null,
     previewStatus: 'idle',
     previewError: null,
+    compliance: {
+      state: 'unknown',
+      violationCount: 0,
+      warningCount: 0,
+      matchedCount: 0,
+      lastEvaluatedAt: null,
+    },
   };
   private messages: { role: 'user' | 'assistant' | 'system'; text: string; kind?: 'design-picker' }[] = [
     {
@@ -784,6 +803,7 @@ export class StudioView {
           </div>
           <div class="studio-sidebar__footer">
             ${this.renderHealthBadge()}
+            ${this.renderCompliancePill()}
           </div>
         </aside>
 
@@ -822,74 +842,7 @@ export class StudioView {
         </aside>
       </div>
 
-      <style>
-        .studio { display: grid; grid-template-columns: 240px 1fr 360px; height: 100%; min-height: calc(100vh - 80px); background: var(--bg, #0f1115); color: var(--text, #e6e6e6); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-        .studio-sidebar { border-right: 1px solid #222; display: flex; flex-direction: column; }
-        .studio-sidebar__header { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #222; }
-        .studio-sidebar__header h3 { margin: 0; font-size: 13px; font-weight: 600; opacity: 0.8; }
-        .studio-sidebar__list { flex: 1; overflow-y: auto; }
-        .studio-project { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; cursor: pointer; }
-        .studio-project:hover { background: #1a1a1f; }
-        .studio-project.is-active { background: #1f2330; border-left: 2px solid #6c8cff; }
-        .studio-project__name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .studio-project__meta { font-size: 11px; opacity: 0.55; margin-top: 2px; }
-        .studio-sidebar__footer { padding: 10px 12px; border-top: 1px solid #222; font-size: 11px; }
-        .studio-main { display: flex; flex-direction: column; min-width: 0; }
-        .studio-tabs { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid #222; background: #14161b; }
-        .studio-tab { background: transparent; border: 0; color: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
-        .studio-tab.is-active { background: #2a2f3d; color: #fff; }
-        .studio-tab:hover:not(.is-active) { background: #1f2230; }
-        .studio-tabs__spacer { flex: 1; }
-        .studio-tab-panel { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-        .studio-btn { padding: 6px 12px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: 12px; }
-        .studio-btn--primary { background: #6c8cff; color: #0d0f15; font-weight: 600; border-color: #6c8cff; }
-        .studio-btn--primary:hover:not(:disabled) { background: #4a6dff; }
-        .studio-btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        .studio-btn--ghost { background: transparent; color: #ccc; border-color: #333; }
-        .studio-btn--ghost:hover { background: #1a1a1f; }
-        .studio-btn--sm { padding: 4px 8px; font-size: 11px; }
-        .studio-chat { display: flex; flex-direction: column; height: 100%; padding: 12px; }
-        .studio-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
-        .studio-msg { max-width: 80%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
-        .studio-msg--user { align-self: flex-end; background: #6c8cff; color: #0d0f15; }
-        .studio-msg--assistant { align-self: flex-start; background: #2a2f3d; }
-        .studio-msg--system { align-self: center; background: #1a1a1f; font-size: 11px; opacity: 0.7; max-width: 100%; }
-        .studio-input-row { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid #222; padding-top: 12px; }
-        .studio-input { flex: 1; background: #14161b; color: #e6e6e6; border: 1px solid #333; border-radius: 8px; padding: 10px; font-family: inherit; font-size: 13px; resize: vertical; min-height: 60px; }
-        .studio-files { padding: 12px; overflow-y: auto; height: 100%; }
-        .studio-file { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 8px; }
-        .studio-file:hover { background: #1a1a1f; }
-        .studio-file.is-streaming { color: #ffd166; }
-        .studio-file.is-streaming::before { content: '⏳ '; }
-        .studio-file.is-complete::before { content: '📄 '; }
-        .studio-file.is-active { background: #2a2f3d; }
-        .studio-code { display: flex; flex-direction: column; height: 100%; }
-        .studio-code__header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #222; background: #14161b; }
-        .studio-code__path { font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.8; }
-        .studio-code__editor { flex: 1; min-height: 0; }
-        .studio-logs { padding: 12px; overflow-y: auto; height: 100%; font-family: ui-monospace, monospace; font-size: 11px; }
-        .studio-log-line { padding: 2px 0; opacity: 0.85; }
-        .studio-design { padding: 12px; overflow-y: auto; height: 100%; }
-        .studio-branding-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
-        .studio-branding-card { background: #14161b; border: 1px solid #2a2f3d; border-radius: 8px; overflow: hidden; }
-        .studio-branding-card__swatch { height: 80px; }
-        .studio-branding-card__body { padding: 10px; }
-        .studio-branding-card__name { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
-        .studio-branding-card__desc { font-size: 11px; opacity: 0.7; margin: 0 0 8px; line-height: 1.4; }
-        .studio-preview { border-left: 1px solid #222; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-        .studio-device-frame { background: #1a1a1f; border-radius: 30px; padding: 8px; aspect-ratio: 9 / 19; max-width: 280px; margin: 0 auto; width: 100%; }
-        .studio-device-screen { background: #0f1115; border-radius: 24px; height: 100%; width: 100%; display: flex; align-items: center; justify-content: center; padding: 0; text-align: center; flex-direction: column; gap: 8px; font-size: 12px; opacity: 1; overflow: hidden; }
-        .studio-device-screen > *:not(iframe) { padding: 0 16px; opacity: 0.9; }
-        .studio-device-screen iframe { display: block; }
-        @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-        .studio-escalation-badge { background: #ff4757; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
-        .studio-design-grid-inline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-        .studio-design-card { background: #14161b; border: 1px solid #2a2f3d; border-radius: 8px; padding: 0; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; align-items: stretch; text-align: left; color: inherit; font-family: inherit; }
-        .studio-design-card:hover { border-color: #6c8cff; transform: translateY(-1px); }
-        .studio-design-card__swatch { display: block; height: 40px; }
-        .studio-design-card__name { display: block; padding: 6px 8px 2px; font-size: 11px; font-weight: 600; }
-        .studio-design-card__inspo { display: block; padding: 0 8px 8px; font-size: 10px; opacity: 0.6; }
-      </style>
+      ${renderStudioStylesheet()}
     `;
   }
 
@@ -909,6 +862,32 @@ export class StudioView {
     if (!this.state.health) return `<span style="opacity:0.5;">Backend offline</span>`;
     const dot = this.state.health.status === 'healthy' ? '🟢' : '🟡';
     return `<span>${dot} ${this.state.health.status} · ${this.state.health.hooks.enabled}/${this.state.health.hooks.total} hooks</span>`;
+  }
+
+  private renderCompliancePill(): string {
+    const c = this.state.compliance;
+    if (c.state === 'unknown' || !c.lastEvaluatedAt) {
+      return `<div class="studio-compliance-pill" id="studio-spec-pill">
+        <span class="studio-compliance-pill__dot" style="background:#6b7081;"></span>
+        Spec compliance pending
+      </div>`;
+    }
+    if (c.state === 'ok') {
+      return `<div class="studio-compliance-pill studio-compliance-pill--ok" id="studio-spec-pill" title="Last evaluated ${escapeHtml(fmtTime(c.lastEvaluatedAt))} — ${c.matchedCount} rules matched">
+        <span class="studio-compliance-pill__dot"></span>
+        Spec OK · ${c.matchedCount} rules
+      </div>`;
+    }
+    if (c.state === 'warn') {
+      return `<div class="studio-compliance-pill studio-compliance-pill--warn" id="studio-spec-pill" title="${c.warningCount} warning${c.warningCount === 1 ? '' : 's'}">
+        <span class="studio-compliance-pill__dot"></span>
+        ${c.warningCount} spec warning${c.warningCount === 1 ? '' : 's'}
+      </div>`;
+    }
+    return `<div class="studio-compliance-pill studio-compliance-pill--error" id="studio-spec-pill" title="Click to open Logs">
+      <span class="studio-compliance-pill__dot"></span>
+      ${c.violationCount} spec violation${c.violationCount === 1 ? '' : 's'}
+    </div>`;
   }
 
   private renderEscalationsBadge(): string {
@@ -1193,6 +1172,16 @@ export class StudioView {
       this.renderAll();
     });
 
+    // Compliance pill — click to jump to Logs tab where violations land.
+    this.container.querySelector('#studio-spec-pill')?.addEventListener('click', () => {
+      captureUserAction('studio.openCompliancePill', {
+        state: this.state.compliance.state,
+        violations: this.state.compliance.violationCount,
+      });
+      this.state.activeTab = 'logs';
+      this.renderAll();
+    });
+
     // Wire preview-pane action buttons (Build iOS / Android shortcuts + preview)
     this.container.querySelectorAll('[data-preview-action]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -1329,11 +1318,21 @@ export class StudioView {
       };
       const violationCount = report.violations?.length ?? 0;
       const warningCount = report.warnings?.length ?? 0;
+      const matchedCount = report.matched?.length ?? 0;
+      this.state.compliance = {
+        state: violationCount > 0 ? 'error' : warningCount > 0 ? 'warn' : 'ok',
+        violationCount,
+        warningCount,
+        matchedCount,
+        lastEvaluatedAt: new Date().toISOString(),
+      };
       captureUserAction('studio.specEvaluated', {
         violations: violationCount,
         warnings: warningCount,
-        matched: report.matched?.length ?? 0,
+        matched: matchedCount,
       });
+      // Re-render the sidebar footer so the compliance pill reflects the new state.
+      this.renderAll();
       // If we have violations, surface them in the Logs tab + Sentry.
       // Sentry alert rule already configured to ping the operator on issues.
       if (violationCount > 0 && report.violations) {

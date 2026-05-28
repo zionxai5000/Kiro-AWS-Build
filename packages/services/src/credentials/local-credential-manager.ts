@@ -63,6 +63,20 @@ const ENV_MAPPINGS: Record<string, Record<string, string>> = {
   expo: {
     'access-token': 'EXPO_TOKEN',
   },
+  /**
+   * Sentry credentials for the spec compliance cron.
+   * - `auth-token`: bearer token used to call Sentry's REST API
+   * - `org`: organization slug (defaults handled by spec-runner if absent)
+   * - `project`: project slug to fetch breadcrumbs from
+   * - `config`: legacy single-blob accessor returning a JSON string with the
+   *   shape `{ authToken, org, project }` so existing callers keep working.
+   */
+  sentry: {
+    'auth-token': 'SENTRY_AUTH_TOKEN',
+    'org': 'SENTRY_ORG',
+    'project': 'SENTRY_PROJECT',
+    'config': 'SENTRY_CONFIG',
+  },
 };
 
 // ---------------------------------------------------------------------------

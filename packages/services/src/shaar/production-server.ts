@@ -1254,6 +1254,27 @@ async function main() {
       }
     } catch (e) { console.warn(`   ⚠️ Could not load seraphim/appstoreconnect: ${(e as Error).message}`); }
 
+    // Load Sentry credentials so the spec compliance cron can fetch breadcrumbs
+    // and the LocalCredentialManager mappings (sentry/auth-token, sentry/org,
+    // sentry/project) resolve correctly.
+    try {
+      const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/sentry' }));
+      if (resp.SecretString) {
+        try {
+          const parsed = JSON.parse(resp.SecretString);
+          // Accept both `authToken` (current Secrets Manager layout) and
+          // `auth-token` (LocalCredentialManager mapping name) as keys.
+          const tok = parsed.authToken ?? parsed['auth-token'] ?? parsed.SENTRY_AUTH_TOKEN;
+          if (tok) process.env.SENTRY_AUTH_TOKEN = tok;
+          if (parsed.org) process.env.SENTRY_ORG = parsed.org;
+          if (parsed.project) process.env.SENTRY_PROJECT = parsed.project;
+        } catch {
+          // Non-JSON secret — assume it's a raw bearer token
+          process.env.SENTRY_AUTH_TOKEN = resp.SecretString;
+        }
+      }
+    } catch (e) { console.warn(`   ⚠️ Could not load seraphim/sentry: ${(e as Error).message}`); }
+
   } catch (e) {
     console.warn(`   ⚠️ Secrets Manager SDK not available: ${(e as Error).message}`);
   }
@@ -1344,17 +1365,47 @@ async function main() {
       const SPEC_INTERVAL_MS = 60 * 60_000; // 1 hour
       const runOnce = async () => {
         try {
-          const sentryConfig = JSON.parse(
-            await credentialManager.getCredential('sentry', 'config'),
-          ) as {
-            authToken: string;
-            org?: string;
-            project?: string;
-          };
+          // Pull Sentry credentials. Prefer individual fields (auth-token,
+          // org, project) so the local credential manager doesn't need a
+          // composite blob. Fall back to a JSON `config` blob if individual
+          // fields aren't set (production Secrets Manager layout).
+          let authToken = '';
+          let org = 'zionxai';
+          let project = 'zionx-dashboard';
+          try {
+            authToken = await credentialManager.getCredential('sentry', 'auth-token');
+            const orgVal = await credentialManager.getCredential('sentry', 'org');
+            const projVal = await credentialManager.getCredential('sentry', 'project');
+            if (orgVal) org = orgVal;
+            if (projVal) project = projVal;
+          } catch {
+            // Field-by-field lookup failed — try the legacy config blob path.
+          }
+          if (!authToken) {
+            try {
+              const blob = await credentialManager.getCredential('sentry', 'config');
+              if (blob) {
+                const parsed = JSON.parse(blob) as {
+                  authToken?: string;
+                  org?: string;
+                  project?: string;
+                };
+                if (parsed.authToken) authToken = parsed.authToken;
+                if (parsed.org) org = parsed.org;
+                if (parsed.project) project = parsed.project;
+              }
+            } catch {
+              // Both paths exhausted; runOnce will skip below.
+            }
+          }
+          if (!authToken) {
+            console.warn('[spec-cron] no Sentry auth token configured — skipping run');
+            return;
+          }
           const report = await evaluateRecentSession({
-            authToken: sentryConfig.authToken,
-            org: sentryConfig.org ?? 'zionxai',
-            project: sentryConfig.project ?? 'zionx-dashboard',
+            authToken,
+            org,
+            project,
             issueLimit: 25,
           });
           if (report.violations.length > 0) {

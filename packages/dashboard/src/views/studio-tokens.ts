@@ -89,11 +89,12 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     .studio {
       display: grid;
-      /* Right column needs >=700px for Snack's web player to auto-start
-         (probed: at 520px the runtime frame never spawns; at 700px+
-         it does). Sidebar narrows to 240px to keep the chat column
-         readable. */
-      grid-template-columns: 240px 1fr 720px;
+      /* Right column needs >=720px iframe-width for Snack's web player to
+         auto-start (probed in-iframe at 685px = no runtime frame; at
+         700px in standalone viewport = runtime spawns). 760px column
+         leaves room for padding/border. Sidebar narrows to 220 to keep
+         the chat column readable. */
+      grid-template-columns: 220px 1fr 760px;
       height: 100%;
       min-height: calc(100vh - 80px);
       background: ${t.bg.canvas};

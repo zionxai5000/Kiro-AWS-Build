@@ -230,7 +230,10 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
         rewritten = rewritten.replace(re, '$1./');
       }
       code[safeName] = { type: 'CODE', contents: rewritten };
-      const importPath = './' + safeName.replace(/\.(t|j)sx?$/, ''); // ./_zionx_main
+      // Include the explicit `.jsx` / `.js` extension because Snack's
+      // bundler resolver defaults to `.js` only and won't try `.jsx`
+      // when the import has no extension.
+      const importPath = './' + safeName;
       code['App.js'] = {
         type: 'CODE',
         contents:

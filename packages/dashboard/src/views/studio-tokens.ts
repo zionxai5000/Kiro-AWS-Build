@@ -467,6 +467,26 @@ export function renderStudioStylesheet(): string {
       width: 100%;
       box-shadow: ${t.shadow.level3};
     }
+    /* When the device frame is rendering a real Snack iframe, drop the
+       phone-shaped 300px constraint — Snack's web player needs >=700px
+       to auto-spawn the runtime sub-frame, otherwise it falls back to
+       "Run on device" QR mode and never renders inside the iframe.
+       The :has() check targets only frames containing an actual iframe;
+       static content (loading spinners, etc.) keeps the phone shape. */
+    .studio-device-frame:has(iframe) {
+      max-width: none;
+      aspect-ratio: auto;
+      height: 100%;
+      min-height: 600px;
+      border-radius: 14px;
+      padding: 0;
+    }
+    .studio-device-frame:has(iframe) .studio-device-screen {
+      border-radius: 14px;
+    }
+    .studio-device-frame:has(iframe) .studio-device-screen iframe {
+      border-radius: 14px;
+    }
     .studio-device-screen {
       background: ${t.bg.canvas};
       border-radius: 28px;

@@ -79,6 +79,7 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     'react-native-mmkv': MMKV_SHIM,
     '@shopify/react-native-skia': SKIA_SHIM,
     '@expo-google-fonts/inter': EXPO_FONTS_SHIM,
+    'moti': MOTI_SHIM,
   };
 
   // Inject the shim files. The path is relative to project root.
@@ -377,6 +378,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
   '@shopify/react-native-skia',
   '@sentry/react-native',
   '@expo-google-fonts/inter',
+  'moti',
 ]);
 
 /**
@@ -449,7 +451,6 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
   // Third-party packages we've observed snackager fail to resolve at the
   // LLM's pinned versions but which DO have working web builds at "*".
   'phosphor-react-native',
-  'moti',
   '@shopify/flash-list',
   '@react-native-async-storage/async-storage',
   'zustand',
@@ -579,4 +580,29 @@ export const Inter_700Bold = 'Inter-Bold';
 export const Inter_800ExtraBold = 'Inter-ExtraBold';
 export const Inter_900Black = 'Inter-Black';
 export default { useFonts, Inter_400Regular, Inter_600SemiBold, Inter_700Bold };
+`;
+
+/**
+ * moti shim — moti is an animation library built on react-native-reanimated.
+ * Snack's snackager fetches `moti@0.30.0` regardless of the manifest's `*`
+ * and that version has no web build. We stub `MotiView` / `MotiText` /
+ * `MotiPressable` as plain `View` / `Text` / `Pressable` so the iframe
+ * preview boots — animations are silently dropped, but the layout and
+ * tap interactions still work. Production EAS build uses real moti.
+ */
+const MOTI_SHIM = `// Auto-injected by ZionX Snack adapter — moti stubs for web preview.
+import React from 'react';
+import { View, Text, Pressable } from 'react-native';
+const passthrough = (Component) => React.forwardRef((props, ref) => {
+  const { from, animate, exit, transition, exitTransition, ...rest } = props;
+  return React.createElement(Component, { ref, ...rest });
+});
+export const MotiView = passthrough(View);
+export const MotiText = passthrough(Text);
+export const MotiPressable = passthrough(Pressable);
+export const MotiImage = passthrough(View);
+export const AnimatePresence = ({ children }) => children;
+export const useAnimationState = () => ({ transitionTo: () => {}, current: null });
+export const useDynamicAnimation = (fn) => ({ animateTo: () => {}, current: typeof fn === 'function' ? fn() : (fn ?? {}) });
+export default { MotiView, MotiText, MotiPressable, AnimatePresence };
 `;

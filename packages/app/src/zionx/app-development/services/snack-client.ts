@@ -111,6 +111,36 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     if (touched) code[path] = { type: 'CODE', contents: src };
   }
 
+  // ----------------------------------------------------------------
+  // Strip TypeScript syntax from EVERY .ts / .tsx file in the code map
+  // and rename to .js / .jsx. Snack's web bundler doesn't reliably apply
+  // @babel/preset-typescript to user files, so a `.tsx` with type
+  // annotations or template literals can fail with cryptic Babel errors.
+  // Renaming to .js/.jsx and stripping TS syntax sidesteps that entirely.
+  // We also rewrite all import paths in user files to drop any `.tsx`/`.ts`
+  // extensions so the renamed files still resolve.
+  // ----------------------------------------------------------------
+  const tsRenames: Record<string, string> = {};
+  for (const path of Object.keys(code)) {
+    if (path.startsWith('shims/')) continue;
+    if (path.endsWith('.ts')) tsRenames[path] = path.slice(0, -3) + '.js';
+    else if (path.endsWith('.tsx')) tsRenames[path] = path.slice(0, -4) + '.jsx';
+  }
+  for (const [oldPath, newPath] of Object.entries(tsRenames)) {
+    const stripped = stripTypeScriptForSnack(code[oldPath]!.contents);
+    code[newPath] = { type: 'CODE', contents: stripped };
+    delete code[oldPath];
+  }
+  // Rewrite explicit `.tsx`/`.ts` extensions in import paths → `.jsx`/`.js`.
+  for (const path of Object.keys(code)) {
+    if (!/\.jsx?$/.test(path)) continue;
+    const src = code[path]!.contents;
+    const next = src
+      .replace(/(['"`])([^'"`]+)\.tsx(['"`])/g, '$1$2.jsx$3')
+      .replace(/(['"`])([^'"`]+)\.ts(['"`])/g, '$1$2.js$3');
+    if (next !== src) code[path] = { type: 'CODE', contents: next };
+  }
+
   // Snack REQUIRES App.js (or App.tsx) at the root as the entry point.
   // LLM-generated apps use expo-router with `app/_layout.tsx` for production,
   // but Snack's web preview doesn't reliably bootstrap expo-router (it
@@ -122,15 +152,16 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   const hasAppJs = code['App.js'] !== undefined;
   const hasAppTsx = code['App.tsx'] !== undefined;
   if (!hasAppJs && !hasAppTsx) {
-    // Find the most-likely "main" screen file. Priority:
-    //   app/(tabs)/index.tsx → app/index.tsx → app/(tabs)/<other>.tsx
+    // Find the most-likely "main" screen file (after the .ts/.tsx → .js/.jsx
+    // rename above). Priority:
+    //   app/(tabs)/index.jsx → app/index.jsx → app/(tabs)/<other>.jsx
     //   → any screen-shaped file under app/.
     const allPaths = Object.keys(code);
     const candidates = [
-      'app/(tabs)/index.tsx', 'app/(tabs)/index.ts',
-      'app/index.tsx', 'app/index.ts',
-      'app/(tabs)/game.tsx', 'app/(tabs)/home.tsx', 'app/(tabs)/main.tsx',
-      'app/game.tsx', 'app/home.tsx', 'app/main.tsx',
+      'app/(tabs)/index.jsx', 'app/(tabs)/index.js',
+      'app/index.jsx', 'app/index.js',
+      'app/(tabs)/game.jsx', 'app/(tabs)/home.jsx', 'app/(tabs)/main.jsx',
+      'app/game.jsx', 'app/home.jsx', 'app/main.jsx',
     ];
     let mainScreen: string | null = null;
     for (const c of candidates) {
@@ -139,39 +170,27 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     // Fallback: any non-_layout file under app/
     if (!mainScreen) {
       mainScreen = allPaths.find((p) =>
-        p.startsWith('app/') && /\.tsx?$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
+        p.startsWith('app/') && /\.jsx?$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
       ) ?? null;
     }
 
     if (mainScreen) {
-      // Snack's bundler chokes on directory names with parentheses (e.g.
-      // "app/(tabs)/index.tsx" — the parens upset its require-resolver and
-      // can manifest as cryptic Babel "Missing semicolon" or "is not a
-      // function" errors. To avoid that, COPY the screen content to a
-      // safe path at the project root (preserving extension) and import
-      // FROM THAT COPY in App.js. The original file is left in place so
-      // production EAS builds (which read the workspace, not the Snack
-      // code map) are unaffected.
-      const safeName = '_zionx_main' + mainScreen.match(/\.[a-z]+$/i)?.[0]; // _zionx_main.tsx
-      // Rewrite relative imports from the screen's original directory
-      // (e.g. app/(tabs)/) up to the project root. Each level deeper
-      // adds one '../' that we now need to drop. We compute the depth
-      // from `mainScreen` and replace `'../<n>...'` → `'./...'`.
-      const depth = mainScreen.split('/').length - 1; // app/(tabs)/index.tsx → 2
-      const upPattern = '\\.\\.' + '/'.repeat(0); // start with one ..
-      // Build a regex that matches between 1 and `depth` consecutive `../`
-      // at the start of a quoted import path.
+      // Copy the main screen to a root-level path. Snack's bundler can
+      // be flaky with `app/(tabs)/...` paths because of the parens, so
+      // having a paren-free copy at root is the safest path.
+      const safeName = '_zionx_main.js';
+      // Rewrite relative imports. The screen's ../../components/ui/Button
+      // (from app/(tabs)/) becomes ./components/ui/Button (from root).
+      const oldDepth = mainScreen.split('/').length - 1;
       const screenSrc = code[mainScreen]!.contents;
       let rewritten = screenSrc;
-      // For each depth starting from highest, replace that many ../ with ./
-      for (let d = depth; d >= 1; d--) {
+      for (let d = oldDepth; d >= 1; d--) {
         const ups = '\\.\\./'.repeat(d);
         const re = new RegExp(`(['"\`])${ups}`, 'g');
         rewritten = rewritten.replace(re, '$1./');
       }
       code[safeName] = { type: 'CODE', contents: rewritten };
-
-      const importPath = './' + safeName.replace(/\.(t|j)sx?$/, '');
+      const importPath = './' + safeName.replace(/\.(t|j)sx?$/, ''); // ./_zionx_main
       code['App.js'] = {
         type: 'CODE',
         contents:
@@ -399,6 +418,49 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Best-effort regex-based TypeScript syntax stripper for Snack web preview.
+ *
+ * Snack's web bundler doesn't reliably apply @babel/preset-typescript to
+ * user files, so handing it a `.tsx` with TS syntax fails to parse. We
+ * rename the file to `.js` and strip the most common TS-only constructs
+ * that the LLM emits in screen files:
+ *   - `as` cast expressions: `value as Type` → `value`
+ *   - Type parameter declarations: `<T>(x: T) => x`, `function<T>(x: T)`
+ *   - Type annotations on parameters / variables / return types
+ *   - Interface and type alias declarations (deleted)
+ *   - Generic type arguments at call sites: `useState<string>(...)`
+ *
+ * This is NOT a real TypeScript compiler — it covers the patterns Claude
+ * emits in tic-tac-toe / timer / tracker screens. JSX is preserved as-is
+ * (Snack's preset handles plain JSX without TypeScript).
+ *
+ * The full TypeScript original lives in the workspace and gets compiled
+ * by the production EAS build — only this Snack preview copy is stripped.
+ */
+function stripTypeScriptForSnack(src: string): string {
+  let out = src;
+  // 1. Remove `interface Foo { ... }` and `type Foo = ...;` declarations.
+  out = out.replace(/^[\t ]*interface\s+\w+\s*(?:extends\s+[^{]+)?\{[^]*?^\}/gm, '');
+  out = out.replace(/^[\t ]*type\s+\w+\s*=\s*[^;\n]+;?$/gm, '');
+  // 2. Remove `: ReturnType` between `)` and `{` or `=>` (function return type).
+  out = out.replace(/\)\s*:\s*[A-Za-z_$][\w$.<>[\]|&,\s'"]*?(\s*(?:=>|\{))/g, ')$1');
+  // 3. Remove parameter type annotations:  (x: number, y: { a: string }) → (x, y)
+  //    We match `: <type>` up to the next `,` or `)` — guarding nested generics.
+  //    This is regex-imperfect; on edge cases we'll just have to ship and iterate.
+  out = out.replace(/(\b[A-Za-z_$][\w$]*)\s*:\s*[A-Za-z_$][\w$.<>[\]|&\s'"]*(?=\s*[,)=])/g, '$1');
+  // 4. Remove generic type arguments at call sites: `useState<X>(` → `useState(`
+  out = out.replace(/(\b[A-Za-z_$][\w$]*)\s*<[^<>{}()]*>\s*\(/g, '$1(');
+  // 5. Remove `as Type` casts.
+  out = out.replace(/\s+as\s+[A-Za-z_$][\w$.<>[\]|&,\s'"]*/g, '');
+  // 6. Remove type parameter lists on function declarations:
+  //    `function foo<T>(x)` → `function foo(x)`,
+  //    `const foo = <T>(x)` → `const foo = (x)`
+  out = out.replace(/(\bfunction\s+[A-Za-z_$][\w$]*)<[^>]*>/g, '$1');
+  out = out.replace(/=\s*<[A-Za-z_$][^>]*>\s*\(/g, '= (');
+  return out;
 }
 
 /**

@@ -144,8 +144,34 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     }
 
     if (mainScreen) {
-      // Strip extension; the import path is relative from the project root.
-      const importPath = './' + mainScreen.replace(/\.(t|j)sx?$/, '');
+      // Snack's bundler chokes on directory names with parentheses (e.g.
+      // "app/(tabs)/index.tsx" — the parens upset its require-resolver and
+      // can manifest as cryptic Babel "Missing semicolon" or "is not a
+      // function" errors. To avoid that, COPY the screen content to a
+      // safe path at the project root (preserving extension) and import
+      // FROM THAT COPY in App.js. The original file is left in place so
+      // production EAS builds (which read the workspace, not the Snack
+      // code map) are unaffected.
+      const safeName = '_zionx_main' + mainScreen.match(/\.[a-z]+$/i)?.[0]; // _zionx_main.tsx
+      // Rewrite relative imports from the screen's original directory
+      // (e.g. app/(tabs)/) up to the project root. Each level deeper
+      // adds one '../' that we now need to drop. We compute the depth
+      // from `mainScreen` and replace `'../<n>...'` → `'./...'`.
+      const depth = mainScreen.split('/').length - 1; // app/(tabs)/index.tsx → 2
+      const upPattern = '\\.\\.' + '/'.repeat(0); // start with one ..
+      // Build a regex that matches between 1 and `depth` consecutive `../`
+      // at the start of a quoted import path.
+      const screenSrc = code[mainScreen]!.contents;
+      let rewritten = screenSrc;
+      // For each depth starting from highest, replace that many ../ with ./
+      for (let d = depth; d >= 1; d--) {
+        const ups = '\\.\\./'.repeat(d);
+        const re = new RegExp(`(['"\`])${ups}`, 'g');
+        rewritten = rewritten.replace(re, '$1./');
+      }
+      code[safeName] = { type: 'CODE', contents: rewritten };
+
+      const importPath = './' + safeName.replace(/\.(t|j)sx?$/, '');
       code['App.js'] = {
         type: 'CODE',
         contents:

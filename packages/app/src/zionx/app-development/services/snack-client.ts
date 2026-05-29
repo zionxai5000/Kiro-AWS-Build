@@ -142,12 +142,13 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   return {
     id,
     url: `https://snack.expo.dev/${id}`,
-    // hideEditor=true is critical: Snack's embedded iframe defaults to
-    // showing the code editor on narrow viewports and pushes the device
-    // preview off-screen. Without this flag, the dashboard's preview pane
-    // shows App.js source text (e.g. `import 'expo-router/entry';`) instead
-    // of the running app.
-    embedUrl: `https://snack.expo.dev/embedded/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true&hideEditor=true`,
+    // Use the NON-embedded Snack URL with platform=web&preview=true so the
+    // device pane is always visible at any iframe width. The /embedded/<id>
+    // path is responsive — it collapses to code-editor-only below ~500px,
+    // which is why a narrow dashboard preview column shows code instead of
+    // the running app. The non-embedded URL with these params shows the
+    // device frame full-width inside the iframe.
+    embedUrl: `https://snack.expo.dev/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true`,
   };
 }
 

@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1300" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0d0e14"/>
+      <stop offset="100%" stop-color="#161821"/>
+    </linearGradient>
+    <linearGradient id="sidebarBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#161821"/>
+      <stop offset="100%" stop-color="#0d0e14"/>
+    </linearGradient>
+    <linearGradient id="centerBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1c1f2b"/>
+      <stop offset="100%" stop-color="#161821"/>
+    </linearGradient>
+    <linearGradient id="previewBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#262a37"/>
+      <stop offset="100%" stop-color="#1c1f2b"/>
+    </linearGradient>
+    <linearGradient id="userBubble" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7280e8"/>
+      <stop offset="100%" stop-color="#5e6ad2"/>
+    </linearGradient>
+    <linearGradient id="okPill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#4ade80" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1400" height="1300" fill="url(#bg2)"/>
+
+  <!-- Title -->
+  <text x="700" y="44" text-anchor="middle" fill="#f4f5f8" font-size="26" font-weight="700">
+    ZionX App Development — Dashboard Schema
+  </text>
+  <text x="700" y="68" text-anchor="middle" fill="#9aa1b3" font-size="13">
+    packages/dashboard/src/views/studio.ts · 4-column shell · 5 tabs · 22 buttons · all instrumented
+  </text>
+
+  <!-- ============================================================== -->
+  <!-- TOP BAR — dashboard chrome                                      -->
+  <!-- ============================================================== -->
+  <rect x="30" y="100" width="1340" height="40" rx="6" fill="#161821" stroke="#262a37"/>
+  <text x="50" y="125" fill="#f4f5f8" font-size="13" font-weight="600">SeraphimOS Dashboard</text>
+  <circle cx="1320" cy="120" r="4" fill="#4ade80"/>
+  <text x="1330" y="124" fill="#9aa1b3" font-size="11">King</text>
+
+  <!-- ============================================================== -->
+  <!-- COLUMN 1: Sidebar (Project list)                                -->
+  <!-- ============================================================== -->
+  <g id="sidebar">
+    <rect x="30" y="150" width="280" height="900" rx="10" fill="url(#sidebarBg)" stroke="#262a37"/>
+
+    <!-- Sidebar header -->
+    <text x="50" y="180" fill="#6b7081" font-size="10" font-weight="600" letter-spacing="1.2">PROJECTS</text>
+    <rect x="240" y="166" width="55" height="22" rx="5" fill="transparent" stroke="#262a37"/>
+    <text x="267" y="181" text-anchor="middle" fill="#9aa1b3" font-size="11">+ New</text>
+
+    <!-- Project cards -->
+    <g id="projectList">
+      <!-- Active project -->
+      <rect x="40" y="200" width="260" height="58" rx="8" fill="#5e6ad2" fill-opacity="0.12" stroke="#5e6ad2"/>
+      <text x="55" y="222" fill="#f4f5f8" font-size="13" font-weight="500">Mindful Timer</text>
+      <text x="55" y="240" fill="#6b7081" font-size="11">38 files · 2h ago</text>
+      <circle cx="290" cy="225" r="4" fill="#4ade80"/>
+
+      <!-- Other projects -->
+      <rect x="40" y="266" width="260" height="58" rx="8" fill="transparent"/>
+      <text x="55" y="288" fill="#c8cdd9" font-size="13">Habit Tracker</text>
+      <text x="55" y="306" fill="#6b7081" font-size="11">22 files · yesterday</text>
+
+      <rect x="40" y="332" width="260" height="58" rx="8" fill="transparent"/>
+      <text x="55" y="354" fill="#c8cdd9" font-size="13">Recipe Saver</text>
+      <text x="55" y="372" fill="#6b7081" font-size="11">15 files · 3 days ago</text>
+
+      <rect x="40" y="398" width="260" height="58" rx="8" fill="transparent"/>
+      <text x="55" y="420" fill="#c8cdd9" font-size="13">Workout Log</text>
+      <text x="55" y="438" fill="#6b7081" font-size="11">8 files · 1 wk ago</text>
+    </g>
+
+    <!-- Sidebar footer: health + compliance pill -->
+    <g id="sidebarFooter">
+      <rect x="40" y="950" width="260" height="80" rx="8" fill="#0d0e14" stroke="#262a37"/>
+
+      <text x="55" y="975" fill="#4ade80" font-size="11">🟢 healthy · 15/15 hooks</text>
+
+      <rect x="55" y="990" width="230" height="28" rx="14" fill="url(#okPill)" stroke="#4ade80"/>
+      <circle cx="68" cy="1004" r="4" fill="#4ade80"/>
+      <text x="80" y="1008" fill="#4ade80" font-size="11">Spec OK · 16 rules</text>
+    </g>
+
+    <!-- Annotation -->
+    <text x="170" y="1075" text-anchor="middle" fill="#6b7081" font-size="10">
+      § Persists across refresh (S3 hydrate)
+    </text>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- COLUMN 2: Center pane (Tabs + Active panel)                     -->
+  <!-- ============================================================== -->
+  <g id="center">
+    <rect x="320" y="150" width="700" height="900" rx="10" fill="url(#centerBg)" stroke="#262a37"/>
+
+    <!-- Tab strip -->
+    <g id="tabs">
+      <rect x="320" y="150" width="700" height="50" fill="#161821" stroke="#262a37" stroke-width="0.5"/>
+
+      <!-- Active: Chat -->
+      <rect x="335" y="158" width="100" height="34" rx="6" fill="#262a37"/>
+      <text x="385" y="180" text-anchor="middle" fill="#f4f5f8" font-size="13" font-weight="500">💬 Chat</text>
+
+      <!-- Other tabs -->
+      <text x="475" y="180" text-anchor="middle" fill="#9aa1b3" font-size="13">📁 Files (38)</text>
+      <text x="568" y="180" text-anchor="middle" fill="#9aa1b3" font-size="13">💻 Code •</text>
+      <text x="650" y="180" text-anchor="middle" fill="#9aa1b3" font-size="13">📋 Logs</text>
+      <text x="722" y="180" text-anchor="middle" fill="#9aa1b3" font-size="13">🎨 Design</text>
+
+      <!-- Tools rail buttons (right side of tab strip) -->
+      <rect x="810" y="160" width="55" height="30" rx="5" fill="transparent" stroke="#262a37"/>
+      <text x="838" y="180" text-anchor="middle" fill="#9aa1b3" font-size="11">📱 iOS</text>
+      <rect x="870" y="160" width="80" height="30" rx="5" fill="transparent" stroke="#262a37"/>
+      <text x="910" y="180" text-anchor="middle" fill="#9aa1b3" font-size="11">🤖 Android</text>
+      <rect x="955" y="160" width="60" height="30" rx="5" fill="#5e6ad2" fill-opacity="0.18" stroke="#5e6ad2"/>
+      <text x="985" y="180" text-anchor="middle" fill="#7280e8" font-size="11" font-weight="600">🚀 Deploy</text>
+    </g>
+
+    <!-- Active panel: Chat content -->
+    <g id="chatPanel">
+      <!-- Assistant bubble -->
+      <rect x="345" y="225" width="450" height="56" rx="14" fill="#262a37"/>
+      <text x="365" y="248" fill="#f4f5f8" font-size="12">Hey King — what app do you want to build?</text>
+      <text x="365" y="266" fill="#9aa1b3" font-size="11">I'll generate the workspace + a live preview in ~30s.</text>
+
+      <!-- User bubble -->
+      <rect x="565" y="296" width="430" height="40" rx="14" fill="url(#userBubble)"/>
+      <text x="585" y="320" fill="#f4f5f8" font-size="12">Make me a meditation timer with breathing animation</text>
+
+      <!-- Assistant streaming bubble -->
+      <rect x="345" y="350" width="500" height="120" rx="14" fill="#262a37"/>
+      <text x="365" y="375" fill="#fbbf24" font-size="11">⚡ Streaming code from Claude...</text>
+      <text x="365" y="397" fill="#9aa1b3" font-size="11">📄 app/_layout.tsx · ✓</text>
+      <text x="365" y="415" fill="#9aa1b3" font-size="11">📄 app/(tabs)/index.tsx · ✓</text>
+      <text x="365" y="433" fill="#9aa1b3" font-size="11">📄 components/ui/Button.tsx · ✓</text>
+      <text x="365" y="451" fill="#fbbf24" font-size="11">⏳ components/ui/Sheet.tsx ...</text>
+
+      <!-- System message -->
+      <rect x="450" y="490" width="240" height="28" rx="14" fill="#0d0e14" stroke="#262a37"/>
+      <text x="570" y="508" text-anchor="middle" fill="#9aa1b3" font-size="10">Workspace mirrored to S3</text>
+    </g>
+
+    <!-- Chat input row -->
+    <g id="chatInput">
+      <rect x="335" y="965" width="600" height="68" rx="10" fill="#161821" stroke="#262a37"/>
+      <text x="350" y="990" fill="#6b7081" font-size="12">Iterate on this app, or describe a new feature...</text>
+      <text x="350" y="1010" fill="#6b7081" font-size="10">⌘+Enter to send</text>
+
+      <rect x="945" y="965" width="65" height="68" rx="10" fill="#5e6ad2"/>
+      <text x="978" y="1003" text-anchor="middle" fill="#f4f5f8" font-size="13" font-weight="600">Send →</text>
+    </g>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- COLUMN 3: Preview pane (Device frame)                           -->
+  <!-- ============================================================== -->
+  <g id="preview">
+    <rect x="1030" y="150" width="340" height="900" rx="10" fill="url(#previewBg)" stroke="#262a37"/>
+
+    <!-- Device picker -->
+    <rect x="1045" y="170" width="310" height="34" rx="6" fill="#161821" stroke="#262a37"/>
+    <text x="1060" y="192" fill="#9aa1b3" font-size="12">📱 iPhone 15 Pro · ▾</text>
+
+    <!-- Device frame with running app -->
+    <g id="device">
+      <rect x="1090" y="226" width="220" height="500" rx="36" fill="#161821" stroke="#262a37"/>
+      <rect x="1102" y="238" width="196" height="476" rx="28" fill="#0d0e14"/>
+
+      <!-- Notch -->
+      <rect x="1175" y="246" width="50" height="6" rx="3" fill="#262a37"/>
+
+      <!-- Mock app content -->
+      <text x="1200" y="290" text-anchor="middle" fill="#9aa1b3" font-size="9">5:00</text>
+      <text x="1200" y="324" text-anchor="middle" fill="#f4f5f8" font-size="13" font-weight="600">Meditation</text>
+
+      <!-- Breathing circle (gradient mock) -->
+      <defs>
+        <radialGradient id="breathe" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="#7280e8" stop-opacity="0.6"/>
+          <stop offset="100%" stop-color="#5e6ad2" stop-opacity="0.1"/>
+        </radialGradient>
+      </defs>
+      <circle cx="1200" cy="450" r="68" fill="url(#breathe)" stroke="#5e6ad2" stroke-width="1.5"/>
+      <text x="1200" y="442" text-anchor="middle" fill="#f4f5f8" font-size="12">Breathe in</text>
+      <text x="1200" y="462" text-anchor="middle" fill="#9aa1b3" font-size="10">04 : 23</text>
+
+      <!-- Tab bar -->
+      <rect x="1108" y="666" width="184" height="40" rx="14" fill="#161821" fill-opacity="0.85"/>
+      <text x="1140" y="690" text-anchor="middle" fill="#7280e8" font-size="9">⏱ Timer</text>
+      <text x="1200" y="690" text-anchor="middle" fill="#9aa1b3" font-size="9">📊 Stats</text>
+      <text x="1260" y="690" text-anchor="middle" fill="#9aa1b3" font-size="9">⚙ Settings</text>
+    </g>
+
+    <!-- Preview footer -->
+    <g id="previewFooter">
+      <text x="1200" y="765" text-anchor="middle" fill="#9aa1b3" font-size="11">⚡ Live preview · Snack</text>
+      <rect x="1090" y="785" width="100" height="32" rx="6" fill="transparent" stroke="#262a37"/>
+      <text x="1140" y="806" text-anchor="middle" fill="#9aa1b3" font-size="11">↻ Refresh</text>
+      <rect x="1210" y="785" width="100" height="32" rx="6" fill="transparent" stroke="#262a37"/>
+      <text x="1260" y="806" text-anchor="middle" fill="#9aa1b3" font-size="11">⤢ Open</text>
+    </g>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- BOTTOM SECTION: state machine + breadcrumb pipeline             -->
+  <!-- ============================================================== -->
+
+  <!-- Lifecycle states -->
+  <g id="lifecycle">
+    <rect x="30" y="1080" width="700" height="200" rx="10" fill="#161821" stroke="#262a37"/>
+    <text x="50" y="1108" fill="#f4f5f8" font-size="14" font-weight="700">▎ Lifecycle states</text>
+    <text x="50" y="1126" fill="#9aa1b3" font-size="11">center pane + preview pane reflect the current state</text>
+
+    <g font-family="ui-monospace, Menlo, monospace" font-size="10">
+      <!-- Empty -->
+      <rect x="50" y="1145" width="100" height="36" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="100" y="1167" text-anchor="middle" fill="#9aa1b3">empty</text>
+      <line x1="150" y1="1163" x2="180" y2="1163" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Generating -->
+      <rect x="180" y="1145" width="100" height="36" rx="6" fill="#fbbf24" fill-opacity="0.12" stroke="#fbbf24"/>
+      <text x="230" y="1167" text-anchor="middle" fill="#fbbf24">generating</text>
+      <line x1="280" y1="1163" x2="310" y2="1163" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Complete -->
+      <rect x="310" y="1145" width="100" height="36" rx="6" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80"/>
+      <text x="360" y="1167" text-anchor="middle" fill="#4ade80">complete</text>
+      <line x1="410" y1="1163" x2="440" y2="1163" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Preview building -->
+      <rect x="440" y="1145" width="120" height="36" rx="6" fill="#fbbf24" fill-opacity="0.12" stroke="#fbbf24"/>
+      <text x="500" y="1167" text-anchor="middle" fill="#fbbf24">preview building</text>
+      <line x1="560" y1="1163" x2="590" y2="1163" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Preview ready -->
+      <rect x="590" y="1145" width="110" height="36" rx="6" fill="#4ade80" fill-opacity="0.18" stroke="#4ade80"/>
+      <text x="645" y="1167" text-anchor="middle" fill="#4ade80">preview ready</text>
+    </g>
+
+    <g font-family="ui-monospace, Menlo, monospace" font-size="10">
+      <!-- Build queued -->
+      <rect x="50" y="1200" width="120" height="36" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="110" y="1222" text-anchor="middle" fill="#9aa1b3">build queued</text>
+      <line x1="170" y1="1218" x2="200" y2="1218" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Build running -->
+      <rect x="200" y="1200" width="120" height="36" rx="6" fill="#fbbf24" fill-opacity="0.12" stroke="#fbbf24"/>
+      <text x="260" y="1222" text-anchor="middle" fill="#fbbf24">build running</text>
+      <line x1="320" y1="1218" x2="350" y2="1218" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <!-- Build success → deploy -->
+      <rect x="350" y="1200" width="120" height="36" rx="6" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80"/>
+      <text x="410" y="1222" text-anchor="middle" fill="#4ade80">build success</text>
+      <line x1="470" y1="1218" x2="500" y2="1218" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <rect x="500" y="1200" width="100" height="36" rx="6" fill="#5e6ad2" fill-opacity="0.18" stroke="#5e6ad2"/>
+      <text x="550" y="1222" text-anchor="middle" fill="#7280e8">submitted</text>
+      <line x1="600" y1="1218" x2="630" y2="1218" stroke="#5e6ad2" stroke-width="1.5"/>
+
+      <rect x="630" y="1200" width="80" height="36" rx="6" fill="#5e6ad2" fill-opacity="0.30" stroke="#5e6ad2"/>
+      <text x="670" y="1222" text-anchor="middle" fill="#f4f5f8">testflight</text>
+    </g>
+  </g>
+
+  <!-- Breadcrumb pipeline -->
+  <g id="breadcrumbs">
+    <rect x="750" y="1080" width="620" height="200" rx="10" fill="#161821" stroke="#262a37"/>
+    <text x="770" y="1108" fill="#f4f5f8" font-size="14" font-weight="700">▎ Compliance breadcrumb pipeline</text>
+    <text x="770" y="1126" fill="#9aa1b3" font-size="11">every click → Sentry → tunnel → runner → pill</text>
+
+    <g font-family="ui-monospace, Menlo, monospace" font-size="11">
+      <!-- Click -->
+      <rect x="770" y="1145" width="100" height="32" rx="6" fill="#5e6ad2" fill-opacity="0.18" stroke="#5e6ad2"/>
+      <text x="820" y="1166" text-anchor="middle" fill="#7280e8">click</text>
+
+      <!-- Arrow -->
+      <line x1="870" y1="1161" x2="900" y2="1161" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <!-- Breadcrumb -->
+      <rect x="900" y="1145" width="120" height="32" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="960" y="1166" text-anchor="middle" fill="#c8cdd9">addBreadcrumb</text>
+
+      <line x1="1020" y1="1161" x2="1050" y2="1161" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <!-- Tunnel -->
+      <rect x="1050" y="1145" width="120" height="32" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="1110" y="1166" text-anchor="middle" fill="#c8cdd9">/sentry-tunnel</text>
+
+      <line x1="1170" y1="1161" x2="1200" y2="1161" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <!-- Sentry -->
+      <rect x="1200" y="1145" width="100" height="32" rx="6" fill="#fbbf24" fill-opacity="0.12" stroke="#fbbf24"/>
+      <text x="1250" y="1166" text-anchor="middle" fill="#fbbf24">Sentry</text>
+    </g>
+
+    <g font-family="ui-monospace, Menlo, monospace" font-size="11">
+      <!-- Spec runner row -->
+      <rect x="770" y="1200" width="100" height="32" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="820" y="1221" text-anchor="middle" fill="#c8cdd9">cron · 1h</text>
+
+      <line x1="870" y1="1216" x2="900" y2="1216" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <rect x="900" y="1200" width="160" height="32" rx="6" fill="#fbbf24" fill-opacity="0.12" stroke="#fbbf24"/>
+      <text x="980" y="1221" text-anchor="middle" fill="#fbbf24">spec-runner.evaluate</text>
+
+      <line x1="1060" y1="1216" x2="1090" y2="1216" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <!-- Result -->
+      <rect x="1090" y="1200" width="120" height="32" rx="6" fill="#f87171" fill-opacity="0.18" stroke="#f87171"/>
+      <text x="1150" y="1221" text-anchor="middle" fill="#f87171">violations[]</text>
+
+      <line x1="1210" y1="1216" x2="1240" y2="1216" stroke="#9aa1b3" stroke-width="1.5"/>
+
+      <rect x="1240" y="1200" width="110" height="32" rx="6" fill="#0d0e14" stroke="#262a37"/>
+      <text x="1295" y="1221" text-anchor="middle" fill="#c8cdd9">Logs + alert</text>
+    </g>
+
+    <text x="1060" y="1265" text-anchor="middle" fill="#6b7081" font-size="10" font-style="italic">
+      Browser also calls /spec/evaluate on every mount (real-time pill update)
+    </text>
+  </g>
+
+</svg>

@@ -89,9 +89,11 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     .studio {
       display: grid;
-      /* Right column wider (520px) so Snack's web player auto-starts —
-         below ~480px the player collapses to "Run on device" only. */
-      grid-template-columns: 280px 1fr 520px;
+      /* Right column needs >=700px for Snack's web player to auto-start
+         (probed: at 520px the runtime frame never spawns; at 700px+
+         it does). Sidebar narrows to 240px to keep the chat column
+         readable. */
+      grid-template-columns: 240px 1fr 720px;
       height: 100%;
       min-height: calc(100vh - 80px);
       background: ${t.bg.canvas};

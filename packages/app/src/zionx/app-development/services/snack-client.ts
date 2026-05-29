@@ -76,6 +76,7 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     '@sentry/react-native': SENTRY_SHIM,
     'react-native-mmkv': MMKV_SHIM,
     '@shopify/react-native-skia': SKIA_SHIM,
+    '@expo-google-fonts/inter': EXPO_FONTS_SHIM,
   };
 
   // Inject the shim files. The path is relative to project root.
@@ -323,6 +324,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
   'react-native-mmkv',
   '@shopify/react-native-skia',
   '@sentry/react-native',
+  '@expo-google-fonts/inter',
 ]);
 
 /**
@@ -398,7 +400,6 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
   'moti',
   '@shopify/flash-list',
   '@react-native-async-storage/async-storage',
-  '@expo-google-fonts/inter',
   'zustand',
 ]);
 
@@ -503,3 +504,27 @@ export const useImage = () => null;
 export default { Canvas, Circle, Rect, Path, LinearGradient, vec };
 `;
 
+
+/**
+ * @expo-google-fonts/inter shim — Snack's snackager fails to fetch
+ * the web build of this package at any version (`Unable to fetch
+ * module snackager-1-2/@expo-google-fonts~inter@x.y.z for web`). We
+ * stub `useFonts` to return [true] (fonts loaded) immediately and
+ * export the named font constants as empty objects so any code that
+ * passes them to <Text style={{ fontFamily: Inter_400Regular }}> just
+ * falls back to the platform default. The full TestFlight build uses
+ * the real package and renders Inter.
+ */
+const EXPO_FONTS_SHIM = `// Auto-injected by ZionX Snack adapter — no-op fonts stub for web preview.
+export const useFonts = () => [true, null];
+export const Inter_100Thin = 'Inter-Thin';
+export const Inter_200ExtraLight = 'Inter-ExtraLight';
+export const Inter_300Light = 'Inter-Light';
+export const Inter_400Regular = 'Inter-Regular';
+export const Inter_500Medium = 'Inter-Medium';
+export const Inter_600SemiBold = 'Inter-SemiBold';
+export const Inter_700Bold = 'Inter-Bold';
+export const Inter_800ExtraBold = 'Inter-ExtraBold';
+export const Inter_900Black = 'Inter-Black';
+export default { useFonts, Inter_400Regular, Inter_600SemiBold, Inter_700Bold };
+`;

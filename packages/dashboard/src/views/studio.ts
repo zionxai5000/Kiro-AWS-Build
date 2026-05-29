@@ -210,7 +210,7 @@ export class StudioView {
     appSummary: null,
     previewUrl: null,
     previewSnackId: null,
-    previewPlatform: 'ios',
+    previewPlatform: 'web',
     showOpenOnPhone: false,
     previewStatus: 'idle',
     previewError: null,
@@ -1099,11 +1099,15 @@ export class StudioView {
   private renderPreviewToolbar(): string {
     const tab = (id: 'ios' | 'android' | 'web', label: string) =>
       `<button class="studio-preview__tab ${this.state.previewPlatform === id ? 'is-active' : ''}" data-preview-platform="${id}">${label}</button>`;
+    // Web first because it's the only platform that auto-runs the app
+    // inside the iframe — iOS/Android Snack tabs require a connected
+    // phone via QR scan to actually simulate. The "Open on phone" button
+    // below the device frame covers the phone-simulation case.
     return `
       <div class="studio-preview__platform-tabs">
+        ${tab('web', '🌐 Web')}
         ${tab('ios', '📱 iOS')}
         ${tab('android', '🤖 Android')}
-        ${tab('web', '🌐 Web')}
       </div>
     `;
   }

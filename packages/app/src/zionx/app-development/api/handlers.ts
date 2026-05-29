@@ -208,7 +208,20 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           });
 
           const sendEvent = (data: Record<string, unknown>) => {
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            // The dashboard may close the SSE EventSource (page nav, tab close,
+            // user navigates away) BEFORE generation completes. Without this
+            // guard, res.write() on a destroyed socket throws ERR_STREAM_DESTROYED
+            // inside onFileEnd, which propagates up through the LLM stream
+            // consumer and aborts generation mid-flight — leaving subsequent
+            // files Claude was about to emit unwritten. The server-side workspace
+            // writes already happened in onFileEnd before this call, so we only
+            // need to make the post-write notification non-fatal.
+            if (res.writableEnded || res.destroyed) return;
+            try {
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            } catch {
+              /* client gone — generation continues server-side */
+            }
           };
 
           // Send a narration update to the client AND log to CloudWatch so

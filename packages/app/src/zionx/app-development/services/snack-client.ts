@@ -442,6 +442,13 @@ function escapeRegex(s: string): string {
  */
 function stripTypeScriptForSnack(src: string): string {
   let out = src;
+  // 0. Strip markdown code-fence markers if the LLM emitted them inside
+  //    file content (observed: files starting with ```typescript ... ```).
+  //    Babel reads triple-backticks as broken template literals and gives
+  //    cryptic line-shifted "Missing semicolon" errors. The fence is
+  //    never valid in any real source file so removing it is always safe.
+  out = out.replace(/^```[a-zA-Z]*\s*\n/m, '').replace(/\n```\s*$/m, '');
+  out = out.replace(/^```[a-zA-Z]*\s*$/gm, '').replace(/^```\s*$/gm, '');
   // 1. Remove `interface Foo { ... }` and `type Foo = ...;` declarations.
   out = out.replace(/^[\t ]*interface\s+\w+\s*(?:extends\s+[^{]+)?\{[^]*?^\}/gm, '');
   out = out.replace(/^[\t ]*type\s+\w+\s*=\s*[^;\n]+;?$/gm, '');

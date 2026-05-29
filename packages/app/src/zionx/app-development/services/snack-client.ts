@@ -52,6 +52,65 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     code[path] = { type: 'CODE', contents: content };
   }
 
+  // ----------------------------------------------------------------
+  // Web-incompatible package shims for the Snack web preview.
+  //
+  // Some packages the generated app imports (Sentry, MMKV, Skia) don't
+  // have a working web fallback — Snack's bundler can't resolve them
+  // and the app fails to boot, leaving the device pane stuck on an
+  // "Unable to resolve module" error.
+  //
+  // We solve this by:
+  //   1. Stripping the dep from the Snack manifest (so npm doesn't try
+  //      to install it — see filterSnackDependencies below).
+  //   2. Injecting a shim FILE under shims/<pkg>.js that exports a
+  //      stub matching the surface the generated code uses.
+  //   3. Rewriting every `import ... from '<pkg>'` line in user code
+  //      to point at the local shim.
+  //
+  // The full TestFlight build is unaffected — EAS reads the original
+  // workspace file straight from disk, never these shims. This applies
+  // ONLY to the Snack save we POST for the live preview.
+  // ----------------------------------------------------------------
+  const SHIMS: Record<string, string> = {
+    '@sentry/react-native': SENTRY_SHIM,
+    'react-native-mmkv': MMKV_SHIM,
+    '@shopify/react-native-skia': SKIA_SHIM,
+  };
+
+  // Inject the shim files. The path is relative to project root.
+  for (const [pkg, shimSource] of Object.entries(SHIMS)) {
+    const shimPath = `shims/${pkg.replace(/[/@]/g, '_')}.js`;
+    code[shimPath] = { type: 'CODE', contents: shimSource };
+  }
+
+  // Rewrite imports in every user .ts / .tsx / .js / .jsx file so the
+  // shimmed packages resolve to local files. We compute the relative
+  // path from each importing file to the shim to keep the rewrite
+  // robust for nested directories like `app/(tabs)/index.tsx`.
+  for (const [path, file] of Object.entries(code)) {
+    if (path.startsWith('shims/')) continue;
+    if (!/\.(t|j)sx?$/.test(path)) continue;
+    let src = file.contents;
+    let touched = false;
+    for (const pkg of Object.keys(SHIMS)) {
+      if (!src.includes(pkg)) continue;
+      const shimRelPath = relativeShimPath(path, pkg);
+      // Match both:  from '@sentry/react-native'   and  require('@sentry/react-native')
+      const importRe = new RegExp(
+        `(from\\s+['"\`])${escapeRegex(pkg)}(['"\`])`,
+        'g',
+      );
+      const requireRe = new RegExp(
+        `(require\\(\\s*['"\`])${escapeRegex(pkg)}(['"\`]\\s*\\))`,
+        'g',
+      );
+      const next = src.replace(importRe, `$1${shimRelPath}$2`).replace(requireRe, `$1${shimRelPath}$2`);
+      if (next !== src) { src = next; touched = true; }
+    }
+    if (touched) code[path] = { type: 'CODE', contents: src };
+  }
+
   // Snack REQUIRES App.js (or App.tsx) at the root as the entry point.
   // LLM-generated apps use expo-router with `app/_layout.tsx` instead, which
   // Snack's web preview doesn't natively understand. Inject a stub App.js
@@ -179,3 +238,105 @@ function filterSnackDependencies(deps: Record<string, string>): Record<string, s
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Shim helpers + sources
+// ---------------------------------------------------------------------------
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Compute the relative path from an importing file to the shim file.
+ * Example:
+ *   importing = "app/(tabs)/index.tsx", pkg = "@sentry/react-native"
+ *   shim path = "shims/_sentry_react-native.js"
+ *   returns:    "../../shims/_sentry_react-native"
+ *
+ * We strip the .js extension because TS/JS imports usually omit it; the
+ * Snack bundler resolves it either way.
+ */
+function relativeShimPath(importingFile: string, pkg: string): string {
+  const shimBase = `shims/${pkg.replace(/[/@]/g, '_')}`;
+  const segments = importingFile.split('/');
+  // segments.length - 1 directory levels to climb out
+  const climb = '../'.repeat(Math.max(0, segments.length - 1));
+  return `${climb}${shimBase}`;
+}
+
+/**
+ * Sentry shim — exports the surface the generated layout code uses
+ * (`init`, `wrap`, `addBreadcrumb`, `captureException`, etc.) as no-ops.
+ * Real Sentry telemetry still works in production builds because the
+ * shim is only injected for the Snack web preview.
+ */
+const SENTRY_SHIM = `// Auto-injected by ZionX Snack adapter — no-op shim for web preview.
+// The full TestFlight build uses the real @sentry/react-native package.
+const noop = () => {};
+const passthrough = (x) => x;
+export const init = noop;
+export const wrap = passthrough;
+export const captureException = noop;
+export const captureMessage = noop;
+export const addBreadcrumb = noop;
+export const setTag = noop;
+export const setUser = noop;
+export const setContext = noop;
+export const flush = async () => true;
+export const close = async () => true;
+export const ReactNativeTracing = function () {};
+export const ReactNavigationInstrumentation = function () {};
+export default { init, wrap, captureException, captureMessage, addBreadcrumb, setTag, setUser, setContext, flush, close };
+`;
+
+/**
+ * MMKV shim — generates code typically uses MMKV via a hook like
+ * usePersistedStore that wraps `new MMKV()`. We expose a fake instance
+ * with set/get/delete/clearAll methods backed by an in-memory Map so
+ * the app boots and reads/writes data per-session.
+ */
+const MMKV_SHIM = `// Auto-injected by ZionX Snack adapter — in-memory MMKV stub for web preview.
+const memory = new Map();
+export class MMKV {
+  constructor() {}
+  set(key, value) { memory.set(key, value); }
+  getString(key) { const v = memory.get(key); return typeof v === 'string' ? v : undefined; }
+  getNumber(key) { const v = memory.get(key); return typeof v === 'number' ? v : undefined; }
+  getBoolean(key) { const v = memory.get(key); return typeof v === 'boolean' ? v : undefined; }
+  delete(key) { memory.delete(key); }
+  clearAll() { memory.clear(); }
+  contains(key) { return memory.has(key); }
+  getAllKeys() { return Array.from(memory.keys()); }
+}
+export default { MMKV };
+`;
+
+/**
+ * Skia shim — Skia's GPU-backed canvas doesn't run on web. We export
+ * inert React components so any Canvas/Circle/LinearGradient etc renders
+ * to nothing instead of crashing the bundle.
+ */
+const SKIA_SHIM = `// Auto-injected by ZionX Snack adapter — no-op Skia stubs for web preview.
+import React from 'react';
+const Empty = (props) => null;
+export const Canvas = Empty;
+export const Circle = Empty;
+export const Rect = Empty;
+export const RoundedRect = Empty;
+export const Group = Empty;
+export const Path = Empty;
+export const LinearGradient = Empty;
+export const RadialGradient = Empty;
+export const Mask = Empty;
+export const Image = Empty;
+export const Text = Empty;
+export const SkPaint = Empty;
+export const Skia = { Path: { Make: () => ({ moveTo: () => {}, lineTo: () => {}, close: () => {} }) } };
+export const vec = (x, y) => ({ x, y });
+export const rect = (x, y, w, h) => ({ x, y, width: w, height: h });
+export const useFont = () => null;
+export const useImage = () => null;
+export default { Canvas, Circle, Rect, Path, LinearGradient, vec };
+`;
+

@@ -89,7 +89,9 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     .studio {
       display: grid;
-      grid-template-columns: 280px 1fr 380px;
+      /* Right column wider (520px) so Snack's web player auto-starts —
+         below ~480px the player collapses to "Run on device" only. */
+      grid-template-columns: 280px 1fr 520px;
       height: 100%;
       min-height: calc(100vh - 80px);
       background: ${t.bg.canvas};

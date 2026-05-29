@@ -141,14 +141,19 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     src = src.replace(/^```\s*$/gm, '');
     if (src !== original) code[path] = { type: 'CODE', contents: src };
   }
-  // Babel-transpile every .ts / .tsx file → .js / .jsx
+  // Babel-transpile every .ts / .tsx file → .js
+  // We rename ALL transpiled output to `.js` (not `.jsx`) because Snack's
+  // module resolver looks for `.js` first when an import has no extension
+  // (e.g. `import Foo from './Foo'`). Using `.jsx` causes `Unable to
+  // resolve module './Foo.js'` errors. The Babel-transpiled output is
+  // plain JS regardless of original extension.
   const tsRenames: Record<string, string> = {};
   for (const path of Object.keys(code)) {
     if (path.startsWith('shims/')) continue;
     const isTs = path.endsWith('.ts');
     const isTsx = path.endsWith('.tsx');
     if (!isTs && !isTsx) continue;
-    const newPath = isTsx ? path.slice(0, -4) + '.jsx' : path.slice(0, -3) + '.js';
+    const newPath = path.replace(/\.tsx?$/, '.js');
     tsRenames[path] = newPath;
     let transformed: string;
     try {
@@ -171,12 +176,12 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     code[newPath] = { type: 'CODE', contents: transformed };
     delete code[path];
   }
-  // Rewrite explicit `.tsx`/`.ts` extensions in import paths → `.jsx`/`.js`.
+  // Rewrite explicit `.tsx`/`.ts` extensions in import paths → `.js`.
   for (const path of Object.keys(code)) {
     if (!/\.jsx?$/.test(path)) continue;
     const src = code[path]!.contents;
     const next = src
-      .replace(/(['"`])([^'"`]+)\.tsx(['"`])/g, '$1$2.jsx$3')
+      .replace(/(['"`])([^'"`]+)\.tsx(['"`])/g, '$1$2.js$3')
       .replace(/(['"`])([^'"`]+)\.ts(['"`])/g, '$1$2.js$3');
     if (next !== src) code[path] = { type: 'CODE', contents: next };
   }
@@ -192,16 +197,16 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   const hasAppJs = code['App.js'] !== undefined;
   const hasAppTsx = code['App.tsx'] !== undefined;
   if (!hasAppJs && !hasAppTsx) {
-    // Find the most-likely "main" screen file (after the .ts/.tsx → .js/.jsx
+    // Find the most-likely "main" screen file (after the .ts/.tsx → .js
     // transpile above). Priority:
-    //   app/(tabs)/index.jsx → app/index.jsx → app/(tabs)/<other>.jsx
+    //   app/(tabs)/index.js → app/index.js → app/(tabs)/<other>.js
     //   → any screen-shaped file under app/.
     const allPaths = Object.keys(code);
     const candidates = [
-      'app/(tabs)/index.jsx', 'app/(tabs)/index.js',
-      'app/index.jsx', 'app/index.js',
-      'app/(tabs)/game.jsx', 'app/(tabs)/home.jsx', 'app/(tabs)/main.jsx',
-      'app/game.jsx', 'app/home.jsx', 'app/main.jsx',
+      'app/(tabs)/index.js',
+      'app/index.js',
+      'app/(tabs)/game.js', 'app/(tabs)/home.js', 'app/(tabs)/main.js',
+      'app/game.js', 'app/home.js', 'app/main.js',
     ];
     let mainScreen: string | null = null;
     for (const c of candidates) {
@@ -210,17 +215,16 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     // Fallback: any non-_layout file under app/
     if (!mainScreen) {
       mainScreen = allPaths.find((p) =>
-        p.startsWith('app/') && /\.jsx?$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
+        p.startsWith('app/') && /\.js$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
       ) ?? null;
     }
 
     if (mainScreen) {
       // Copy the main screen to a root-level path. Snack's bundler can
       // be flaky with `app/(tabs)/...` paths because of the parens, so
-      // having a paren-free copy at root is the safest path. Keep the
-      // .tsx extension so Snack's preset-typescript fires for our copy.
-      const ext = mainScreen.match(/\.[a-z]+$/i)?.[0] ?? '.tsx';
-      const safeName = `_zionx_main${ext}`;
+      // having a paren-free copy at root is the safest path. After the
+      // Babel transpile above, all source files are `.js`.
+      const safeName = '_zionx_main.js';
       // Rewrite relative imports. The screen's ../../components/ui/Button
       // (from app/(tabs)/) becomes ./components/ui/Button (from root).
       const oldDepth = mainScreen.split('/').length - 1;
@@ -232,10 +236,10 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
         rewritten = rewritten.replace(re, '$1./');
       }
       code[safeName] = { type: 'CODE', contents: rewritten };
-      // Include the explicit `.jsx` / `.js` extension because Snack's
-      // bundler resolver defaults to `.js` only and won't try `.jsx`
-      // when the import has no extension.
-      const importPath = './' + safeName;
+      // safeName ends in .js — Snack's resolver finds it at the
+      // extensionless import path `./_zionx_main`, so we drop the
+      // extension here for cleanliness.
+      const importPath = './' + safeName.replace(/\.js$/, '');
       code['App.js'] = {
         type: 'CODE',
         contents:

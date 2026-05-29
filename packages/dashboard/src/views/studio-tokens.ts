@@ -586,5 +586,92 @@ export function renderStudioStylesheet(): string {
       font-size: ${t.type.sizeXs};
       color: ${t.text.tertiary};
     }
+
+    /* ============================================================== */
+    /* PREVIEW pane v2 — platform tabs, actions, modal                 */
+    /* ============================================================== */
+    .studio-preview__platform-tabs {
+      display: flex;
+      gap: ${t.space.xs};
+      padding: ${t.space.sm} ${t.space.md};
+      border-bottom: 1px solid ${t.bg.border};
+      background: ${t.bg.surface};
+    }
+    .studio-preview__tab {
+      flex: 1;
+      background: transparent;
+      border: 1px solid transparent;
+      color: ${t.text.secondary};
+      padding: ${t.space.sm} ${t.space.sm};
+      border-radius: ${t.radius.sm};
+      cursor: pointer;
+      font-size: ${t.type.sizeMd};
+      font-family: inherit;
+      font-weight: ${t.type.weightMedium};
+      transition: background ${t.motion.fast}, color ${t.motion.fast}, border-color ${t.motion.fast};
+    }
+    .studio-preview__tab:hover {
+      background: ${t.bg.surfaceRaised};
+      color: ${t.text.primary};
+    }
+    .studio-preview__tab.is-active {
+      background: ${t.accent.primarySoft};
+      color: ${t.text.primary};
+      border-color: ${t.accent.primary};
+    }
+    .studio-preview__actions {
+      display: flex;
+      gap: ${t.space.sm};
+      padding: ${t.space.sm} 0;
+      justify-content: center;
+    }
+
+    /* ----- Open on phone modal ----- */
+    .studio-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 14, 20, 0.78);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: studio-fade-in ${t.motion.base} both;
+    }
+    .studio-modal {
+      background: ${t.bg.surfaceRaised};
+      border: 1px solid ${t.bg.border};
+      border-radius: ${t.radius.lg};
+      box-shadow: ${t.shadow.level3};
+      padding: ${t.space.xl};
+      max-width: 460px;
+      width: 90%;
+      max-height: 90vh;
+      overflow: auto;
+      position: relative;
+    }
+    .studio-modal__close {
+      position: absolute;
+      top: ${t.space.md};
+      right: ${t.space.md};
+      background: transparent;
+      border: 1px solid ${t.bg.border};
+      color: ${t.text.secondary};
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background ${t.motion.fast};
+    }
+    .studio-modal__close:hover {
+      background: ${t.bg.surface};
+      color: ${t.text.primary};
+    }
   </style>`;
 }

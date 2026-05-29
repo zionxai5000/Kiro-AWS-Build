@@ -234,10 +234,49 @@ function filterSnackDependencies(deps: Record<string, string>): Record<string, s
   const out: Record<string, string> = {};
   for (const [pkg, version] of Object.entries(deps)) {
     if (SNACK_WEB_INCOMPATIBLE.has(pkg)) continue;
+    // Snack's snackager CDN sometimes can't fetch arbitrary versions for
+    // its web preview. For Expo-family packages we pass "*" so Snack uses
+    // its SDK-aligned default (equivalent to `expo install <pkg>`),
+    // matching the runtime's actual support matrix. Generated package.json
+    // (with the LLM's pinned versions) is unaffected — it lives on disk
+    // and EAS reads it for the real production build.
+    if (SNACK_AUTOVERSION_PACKAGES.has(pkg)) {
+      out[pkg] = '*';
+      continue;
+    }
     out[pkg] = version;
   }
   return out;
 }
+
+/**
+ * Packages where we let Snack pick the SDK-aligned version. The LLM emits
+ * exact ranges (~3.0.0, ~14.0.0, etc) that don't always have a build on
+ * Snack's web snackager CDN — letting Snack auto-resolve fixes those
+ * "Unable to fetch module foo@x.y.z for web" errors without changing the
+ * production build.
+ */
+const SNACK_AUTOVERSION_PACKAGES = new Set([
+  'expo',
+  'expo-asset',
+  'expo-blur',
+  'expo-constants',
+  'expo-font',
+  'expo-haptics',
+  'expo-image',
+  'expo-linear-gradient',
+  'expo-linking',
+  'expo-router',
+  'expo-splash-screen',
+  'expo-status-bar',
+  'react-native-reanimated',
+  'react-native-worklets',
+  'react-native-gesture-handler',
+  'react-native-safe-area-context',
+  'react-native-screens',
+  'react-native-svg',
+  '@expo/vector-icons',
+]);
 
 // ---------------------------------------------------------------------------
 // Shim helpers + sources

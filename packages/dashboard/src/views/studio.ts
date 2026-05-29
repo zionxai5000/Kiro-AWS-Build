@@ -37,7 +37,6 @@ import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
   },
 };
 
-import { renderDeviceSelector, DEFAULT_DEVICES } from '../components/studio/DeviceSelector.js';
 import { BRANDING_STYLES, BRANDING_CATEGORIES } from '../data/branding-styles.js';
 import { renderStudioStylesheet } from './studio-tokens.js';
 import { captureUserAction, captureUserError, flushSessionTrace } from '../sentry.js';
@@ -89,6 +88,22 @@ interface StudioState {
   brandingFilter: string;
   brandingSearch: string;
   /** Live narration from the backend during generation (most recent phase). */
+  /**
+   * Build plan + schema + task checklist for the current generation. Set
+   * by sendPrompt() right after Send, mutated by onFileEnd as tasks
+   * complete. `messageIndex` points at the chat message that renders it
+   * so updates re-render only that one bubble (no full chat redraw thrash).
+   */
+  plan: {
+    summary: string;
+    /** Lines describing the projected file structure / schema. */
+    schema: string[];
+    /** Tasks shown as a checklist. matchPath is regex-tested against
+     *  each completed file path; first match flips `done` true. */
+    tasks: Array<{ id: string; label: string; matchPath: RegExp; done: boolean }>;
+    /** Index in `messages` of the plan bubble. */
+    messageIndex: number | null;
+  } | null;
   liveNarration: string | null;
   /** Approximate tokens streamed so far in the current generation. */
   tokensReceived: number;
@@ -98,6 +113,19 @@ interface StudioState {
   appSummary: string | null;
   /** Live Snack embed URL — null when no preview has been created yet. */
   previewUrl: string | null;
+  /**
+   * Snack ID (used to derive Expo Go deep-link `exp://exp.host/<id>` for
+   * scan-on-phone). Set in lockstep with previewUrl.
+   */
+  previewSnackId: string | null;
+  /**
+   * Which preview surface is currently selected — 'ios' / 'android' show
+   * a phone-frame native simulator + QR for Expo Go; 'web' shows the
+   * web iframe fallback.
+   */
+  previewPlatform: 'ios' | 'android' | 'web';
+  /** Whether the Open-on-phone modal is visible. */
+  showOpenOnPhone: boolean;
   /** Status of preview creation. */
   previewStatus: 'idle' | 'building' | 'ready' | 'error';
   /** Message from preview build error. */
@@ -176,10 +204,14 @@ export class StudioView {
     brandingFilter: 'all',
     brandingSearch: '',
     liveNarration: null,
+    plan: null,
     tokensReceived: 0,
     liveAssistantIndex: null,
     appSummary: null,
     previewUrl: null,
+    previewSnackId: null,
+    previewPlatform: 'ios',
+    showOpenOnPhone: false,
     previewStatus: 'idle',
     previewError: null,
     compliance: {
@@ -190,7 +222,7 @@ export class StudioView {
       lastEvaluatedAt: null,
     },
   };
-  private messages: { role: 'user' | 'assistant' | 'system'; text: string; kind?: 'design-picker' }[] = [
+  private messages: { role: 'user' | 'assistant' | 'system'; text: string; kind?: 'design-picker' | 'plan' }[] = [
     {
       role: 'assistant',
       text:
@@ -407,6 +439,12 @@ export class StudioView {
     this.state.generating = true;
     this.state.liveNarration = null;
     this.state.tokensReceived = 0;
+    // Build a plan + checklist for this generation. Pushed as a separate
+    // chat bubble (kind: 'plan') so the user sees the schema and watches
+    // tasks tick off as files land.
+    this.state.plan = this.buildPlan(text);
+    this.messages.push({ role: 'assistant', text: 'plan', kind: 'plan' });
+    this.state.plan.messageIndex = this.messages.length - 1;
 
     if (!this.state.projectId) {
       try {
@@ -499,6 +537,14 @@ export class StudioView {
           const existing = this.state.files.find((f) => f.path === path);
           if (existing) existing.status = 'complete';
           else this.state.files.push({ path, status: 'complete' });
+          // Tick off any matching plan task
+          if (this.state.plan) {
+            for (const task of this.state.plan.tasks) {
+              if (!task.done && task.matchPath.test(path)) {
+                task.done = true;
+              }
+            }
+          }
           updateLive();
           if (this.state.activeTab === 'files') this.renderFilesPanel();
         },
@@ -633,7 +679,7 @@ export class StudioView {
       role: 'assistant',
       text: 'Pick a branding style — I will iterate on the current app to match it.',
       kind: 'design-picker',
-    } as { role: 'assistant'; text: string; kind: string });
+    });
     this.renderAll();
   }
   private async buildLivePreview(): Promise<void> {
@@ -652,6 +698,7 @@ export class StudioView {
     try {
       const snack: SnackPreview = await createPreview(this.state.projectId);
       this.state.previewUrl = snack.embedUrl;
+      this.state.previewSnackId = snack.snackId;
       this.state.previewStatus = 'ready';
       // Spec-runner aligned: preview success.
       captureUserAction('studio.previewReady', { snackId: snack.snackId, fileCount: snack.fileCount });
@@ -753,6 +800,9 @@ export class StudioView {
     const wasScrolled = msgsEl.scrollTop + msgsEl.clientHeight + 40 >= msgsEl.scrollHeight;
     msgsEl.innerHTML = this.messages.map((m) => {
       const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
+      if (m.kind === 'plan') {
+        return this.renderPlanMessage();
+      }
       if (m.kind === 'design-picker') {
         const cards = BRANDING_STYLES.slice(0, 12).map((s) => `
           <button class="studio-design-card" data-apply-style="${escapeHtml(s.id)}">
@@ -785,6 +835,8 @@ export class StudioView {
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
         else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
+        else if (action === 'open-on-phone') this.openOnPhone();
+        else if (action === 'open-fullscreen') this.openPreviewInNewTab();
       });
     });
   }
@@ -826,11 +878,9 @@ export class StudioView {
           </div>
         </main>
 
-        <!-- RIGHT: Preview -->
+        <!-- RIGHT: Preview (iOS / Android via QR + native sim, Web via iframe) -->
         <aside class="studio-preview">
-          <div class="studio-preview__toolbar">
-            ${renderDeviceSelector({ devices: DEFAULT_DEVICES, selectedDeviceId: 'iphone-15' })}
-          </div>
+          ${this.renderPreviewToolbar()}
           <div class="studio-preview__device">
             <div class="studio-device-frame">
               <div class="studio-device-screen">
@@ -838,10 +888,12 @@ export class StudioView {
               </div>
             </div>
           </div>
+          ${this.renderPreviewActions()}
           ${this.renderEscalationsBadge()}
         </aside>
       </div>
 
+      ${this.renderOpenOnPhoneModal()}
       ${renderStudioStylesheet()}
     `;
   }
@@ -899,6 +951,185 @@ export class StudioView {
     `;
   }
 
+  /**
+   * Toggle the Open-on-phone modal — shows the QR + Expo Go deep link so
+   * the operator can scan from their phone.
+   */
+  private openOnPhone(): void {
+    if (!this.state.previewSnackId) return;
+    captureUserAction('studio.openOnPhone', { snackId: this.state.previewSnackId });
+    this.state.showOpenOnPhone = true;
+    this.renderAll();
+  }
+
+  /**
+   * Open the Snack page (full editor) in a new tab for the current platform.
+   */
+  private openPreviewInNewTab(): void {
+    if (!this.state.previewSnackId) return;
+    const url = this.buildSnackPlatformUrl(this.state.previewPlatform);
+    captureUserAction('studio.openPreviewFullscreen', { platform: this.state.previewPlatform });
+    window.open(url, '_blank', 'noopener');
+  }
+
+  /**
+   * Heuristic plan builder. We don't know the LLM's exact output ahead of
+   * time, but the system prompt mandates a stable file layout (entry,
+   * theme, components/ui, hooks, store, app/(tabs) screens, onboarding).
+   * We pick the prompt-specific tasks from a small set of patterns matched
+   * against the user's request — game/timer/tracker/list etc. — so the
+   * checklist feels relevant, not generic.
+   *
+   * matchPath regexes are designed to fire on a wide range of paths the
+   * LLM might pick (some runs produce app/(tabs)/index.tsx, others app/
+   * index.tsx, others app/game.tsx) so a task ticks off as soon as a
+   * plausible file lands.
+   */
+  private buildPlan(prompt: string): NonNullable<StudioState['plan']> {
+    const lower = prompt.toLowerCase();
+    const tasks: Array<{ id: string; label: string; matchPath: RegExp; done: boolean }> = [
+      { id: 'config',     label: 'Set up Expo + TypeScript project',          matchPath: /^package\.json$/,                done: false },
+      { id: 'theme',      label: 'Build design tokens (colors, type, spacing)', matchPath: /^theme\/colors\.ts$/,           done: false },
+      { id: 'ui',         label: 'Create UI primitives (Button, Card, etc)',  matchPath: /^components\/ui\/Button\.tsx?$/, done: false },
+      { id: 'entry',      label: 'Wire root layout + navigation',             matchPath: /^app\/_layout\.tsx?$/,           done: false },
+      { id: 'main',       label: 'Build the main screen',                     matchPath: /^app\/(\(tabs\)\/)?(index|game|home|main)\.tsx?$/, done: false },
+      { id: 'store',      label: 'Add app state (zustand store)',             matchPath: /^store\/.+\.ts?$/,               done: false },
+    ];
+
+    // Prompt-specific tasks
+    if (/tic[\s-]?tac[\s-]?toe|game|board|grid|chess|connect/.test(lower)) {
+      tasks.push({ id: 'win-detect', label: 'Add win detection + reset',      matchPath: /^(app\/(\(tabs\)\/)?(index|game)|store\/(game|board)).+/i, done: false });
+    } else if (/timer|stopwatch|countdown|breath|meditat/.test(lower)) {
+      tasks.push({ id: 'timer-logic', label: 'Add timer / animation logic',  matchPath: /^(app\/(\(tabs\)\/)?(index|timer)|hooks\/useTimer)/i,    done: false });
+    } else if (/track|streak|habit|workout|food|meal|recipe|reading|journal/.test(lower)) {
+      tasks.push({ id: 'persistence', label: 'Persist entries with AsyncStorage', matchPath: /^hooks\/usePersisted/i,        done: false });
+    } else if (/list|todo|task|remind/.test(lower)) {
+      tasks.push({ id: 'list-crud',   label: 'Add list CRUD + persistence',   matchPath: /^store\/.+\.ts?$/,                  done: false });
+    }
+
+    // Settings is generic but expected for any multi-tab app
+    tasks.push({ id: 'settings', label: 'Add Settings screen',                matchPath: /^app\/(\(tabs\)\/)?settings\.tsx?$/, done: false });
+
+    const schema: string[] = [
+      'app/_layout.tsx        ← root layout (fonts, error boundary, navigation)',
+      'app/(tabs)/index.tsx   ← main screen (the app the user requested)',
+      'app/(tabs)/settings.tsx',
+      'components/ui/         ← Button, Card, Sheet, Skeleton, Toast',
+      'theme/                 ← colors, typography, spacing, motion, shadows',
+      'store/                 ← zustand state with persist',
+      'hooks/                 ← useHaptics, useAppState, usePersistedStore',
+      'package.json, app.json, tsconfig.json, babel.config.js, eas.json',
+    ];
+
+    let summary = `Building a React Native + Expo app from your prompt.`;
+    if (/tic[\s-]?tac[\s-]?toe/i.test(lower)) summary = 'Building a Tic-Tac-Toe game with X/O turns, win detection, and a reset button.';
+    else if (/timer|stopwatch/i.test(lower)) summary = 'Building a timer app with start, pause, and reset.';
+    else if (/habit|streak/i.test(lower)) summary = 'Building a habit tracker with daily check-ins and streak counting.';
+    else if (/recipe|meal/i.test(lower)) summary = 'Building a recipe / meal tracker with photo support and search.';
+
+    return { summary, schema, tasks, messageIndex: null };
+  }
+
+  /**
+   * Render the plan + schema + checklist bubble. Called from both message
+   * render sites (renderChatLive, renderChatContent) so it stays in sync
+   * during streaming.
+   */
+  private renderPlanMessage(): string {
+    const plan = this.state.plan;
+    if (!plan) return '';
+    const total = plan.tasks.length;
+    const done = plan.tasks.filter((t) => t.done).length;
+    const tasksHtml = plan.tasks.map((t) => {
+      const icon = t.done ? '✅' : '⬜';
+      const styleDone = t.done ? 'opacity:0.55;text-decoration:line-through;' : '';
+      return `<li style="margin:4px 0;font-size:12px;${styleDone}">${icon} ${escapeHtml(t.label)}</li>`;
+    }).join('');
+    const schemaHtml = plan.schema.map((line) =>
+      `<div style="font-family:ui-monospace,monospace;font-size:11px;opacity:0.78;margin:2px 0;">${escapeHtml(line)}</div>`
+    ).join('');
+    return `
+      <div class="studio-msg studio-msg--assistant studio-msg--plan" style="max-width:96%;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">📋 Plan</div>
+        <div style="font-size:13px;line-height:1.5;margin-bottom:12px;">${escapeHtml(plan.summary)}</div>
+        <details style="margin-bottom:12px;">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600;opacity:0.85;">📐 Project layout</summary>
+          <div style="background:#0d0e14;border:1px solid #2a2f3d;border-radius:8px;padding:10px 12px;margin-top:6px;">
+            ${schemaHtml}
+          </div>
+        </details>
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Tasks (${done}/${total})</div>
+        <ul style="list-style:none;padding:0;margin:0;">
+          ${tasksHtml}
+        </ul>
+      </div>
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // Preview pane — three platforms (iOS / Android / Web), each with a
+  // honest "you can actually see and tap the app" surface.
+  //
+  //   iOS / Android: Snack web simulator (?platform=ios|android&preview=true)
+  //                  embedded as an iframe so you can tap and the app responds.
+  //                  Plus an "Open on phone" button that deep-links into Expo Go.
+  //   Web:           the original iframe path (Snack web preview).
+  // -------------------------------------------------------------------------
+
+  private renderPreviewToolbar(): string {
+    const tab = (id: 'ios' | 'android' | 'web', label: string) =>
+      `<button class="studio-preview__tab ${this.state.previewPlatform === id ? 'is-active' : ''}" data-preview-platform="${id}">${label}</button>`;
+    return `
+      <div class="studio-preview__platform-tabs">
+        ${tab('ios', '📱 iOS')}
+        ${tab('android', '🤖 Android')}
+        ${tab('web', '🌐 Web')}
+      </div>
+    `;
+  }
+
+  private renderPreviewActions(): string {
+    if (this.state.previewStatus !== 'ready' || !this.state.previewSnackId) return '';
+    return `
+      <div class="studio-preview__actions">
+        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="open-on-phone">
+          🔗 Open on phone
+        </button>
+        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="open-fullscreen">
+          ⤢ Open in new tab
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * Build the URL for the iframe / button targets given the active platform.
+   * Snack URL params doc:
+   *   https://github.com/expo/snack/blob/main/docs/url-query-parameters.md
+   */
+  private buildSnackPlatformUrl(platform: 'ios' | 'android' | 'web'): string {
+    const id = this.state.previewSnackId ?? '';
+    const params = new URLSearchParams({
+      platform,
+      preview: 'true',
+      theme: 'dark',
+      hideQueryParams: 'true',
+      supportedPlatforms: 'ios,android,web',
+    });
+    return `https://snack.expo.dev/${id}?${params.toString()}`;
+  }
+
+  /**
+   * Expo Go deep link — opens directly in the Expo Go app on a phone.
+   *   exp://exp.host/<snackId>
+   * Wrapped in an https://exp.host redirector so it works as a clickable
+   * link (Expo Go's iOS handler intercepts the redirect).
+   */
+  private buildExpoGoLink(): string {
+    const id = this.state.previewSnackId ?? '';
+    return `exp://exp.host/${id}`;
+  }
+
   private renderPreviewBody(): string {
     if (!this.state.projectId) {
       return `
@@ -908,7 +1139,6 @@ export class StudioView {
       `;
     }
 
-    // Live progress while generating
     if (this.state.generating) {
       const progressPct = Math.min(95, this.state.tokensReceived / 400);
       return `
@@ -922,23 +1152,27 @@ export class StudioView {
       `;
     }
 
-    // Preview building (after generation completes)
     if (this.state.previewStatus === 'building') {
       return `
         <div style="font-size:32px;">🪄</div>
         <div style="font-weight:600;margin-top:8px;">Bundling preview...</div>
-        <div style="font-size:11px;opacity:0.7;margin-top:4px;">Sending workspace to Expo Snack so you can see the app render.</div>
+        <div style="font-size:11px;opacity:0.7;margin-top:4px;">Sending workspace to Expo Snack.</div>
         <div style="margin-top:14px;width:80%;height:6px;background:#1a1a1f;border-radius:3px;overflow:hidden;">
           <div style="height:100%;background:linear-gradient(90deg,#6c8cff,#4a6dff);animation:slide 1.5s ease-in-out infinite;width:50%;"></div>
         </div>
       `;
     }
 
-    // Live Snack iframe — the actual app rendering
-    if (this.state.previewStatus === 'ready' && this.state.previewUrl) {
+    if (this.state.previewStatus === 'ready' && this.state.previewSnackId) {
+      // For all three platforms we use Snack's preview iframe — it natively
+      // renders an iOS-style or Android-style native simulator inside the
+      // iframe when platform=ios / platform=android, and the actual web
+      // build when platform=web. This is exactly what snack.expo.dev does
+      // when you switch the platform tab on its own page.
+      const url = this.buildSnackPlatformUrl(this.state.previewPlatform);
       return `
         <iframe
-          src="${escapeHtml(this.state.previewUrl)}"
+          src="${escapeHtml(url)}"
           style="width:100%;height:100%;border:0;border-radius:8px;background:#0f1115;"
           allow="camera;microphone;clipboard-read;clipboard-write"
           loading="lazy"
@@ -946,7 +1180,6 @@ export class StudioView {
       `;
     }
 
-    // Preview failed — fall back to summary card
     if (this.state.previewStatus === 'error') {
       return `
         <div style="font-size:24px;">⚠️</div>
@@ -959,7 +1192,7 @@ export class StudioView {
       `;
     }
 
-    // Project loaded but no preview built yet — offer to build it
+    // Idle — project loaded, no preview yet
     const appName = this.state.projects.find((p) => p.projectId === this.state.projectId)?.name ?? this.state.projectId;
     const screens = this.state.files.filter((f) => f.path.match(/^app\/.+\.tsx$/) && !f.path.includes('_layout'));
     return `
@@ -976,6 +1209,49 @@ export class StudioView {
     `;
   }
 
+  /**
+   * Modal: shows a big QR code + the exp:// deep link so the operator can
+   * either scan with Expo Go or copy the link. Rendered into the page
+   * always; toggled visible by `state.showOpenOnPhone`.
+   */
+  private renderOpenOnPhoneModal(): string {
+    if (!this.state.showOpenOnPhone) return '';
+    if (!this.state.previewSnackId) return '';
+    const expLink = this.buildExpoGoLink();
+    // Use the public api.qrserver.com renderer so we don't have to bundle
+    // a QR library. The QR encodes the exp:// deep link — Expo Go on the
+    // user's phone intercepts it and loads the Snack runtime directly.
+    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(expLink)}&bgcolor=0d0e14&color=ffffff`;
+    const snackPageUrl = `https://snack.expo.dev/${this.state.previewSnackId}`;
+    return `
+      <div class="studio-modal-backdrop" id="studio-open-on-phone-backdrop">
+        <div class="studio-modal" role="dialog" aria-label="Open on phone">
+          <button class="studio-modal__close" id="studio-open-on-phone-close" aria-label="Close">×</button>
+          <h2 style="margin:0 0 8px;font-size:18px;font-weight:700;">Open on your phone</h2>
+          <p style="margin:0 0 18px;font-size:13px;opacity:0.7;line-height:1.5;">
+            Scan this QR code with the <b>Expo Go</b> app (free on App Store / Play Store).
+            The app runs natively on your phone with hot reload.
+          </p>
+          <div style="background:#0d0e14;border:1px solid #2a2f3d;border-radius:14px;padding:18px;display:flex;justify-content:center;">
+            <img src="${escapeHtml(qrSrc)}" alt="QR code to open in Expo Go" width="320" height="320" style="display:block;border-radius:6px;background:#0d0e14;">
+          </div>
+          <div style="margin-top:16px;font-size:11px;opacity:0.6;">Or open this link from your phone:</div>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <input
+              id="studio-exp-link-input"
+              type="text"
+              readonly
+              value="${escapeHtml(expLink)}"
+              style="flex:1;background:#14161b;color:#e6e6e6;border:1px solid #2a2f3d;border-radius:6px;padding:8px 10px;font-family:ui-monospace,monospace;font-size:11px;"
+            >
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-copy-exp-link">Copy</button>
+          </div>
+          <div style="margin-top:14px;font-size:11px;opacity:0.55;">Don't have Expo Go yet? <a href="${escapeHtml(snackPageUrl)}" target="_blank" rel="noopener" style="color:#6c8cff;">Open the full Snack page</a> to install it via App Store / Play Store.</div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderTabContent(): string {
     switch (this.state.activeTab) {
       case 'chat': return this.renderChatContent();
@@ -989,6 +1265,9 @@ export class StudioView {
   private renderChatContent(): string {
     const msgs = this.messages.map((m) => {
       const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
+      if (m.kind === 'plan') {
+        return this.renderPlanMessage();
+      }
       if (m.kind === 'design-picker') {
         const cards = BRANDING_STYLES.slice(0, 12).map((s) => `
           <button class="studio-design-card" data-apply-style="${escapeHtml(s.id)}">
@@ -1189,7 +1468,49 @@ export class StudioView {
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
         else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
+        else if (action === 'open-on-phone') this.openOnPhone();
+        else if (action === 'open-fullscreen') this.openPreviewInNewTab();
       });
+    });
+
+    // Platform tabs above the device frame — switch the iframe target.
+    this.container.querySelectorAll('[data-preview-platform]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const p = (el as HTMLElement).dataset.previewPlatform as 'ios' | 'android' | 'web';
+        if (p === 'ios' || p === 'android' || p === 'web') {
+          this.state.previewPlatform = p;
+          captureUserAction('studio.previewPlatform', { platform: p });
+          this.renderAll();
+        }
+      });
+    });
+
+    // Open-on-phone modal: backdrop click / close button / copy link
+    this.container.querySelector('#studio-open-on-phone-backdrop')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        this.state.showOpenOnPhone = false;
+        this.renderAll();
+      }
+    });
+    this.container.querySelector('#studio-open-on-phone-close')?.addEventListener('click', () => {
+      this.state.showOpenOnPhone = false;
+      this.renderAll();
+    });
+    this.container.querySelector('#studio-copy-exp-link')?.addEventListener('click', () => {
+      const input = this.container.querySelector('#studio-exp-link-input') as HTMLInputElement | null;
+      if (!input) return;
+      input.select();
+      try {
+        void navigator.clipboard.writeText(input.value);
+        const btn = this.container.querySelector('#studio-copy-exp-link');
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied';
+          window.setTimeout(() => { if (btn) btn.textContent = orig; }, 1500);
+        }
+      } catch {
+        document.execCommand('copy');
+      }
     });
 
     this.attachFilesListeners();

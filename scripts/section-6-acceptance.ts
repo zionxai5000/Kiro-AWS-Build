@@ -72,14 +72,19 @@ async function getRenderedAppText(page: Page): Promise<string> {
   // tac toe game…") which would falsely match the "tic tac toe" marker
   // even when the Snack player is still loading or stuck on a stub.
   //
-  // Only consider frames whose URL is on snack.expo.dev OR is a Snack
-  // child frame (snackager / sandbox.snack.expo.io).
+  // Include only frames hosted by Snack or its runtime CDN:
+  //   - snack.expo.dev          (the player frame)
+  //   - snack.expo.io           (legacy host)
+  //   - snackager*              (bundler)
+  //   - snack-runtime.eascdn.net  (the actual app render — confirmed via
+  //                                manual probe of the running player)
   const parts: string[] = [];
   for (const f of page.frames()) {
     const url = f.url();
     const isSnack = url.includes('snack.expo.dev') ||
                     url.includes('snack.expo.io') ||
-                    url.includes('snackager');
+                    url.includes('snackager') ||
+                    url.includes('eascdn.net');
     if (!isSnack) continue;
     try {
       const t = await f.evaluate(() => document.body?.innerText ?? '').catch(() => '');
@@ -91,7 +96,12 @@ async function getRenderedAppText(page: Page): Promise<string> {
 
 async function tapInPreview(page: Page, selector: string): Promise<boolean> {
   for (const f of page.frames()) {
-    if (!f.url().includes('snack.expo.dev')) continue;
+    const url = f.url();
+    const isSnack = url.includes('snack.expo.dev') ||
+                    url.includes('snack.expo.io') ||
+                    url.includes('snackager') ||
+                    url.includes('eascdn.net');
+    if (!isSnack) continue;
     try {
       const target = f.locator(selector);
       if ((await target.count()) > 0) {

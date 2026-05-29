@@ -1127,13 +1127,15 @@ export class StudioView {
    * Snack URL params doc:
    *   https://github.com/expo/snack/blob/main/docs/url-query-parameters.md
    *
-   * Uses the `/embedded/<id>` route so the iframe shows ONLY the player
-   * (no editor chrome / file tree / "Save"). The non-embedded
-   * `/<id>` path always shows the full Snack site regardless of params.
+   * Why non-embedded (`/<id>`) and not `/embedded/<id>`:
+   *   The embedded route currently refuses to bundle anonymous-saved
+   *   snacks ("400 — Open full editor to add new dependencies"). The
+   *   non-embedded route bundles correctly and renders the running app
+   *   in a nested iframe (snack-runtime.eascdn.net). The chrome is
+   *   visible alongside, but the player frame is what users tap.
    *
-   * `preview=true` keeps the player in preview-only mode (auto-runs, no
-   * editor toggle). `supportedPlatforms=ios,android,web` lets all three
-   * platform tabs work even when one is the active default.
+   * `preview=true&theme=dark&hideQueryParams=true` minimizes chrome.
+   * `supportedPlatforms=ios,android,web` keeps all three tabs available.
    */
   private buildSnackPlatformUrl(platform: 'ios' | 'android' | 'web'): string {
     const id = this.state.previewSnackId ?? '';
@@ -1141,9 +1143,10 @@ export class StudioView {
       platform,
       preview: 'true',
       theme: 'dark',
+      hideQueryParams: 'true',
       supportedPlatforms: 'ios,android,web',
     });
-    return `https://snack.expo.dev/embedded/${id}?${params.toString()}`;
+    return `https://snack.expo.dev/${id}?${params.toString()}`;
   }
 
   /**

@@ -201,12 +201,11 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   return {
     id,
     url: `https://snack.expo.dev/${id}`,
-    // Use the EMBEDDED Snack URL (`/embedded/<id>`) which shows ONLY the
-    // player frame — no file tree, no editor, no Save button. The dashboard
-    // builds its own platform-tabbed URL via buildSnackPlatformUrl, but
-    // returning the embedded URL here is the safer default for any other
-    // consumer of this preview field.
-    embedUrl: `https://snack.expo.dev/embedded/${id}?platform=web&preview=true&theme=dark`,
+    // Use the non-embedded Snack URL — the `/embedded/<id>` route refuses
+    // to bundle anonymous-saved snacks (returns 400 "Open full editor to
+    // add new dependencies"). The non-embedded route bundles correctly
+    // and renders the running app in a nested iframe.
+    embedUrl: `https://snack.expo.dev/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true`,
   };
 }
 
@@ -238,7 +237,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
  * Source: Snack runtime warnings observed during acceptance probes.
  */
 const SNACK_INJECT_PEER_DEPS: Record<string, string[]> = {
-  'zustand': ['immer'],
+  'zustand': ['immer', '@types/react'],
 };
 
 function filterSnackDependencies(deps: Record<string, string>): Record<string, string> {

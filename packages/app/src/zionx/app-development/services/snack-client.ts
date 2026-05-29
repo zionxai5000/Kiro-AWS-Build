@@ -13,6 +13,8 @@
  * snack ends up under the zionxai account and persists.
  */
 
+import * as babel from '@babel/core';
+
 const SNACK_SAVE_URL = 'https://exp.host/--/api/v2/snack/save';
 
 export interface SnackSaveInput {
@@ -113,22 +115,68 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   }
 
   // ----------------------------------------------------------------
-  // Strip markdown code-fence markers from every file. The LLM
-  // sometimes wraps file content in ```typescript ... ``` blocks; those
-  // backticks get parsed as broken template literals by Snack's bundler
-  // and produce cryptic line-shifted "Missing semicolon" errors. The
-  // fence is never valid in any real source file so removing it is
-  // always safe.
+  // Strip markdown code-fence markers + transpile TypeScript via Babel.
+  //
+  // Snack's web bundler does not reliably apply @babel/preset-typescript
+  // to user `.tsx` / `.ts` files — even when babel-preset-expo is in the
+  // manifest, type-only syntax like `interface`, `type`, union types,
+  // and `as` casts breaks the bundle. We pre-compile TS → JS server-side
+  // using @babel/core with preset-typescript + preset-react, then rename
+  // the file to `.js` / `.jsx`. Snack handles plain JS fine.
+  //
+  // The full TestFlight build is unaffected — EAS reads the workspace's
+  // original .tsx files via the metro bundler.
   // ----------------------------------------------------------------
   for (const path of Object.keys(code)) {
     if (path.startsWith('shims/')) continue;
     let src = code[path]!.contents;
     const original = src;
+    // Strip ```typescript ... ``` markdown fences if the LLM wrapped
+    // file content (rare but observed).
     src = src.replace(/^```[a-zA-Z]*\s*\r?\n/m, '');
     src = src.replace(/\r?\n```\s*$/m, '');
     src = src.replace(/^```[a-zA-Z]*\s*$/gm, '');
     src = src.replace(/^```\s*$/gm, '');
     if (src !== original) code[path] = { type: 'CODE', contents: src };
+  }
+  // Babel-transpile every .ts / .tsx file → .js / .jsx
+  const tsRenames: Record<string, string> = {};
+  for (const path of Object.keys(code)) {
+    if (path.startsWith('shims/')) continue;
+    const isTs = path.endsWith('.ts');
+    const isTsx = path.endsWith('.tsx');
+    if (!isTs && !isTsx) continue;
+    const newPath = isTsx ? path.slice(0, -4) + '.jsx' : path.slice(0, -3) + '.js';
+    tsRenames[path] = newPath;
+    let transformed: string;
+    try {
+      const result = babel.transformSync(code[path]!.contents, {
+        filename: path,
+        babelrc: false,
+        configFile: false,
+        compact: false,
+        sourceMaps: false,
+        presets: [
+          ['@babel/preset-typescript', { isTSX: isTsx, allExtensions: true }],
+        ],
+      });
+      transformed = result?.code ?? code[path]!.contents;
+    } catch (err) {
+      // If Babel fails (e.g. truly malformed source), pass the original
+      // through. Snack will surface its own error which is still useful.
+      transformed = code[path]!.contents;
+    }
+    code[newPath] = { type: 'CODE', contents: transformed };
+    delete code[path];
+  }
+  // Rewrite explicit `.tsx`/`.ts` extensions in import paths → `.jsx`/`.js`.
+  for (const path of Object.keys(code)) {
+    if (!/\.jsx?$/.test(path)) continue;
+    const src = code[path]!.contents;
+    const next = src
+      .replace(/(['"`])([^'"`]+)\.tsx(['"`])/g, '$1$2.jsx$3')
+      .replace(/(['"`])([^'"`]+)\.ts(['"`])/g, '$1$2.js$3');
+    if (next !== src) code[path] = { type: 'CODE', contents: next };
   }
 
   // Snack REQUIRES App.js (or App.tsx) at the root as the entry point.
@@ -142,15 +190,16 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   const hasAppJs = code['App.js'] !== undefined;
   const hasAppTsx = code['App.tsx'] !== undefined;
   if (!hasAppJs && !hasAppTsx) {
-    // Find the most-likely "main" screen file. Priority:
-    //   app/(tabs)/index.tsx → app/index.tsx → app/(tabs)/<other>.tsx
+    // Find the most-likely "main" screen file (after the .ts/.tsx → .js/.jsx
+    // transpile above). Priority:
+    //   app/(tabs)/index.jsx → app/index.jsx → app/(tabs)/<other>.jsx
     //   → any screen-shaped file under app/.
     const allPaths = Object.keys(code);
     const candidates = [
-      'app/(tabs)/index.tsx', 'app/(tabs)/index.ts',
-      'app/index.tsx', 'app/index.ts',
-      'app/(tabs)/game.tsx', 'app/(tabs)/home.tsx', 'app/(tabs)/main.tsx',
-      'app/game.tsx', 'app/home.tsx', 'app/main.tsx',
+      'app/(tabs)/index.jsx', 'app/(tabs)/index.js',
+      'app/index.jsx', 'app/index.js',
+      'app/(tabs)/game.jsx', 'app/(tabs)/home.jsx', 'app/(tabs)/main.jsx',
+      'app/game.jsx', 'app/home.jsx', 'app/main.jsx',
     ];
     let mainScreen: string | null = null;
     for (const c of candidates) {
@@ -159,7 +208,7 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     // Fallback: any non-_layout file under app/
     if (!mainScreen) {
       mainScreen = allPaths.find((p) =>
-        p.startsWith('app/') && /\.tsx?$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
+        p.startsWith('app/') && /\.jsx?$/.test(p) && !p.includes('_layout') && !p.includes('+not-found'),
       ) ?? null;
     }
 

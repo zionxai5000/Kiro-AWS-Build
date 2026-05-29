@@ -16,6 +16,9 @@
     }
   },
   "dependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
     "@seraphim/core": "*",
     "@seraphim/drivers": "*",
     "@seraphim/services": "*",
@@ -29,6 +32,7 @@
     "clean": "tsc --build --clean && rm -rf dist"
   },
   "devDependencies": {
+    "@types/babel__core": "^7.20.5",
     "@types/node-forge": "^1.3.14"
   }
 }

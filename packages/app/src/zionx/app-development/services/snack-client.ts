@@ -80,6 +80,7 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     '@shopify/react-native-skia': SKIA_SHIM,
     '@expo-google-fonts/inter': EXPO_FONTS_SHIM,
     'moti': MOTI_SHIM,
+    'phosphor-react-native': PHOSPHOR_SHIM,
   };
 
   // Inject the shim files. The path is relative to project root.
@@ -379,6 +380,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
   '@sentry/react-native',
   '@expo-google-fonts/inter',
   'moti',
+  'phosphor-react-native',
 ]);
 
 /**
@@ -450,7 +452,6 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
   '@expo/vector-icons',
   // Third-party packages we've observed snackager fail to resolve at the
   // LLM's pinned versions but which DO have working web builds at "*".
-  'phosphor-react-native',
   '@shopify/flash-list',
   '@react-native-async-storage/async-storage',
   'zustand',
@@ -606,3 +607,55 @@ export const useAnimationState = () => ({ transitionTo: () => {}, current: null 
 export const useDynamicAnimation = (fn) => ({ animateTo: () => {}, current: typeof fn === 'function' ? fn() : (fn ?? {}) });
 export default { MotiView, MotiText, MotiPressable, AnimatePresence };
 `;
+
+/**
+ * phosphor-react-native shim — exports any imported icon component as
+ * a tiny View placeholder. Phosphor's web build is not on snackager
+ * (`Unable to fetch module phosphor-react-native@x.y.z for web`). The
+ * iframe preview doesn't strictly need the icons rendered to verify
+ * tap behavior, so a Proxy that returns a stub for ANY named export
+ * lets the bundle compile and the screen mount.
+ *
+ * Production EAS build uses the real package and renders actual icons.
+ */
+const PHOSPHOR_ICON_NAMES = [
+  'House','HouseSimple','Heart','HeartStraight','Star','Gear','User','UserCircle',
+  'Plus','Minus','X','XCircle','Check','CheckCircle','ArrowLeft','ArrowRight',
+  'ArrowUp','ArrowDown','CaretLeft','CaretRight','CaretUp','CaretDown',
+  'Bell','Calendar','Clock','MagnifyingGlass','Eye','EyeSlash','PencilSimple',
+  'Trash','TrashSimple','Share','ShareNetwork','Camera','Image','Folder',
+  'Circle','Square','Triangle','Hexagon','SmileyXEyes','Trophy','Medal',
+  'Lightning','Sparkle','Flame','Sun','Moon','MoonStars','Cloud','Rainbow',
+  'Barbell','Bicycle','PersonSimpleRun','Brain','Book','BookOpen','Notebook',
+  'Pencil','PencilLine','PaperPlaneTilt','Microphone','Headphones','MusicNote',
+  'Play','Pause','Stop','SkipBack','SkipForward','Speaker','SpeakerHigh',
+  'Hamburger','ForkKnife','Cookie','Coffee','Beer','WineBottle','Pizza',
+  'ShoppingCart','ShoppingBag','CreditCard','Wallet','Coin','CurrencyDollar',
+  'List','ListBullets','ListChecks','Kanban','Table','GridFour','SquaresFour',
+  'Lock','LockOpen','Key','ShieldCheck','Warning','WarningCircle','Info',
+  'Question','QuestionMark','LightbulbFilament','Lightbulb','Target',
+  'TrendUp','TrendDown','ChartBar','ChartLine','ChartPie','ChartDonut',
+  'Phone','PhoneCall','EnvelopeSimple','Envelope','ChatCircle','ChatTeardrop',
+  'GameController','PuzzlePiece','Cube','CubeFocus','Lego',
+  'PaintBrush','PaintBucket','PaintRoller','Palette','Eyedropper',
+  'GitBranch','GitFork','GitCommit','Code','Terminal','Browser',
+  'Globe','MapPin','MapTrifold','Compass','NavigationArrow',
+  'CloudSun','CloudRain','Snowflake','ThermometerSimple','Wind',
+];
+
+const PHOSPHOR_SHIM = `// Auto-injected by ZionX Snack adapter — phosphor icon stubs for web preview.
+import React from 'react';
+import { View } from 'react-native';
+
+const IconStub = React.forwardRef((props, ref) => {
+  const size = props.size ?? 24;
+  return React.createElement(View, {
+    ref,
+    style: { width: size, height: size },
+  });
+});
+
+export default IconStub;
+${PHOSPHOR_ICON_NAMES.map((n) => `export const ${n} = IconStub;`).join('\n')}
+`;
+

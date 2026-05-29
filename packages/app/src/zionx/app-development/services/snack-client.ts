@@ -154,6 +154,28 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   // Filter dependencies for Snack web compatibility.
   const filteredDeps = filterSnackDependencies(input.dependencies);
 
+  // ALSO rewrite the `package.json` file inside the Snack code map so its
+  // dependencies match `filteredDeps`. Snack's snackager resolves package
+  // versions from the file's package.json (not just the manifest) — when
+  // the file has `"expo-blur": "~15.0.8"` and the manifest has
+  // `"expo-blur": "*"`, snackager picks the pinned version and fails to
+  // fetch the web bundle. Keeping both in sync fixes "Unable to fetch
+  // module ... for web" errors at runtime. EAS production builds are
+  // unaffected because they read the workspace's on-disk package.json,
+  // not this Snack-only rewritten copy.
+  if (code['package.json']) {
+    try {
+      const pkgJson = JSON.parse(code['package.json'].contents);
+      pkgJson.dependencies = filteredDeps;
+      code['package.json'] = {
+        type: 'CODE',
+        contents: JSON.stringify(pkgJson, null, 2),
+      };
+    } catch {
+      /* if package.json is malformed, leave it alone — Snack will surface a parse error */
+    }
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Snack-Api-Version': '3.0.0',

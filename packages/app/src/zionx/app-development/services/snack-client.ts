@@ -317,6 +317,14 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
   'react-native-screens',
   'react-native-svg',
   '@expo/vector-icons',
+  // Third-party packages we've observed snackager fail to resolve at the
+  // LLM's pinned versions but which DO have working web builds at "*".
+  'phosphor-react-native',
+  'moti',
+  '@shopify/flash-list',
+  '@react-native-async-storage/async-storage',
+  '@expo-google-fonts/inter',
+  'zustand',
 ]);
 
 // ---------------------------------------------------------------------------

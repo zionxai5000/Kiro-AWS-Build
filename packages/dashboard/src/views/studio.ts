@@ -456,7 +456,24 @@ export class StudioView {
         this.state.projectId = project.projectId;
         localStorage.setItem(LS_PROJECT_KEY, project.projectId);
         this.messages.push({ role: 'system', text: `Created project ${project.projectId}` });
-        await this.refreshProjectList();
+        // Insert immediately into the sidebar so the operator sees the new
+        // project appear right after Send (instead of waiting for the
+        // refreshProjectList round-trip below).
+        const nowIso = new Date().toISOString();
+        const existsAlready = this.state.projects.some((p) => p.projectId === project.projectId);
+        if (!existsAlready) {
+          this.state.projects.unshift({
+            projectId: project.projectId,
+            fileCount: project.fileCount ?? 0,
+            createdAt: project.createdAt ?? nowIso,
+            updatedAt: nowIso,
+            name: project.name,
+            prompt: text,
+          });
+        }
+        // Background refresh to reconcile with the server's list (no await
+        // so the immediate render doesn't stall behind it).
+        void this.refreshProjectList();
       } catch (err) {
         this.messages.push({ role: 'assistant', text: `Could not create project: ${(err as Error).message}` });
         captureUserError(err, { stage: 'create-project', prompt: text.slice(0, 100) });
@@ -470,7 +487,10 @@ export class StudioView {
     // Push a placeholder assistant message we'll update in real time.
     this.messages.push({ role: 'assistant', text: '🧠 Reading your prompt and planning the app structure...' });
     this.state.liveAssistantIndex = this.messages.length - 1;
-    this.state.activeTab = 'files';
+    // Keep the chat tab active during generation so the operator sees the
+    // plan + schema + task checklist + narration as it streams. The Files
+    // tab still shows live count via its label and is one click away.
+    this.state.activeTab = 'chat';
     this.renderAll();
 
     // Reset file tree; files will be added live as they stream in

@@ -201,13 +201,12 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   return {
     id,
     url: `https://snack.expo.dev/${id}`,
-    // Use the NON-embedded Snack URL with platform=web&preview=true so the
-    // device pane is always visible at any iframe width. The /embedded/<id>
-    // path is responsive — it collapses to code-editor-only below ~500px,
-    // which is why a narrow dashboard preview column shows code instead of
-    // the running app. The non-embedded URL with these params shows the
-    // device frame full-width inside the iframe.
-    embedUrl: `https://snack.expo.dev/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true`,
+    // Use the EMBEDDED Snack URL (`/embedded/<id>`) which shows ONLY the
+    // player frame — no file tree, no editor, no Save button. The dashboard
+    // builds its own platform-tabbed URL via buildSnackPlatformUrl, but
+    // returning the embedded URL here is the safer default for any other
+    // consumer of this preview field.
+    embedUrl: `https://snack.expo.dev/embedded/${id}?platform=web&preview=true&theme=dark`,
   };
 }
 
@@ -230,6 +229,18 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
   '@sentry/react-native',
 ]);
 
+/**
+ * Peer dependencies that Snack will warn about (and may refuse to bundle)
+ * when they're missing from the manifest, even though the host package
+ * declares them as `peerDependencies`. We inject these as `*` so Snack
+ * picks a version that's compatible with the host.
+ *
+ * Source: Snack runtime warnings observed during acceptance probes.
+ */
+const SNACK_INJECT_PEER_DEPS: Record<string, string[]> = {
+  'zustand': ['immer'],
+};
+
 function filterSnackDependencies(deps: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [pkg, version] of Object.entries(deps)) {
@@ -245,6 +256,15 @@ function filterSnackDependencies(deps: Record<string, string>): Record<string, s
       continue;
     }
     out[pkg] = version;
+  }
+  // Inject peer dependencies that the host packages declare but which
+  // the LLM didn't include. Without these, Snack throws a peer-dep
+  // warning that can prevent the bundle from loading.
+  for (const [host, peers] of Object.entries(SNACK_INJECT_PEER_DEPS)) {
+    if (!(host in out)) continue;
+    for (const peer of peers) {
+      if (!(peer in out)) out[peer] = '*';
+    }
   }
   return out;
 }

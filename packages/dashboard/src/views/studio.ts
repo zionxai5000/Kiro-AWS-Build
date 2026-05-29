@@ -1126,6 +1126,14 @@ export class StudioView {
    * Build the URL for the iframe / button targets given the active platform.
    * Snack URL params doc:
    *   https://github.com/expo/snack/blob/main/docs/url-query-parameters.md
+   *
+   * Uses the `/embedded/<id>` route so the iframe shows ONLY the player
+   * (no editor chrome / file tree / "Save"). The non-embedded
+   * `/<id>` path always shows the full Snack site regardless of params.
+   *
+   * `preview=true` keeps the player in preview-only mode (auto-runs, no
+   * editor toggle). `supportedPlatforms=ios,android,web` lets all three
+   * platform tabs work even when one is the active default.
    */
   private buildSnackPlatformUrl(platform: 'ios' | 'android' | 'web'): string {
     const id = this.state.previewSnackId ?? '';
@@ -1133,10 +1141,9 @@ export class StudioView {
       platform,
       preview: 'true',
       theme: 'dark',
-      hideQueryParams: 'true',
       supportedPlatforms: 'ios,android,web',
     });
-    return `https://snack.expo.dev/${id}?${params.toString()}`;
+    return `https://snack.expo.dev/embedded/${id}?${params.toString()}`;
   }
 
   /**

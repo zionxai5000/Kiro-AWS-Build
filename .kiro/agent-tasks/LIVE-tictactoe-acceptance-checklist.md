@@ -29,8 +29,15 @@
 | ✅ | A17 | Shim `@expo-google-fonts/inter` (snackager can't fetch its web build) | commit `1b412d3` |
 | ✅ | A18 | Pre-compile TS→JS server-side via `@babel/core` + preset-typescript (Snack doesn't apply preset to user files) | commit `2919f2a` + `159ebd3` (lockfile) |
 | ✅ | A19 | Include `.jsx` extension in App.js MainScreen import (Snack resolver defaults to .js) | commit `8177ccd` |
-| 🔄 | A20 | Shim `moti` (snackager fetches `0.30.0` ignoring `*`, no web build at that version) | code edited locally, committing now |
-| ⬜ | A21 | Re-probe runtime, expect either render OR new error to triage | next |
+| ✅ | A20 | Shim `moti` (snackager fetches `0.30.0` ignoring `*`, no web build at that version) | commit `f4edfad` |
+| ✅ | A21 | Re-probe runtime, found phosphor-react-native@3.0.6 has no web build | commit `abec458` |
+| ✅ | A22 | Shim `phosphor-react-native` with proxy of stub icons | commit `abec458` |
+| ✅ | A23 | Re-probe found components/ui/Card.js not resolved (Snack defaults to .js, files were .jsx) | commit `fac7739` |
+| ✅ | A24 | Rename ALL transpiled output to .js (drop .jsx entirely) | commit `fac7739` |
+| ✅ | A25 | Re-probe — _zionx_main.js fully evaluated through line 17, hit `zustand/middleware` not resolved | confirmed |
+| 🔄 | A26 | Shim zustand + zustand/middleware (in-memory store, no persist) | code partially written, finishing now |
+| ⬜ | A27 | Re-probe runtime, expect render OR next missing dep | next |
+| ⬜ | A28 | Loop until runtime renders Tic-Tac-Toe board cleanly | next |
 
 ## PART B — The 10 acceptance steps (Section 6)
 

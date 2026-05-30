@@ -81,6 +81,8 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     '@expo-google-fonts/inter': EXPO_FONTS_SHIM,
     'moti': MOTI_SHIM,
     'phosphor-react-native': PHOSPHOR_SHIM,
+    'zustand': ZUSTAND_SHIM,
+    'zustand/middleware': ZUSTAND_MIDDLEWARE_SHIM,
   };
 
   // Inject the shim files. The path is relative to project root.
@@ -98,7 +100,10 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     if (!/\.(t|j)sx?$/.test(path)) continue;
     let src = file.contents;
     let touched = false;
-    for (const pkg of Object.keys(SHIMS)) {
+    // Iterate longest first so subpath imports like `zustand/middleware`
+    // get matched before the parent package `zustand`.
+    const shimPkgs = Object.keys(SHIMS).sort((a, b) => b.length - a.length);
+    for (const pkg of shimPkgs) {
       if (!src.includes(pkg)) continue;
       const shimRelPath = relativeShimPath(path, pkg);
       // Match both:  from '@sentry/react-native'   and  require('@sentry/react-native')
@@ -385,6 +390,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
   '@expo-google-fonts/inter',
   'moti',
   'phosphor-react-native',
+  'zustand',
 ]);
 
 /**
@@ -395,9 +401,7 @@ const SNACK_WEB_INCOMPATIBLE = new Set([
  *
  * Source: Snack runtime warnings observed during acceptance probes.
  */
-const SNACK_INJECT_PEER_DEPS: Record<string, string[]> = {
-  'zustand': ['immer', '@types/react', 'use-sync-external-store'],
-};
+const SNACK_INJECT_PEER_DEPS: Record<string, string[]> = {};
 
 function filterSnackDependencies(deps: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -458,7 +462,6 @@ const SNACK_AUTOVERSION_PACKAGES = new Set([
   // LLM's pinned versions but which DO have working web builds at "*".
   '@shopify/flash-list',
   '@react-native-async-storage/async-storage',
-  'zustand',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -663,3 +666,78 @@ export default IconStub;
 ${PHOSPHOR_ICON_NAMES.map((n) => `export const ${n} = IconStub;`).join('\n')}
 `;
 
+
+/**
+ * zustand shim — provides a minimal zustand-compatible API so the
+ * generated game store works in the Snack web preview.
+ *
+ * `zustand` itself COULD bundle on web, but its subpath imports
+ * (zustand/middleware, zustand/shallow) don't resolve through Snack's
+ * snackager. Rather than ship multiple files we shim both as one
+ * adapter. The tic-tac-toe store calls `create()` and (often) wraps
+ * with `persist(...)`; both work here as plain in-memory stores.
+ *
+ * Production EAS build uses the real zustand package.
+ */
+const ZUSTAND_SHIM = `// Auto-injected by ZionX Snack adapter — minimal zustand for web preview.
+import { useEffect, useState } from 'react';
+
+function createStoreImpl(initializer) {
+  let state;
+  const listeners = new Set();
+  const setState = (partial, replace) => {
+    const next = typeof partial === 'function' ? partial(state) : partial;
+    if (Object.is(next, state)) return;
+    state = replace ? next : Object.assign({}, state, next);
+    listeners.forEach((l) => l(state));
+  };
+  const getState = () => state;
+  const subscribe = (l) => { listeners.add(l); return () => listeners.delete(l); };
+  const destroy = () => listeners.clear();
+  const api = { setState, getState, subscribe, destroy };
+  state = initializer(setState, getState, api);
+  return api;
+}
+
+function useStoreSelector(api, selector) {
+  const sel = selector ?? ((s) => s);
+  const [val, setVal] = useState(() => sel(api.getState()));
+  useEffect(() => api.subscribe((s) => setVal(sel(s))), []);
+  return val;
+}
+
+export function create(initializer) {
+  // create()(initializer) curried form
+  if (initializer === undefined) {
+    return (init) => create(init);
+  }
+  const api = createStoreImpl(initializer);
+  const useStore = (selector) => useStoreSelector(api, selector);
+  Object.assign(useStore, api);
+  return useStore;
+}
+
+export default create;
+`;
+
+/**
+ * zustand/middleware shim — exports persist/devtools/subscribeWithSelector
+ * /immer as identity wrappers so user code wrapping a creator with
+ * `persist(set => ({ ... }))` keeps the same callable shape.
+ *
+ * We deliberately drop persistence on the web preview — state lives in
+ * memory for the session only. The full TestFlight build uses real
+ * zustand/middleware with AsyncStorage persistence.
+ */
+const ZUSTAND_MIDDLEWARE_SHIM = `// Auto-injected by ZionX Snack adapter — middleware no-ops for web preview.
+const identity = (creator) => creator;
+export const persist = (creator, _options) => creator;
+export const devtools = (creator, _options) => creator;
+export const subscribeWithSelector = (creator) => creator;
+export const immer = (creator) => creator;
+export const combine = (initial, creator) => (set, get, api) => Object.assign({}, initial, creator(set, get, api));
+export const redux = (reducer, initial) => (set, get) => ({ dispatch: (action) => set((s) => reducer(s, action)), ...initial });
+// AsyncStorage-style createJSONStorage stub for persist()
+export const createJSONStorage = () => undefined;
+export default { persist, devtools, subscribeWithSelector, immer, combine, redux, createJSONStorage };
+`;

@@ -496,15 +496,13 @@ export function renderStudioStylesheet(): string {
       max-height: 100%;
       overflow: hidden;
     }
-    /* The device-frame container should fill the preview pane's height
-       so the iframe inside has the room it needs (>=600px) to render
-       Snack's web player. min-height + max-height keeps it bounded so
-       it doesn't grow to fit content (Snack's embed page is ~900px
-       tall but renders the player in the middle band only). */
+    /* The device-frame container fills the preview pane's available
+       height. Snack's player area is 716×285 — at scale 1.2 it
+       renders as 859×342 visible, which fits comfortably in a
+       ~880px-tall preview pane (920 shell - 32px padding - ~8px gap). */
     .studio-preview__device {
       flex: 1;
-      min-height: 600px;
-      max-height: calc(100vh - 220px);
+      min-height: 0;
       display: flex;
       overflow: hidden;
     }
@@ -570,9 +568,11 @@ export function renderStudioStylesheet(): string {
       top: -48px !important;
       border: 0 !important;
       /* Origin at the device pane's top-left corner in iframe coords
-         (915, 48). Scale 1.6× upscales 285×716 → ~456×1146 visible. */
+         (915, 48). Scale 1.2× upscales 285×716 → ~342×859 visible —
+         which is the maximum that fits inside the ~880px-tall preview
+         pane without cropping the bottom of the running app. */
       transform-origin: 915px 48px !important;
-      transform: scale(1.6) !important;
+      transform: scale(1.2) !important;
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

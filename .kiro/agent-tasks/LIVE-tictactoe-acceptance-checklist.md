@@ -224,3 +224,49 @@ Screenshots in `scripts/section-6-output/`:
 - 08-winner.png  (156 KB) — winner announced
 - 09-after-reset.png  (149 KB) — board cleared
 - 10-turn-indicator.png  (150 KB) — iteration applied
+
+
+---
+
+# 🚧 PHASE G — Polish (live work)
+
+King's screenshot review of the new layout:
+> "the preview is showing the app but it's cutting off at the bottom so that
+> tells us that the height is off, it should be longer. Also we imported
+> graphics and confirmed how the applications should look but these look
+> basic — go back through the pipeline that we setup through the steering
+> doc and update the graphics and the height. Make this look better."
+
+Two distinct problems to fix:
+
+## G1 — Height: Tic-Tac-Toe board is cut off at the bottom
+
+| ✅/⬜ | # | Task |
+|---|---|---|
+| ✅ | G1.1 | Measured: scale 1.6 → 1146px tall, pane only 780px → bottom clipped |
+| ✅ | G1.2 | Reduce scale to 1.2 (716*1.2 = 859 fits inside ~880px pane) |
+| ✅ | G1.3 | Drop `max-height: calc(100vh - 220px)` from device container; use `flex:1, min-height:0` |
+| 🔄 | G1.4 | Re-shoot preview screenshots after deploy
+
+## G2 — Graphics: Generated apps look basic, not VibeCode-grade
+
+| ✅/⬜ | # | Task |
+|---|---|---|
+| ✅ | G2.1 | Re-read VibeCode audit (Section 2 prompting strategy + Section 10 native UI primitives) — confirmed the polish bar |
+| ✅ | G2.2 | Audit `services/prompts.ts` — designs were specced but buried at line 200+ AND web preview was killing them via no-op shims |
+| ✅ | G2.3 | Found root cause: Skia/Moti/Phosphor shims rendered NOTHING on web → user sees a wireframe |
+| ✅ | G2.4 | Upgrade Skia shim to render expo-linear-gradient as Canvas backgrounds (web-compatible) |
+| ✅ | G2.5 | Upgrade Moti shim to apply animate-state as static styles so end-state is visible |
+| ✅ | G2.6 | Upgrade Phosphor shim with Unicode glyphs so icons RENDER (☀ ★ ⚡ ❤ etc) instead of empty boxes |
+| ✅ | G2.7 | Insert SECTION 0 "Visual Polish Mandate" at top of system prompt with explicit directives for depth, gradients, motion, game-specific polish |
+| 🔄 | G2.8 | Build, push, deploy, regenerate tic-tac-toe |
+| ⬜ | G2.9 | Capture and present new screenshots
+
+## G3 — Ship
+
+| ✅/⬜ | # | Task |
+|---|---|---|
+| ⬜ | G3.1 | Build + commit + push |
+| ⬜ | G3.2 | Wait for ECS rollover |
+| ⬜ | G3.3 | Re-run 10-step acceptance |
+| ⬜ | G3.4 | Hand off updated screenshots |

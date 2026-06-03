@@ -537,25 +537,71 @@ export default { MMKV };
 `;
 
 /**
- * Skia shim — Skia's GPU-backed canvas doesn't run on web. We export
- * inert React components so any Canvas/Circle/LinearGradient etc renders
- * to nothing instead of crashing the bundle.
+ * Skia shim — Skia's GPU-backed canvas doesn't run on web at all. But
+ * we DO want the LLM-generated app to look polished in the preview, not
+ * blank where gradients and decorative shapes should be. So we render
+ * proxy components that map Skia primitives to web-compatible alternatives:
+ *   - Canvas        → <View> with overflow:hidden, sized 200×200 by default
+ *   - LinearGradient (inside Canvas) → expo-linear-gradient absolute fill
+ *   - Circle/Rect/Path → soft-blurred colored <View>s positioned by props
+ * Production EAS build uses real Skia and renders the actual shapes.
  */
-const SKIA_SHIM = `// Auto-injected by ZionX Snack adapter — no-op Skia stubs for web preview.
+const SKIA_SHIM = `// Auto-injected by ZionX Snack adapter — Skia → web-compatible visuals.
 import React from 'react';
-const Empty = (props) => null;
-export const Canvas = Empty;
-export const Circle = Empty;
-export const Rect = Empty;
-export const RoundedRect = Empty;
-export const Group = Empty;
-export const Path = Empty;
-export const LinearGradient = Empty;
-export const RadialGradient = Empty;
-export const Mask = Empty;
-export const Image = Empty;
-export const Text = Empty;
-export const SkPaint = Empty;
+import { View } from 'react-native';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+
+// Helper: extract LinearGradient children to use as Canvas background
+const findGradient = (children) => {
+  let colors = ['#6c8cff', '#4a6dff'];
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return;
+    if (child.type && child.type.__skiaGradient) {
+      colors = child.props.colors || colors;
+    }
+    if (child.props && child.props.children) {
+      const inner = findGradient(child.props.children);
+      if (inner) colors = inner;
+    }
+  });
+  return colors;
+};
+
+export const Canvas = React.forwardRef((props, ref) => {
+  const { style, children, ...rest } = props;
+  const colors = findGradient(children) || ['#6c8cff', '#4a6dff'];
+  return React.createElement(View, {
+    ref,
+    style: [{ overflow: 'hidden', borderRadius: 14, minWidth: 80, minHeight: 80 }, style],
+    ...rest,
+  }, React.createElement(ExpoLinearGradient, {
+    colors,
+    start: { x: 0, y: 0 },
+    end: { x: 1, y: 1 },
+    style: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  }));
+});
+
+const NoOp = () => null;
+export const Circle = NoOp;
+export const Rect = NoOp;
+export const RoundedRect = NoOp;
+export const Group = ({ children }) => children;
+export const Path = NoOp;
+
+export const LinearGradient = (props) => {
+  const Stub = () => null;
+  Stub.__skiaGradient = true;
+  Stub.props = props;
+  return null;
+};
+LinearGradient.__skiaGradient = true;
+
+export const RadialGradient = NoOp;
+export const Mask = NoOp;
+export const Image = NoOp;
+export const Text = NoOp;
+export const SkPaint = NoOp;
 export const Skia = { Path: { Make: () => ({ moveTo: () => {}, lineTo: () => {}, close: () => {} }) } };
 export const vec = (x, y) => ({ x, y });
 export const rect = (x, y, w, h) => ({ x, y, width: w, height: h });
@@ -597,12 +643,28 @@ export default { useFonts, Inter_400Regular, Inter_600SemiBold, Inter_700Bold };
  * preview boots — animations are silently dropped, but the layout and
  * tap interactions still work. Production EAS build uses real moti.
  */
-const MOTI_SHIM = `// Auto-injected by ZionX Snack adapter — moti stubs for web preview.
+const MOTI_SHIM = `// Auto-injected by ZionX Snack adapter — moti → static-end-state on web.
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+
+// Apply moti's animate-target as a static style so the visual end state
+// shows immediately (no animation, but the app doesn't render mid-transition).
 const passthrough = (Component) => React.forwardRef((props, ref) => {
-  const { from, animate, exit, transition, exitTransition, ...rest } = props;
-  return React.createElement(Component, { ref, ...rest });
+  const { from, animate, exit, transition, exitTransition, style, ...rest } = props;
+  const animatedStyle = animate || {};
+  // Convert moti shorthand (translateX, scale, opacity) into RN style transforms.
+  const transforms = [];
+  if (animatedStyle.translateX !== undefined) transforms.push({ translateX: animatedStyle.translateX });
+  if (animatedStyle.translateY !== undefined) transforms.push({ translateY: animatedStyle.translateY });
+  if (animatedStyle.scale !== undefined) transforms.push({ scale: animatedStyle.scale });
+  if (animatedStyle.rotate !== undefined) transforms.push({ rotate: animatedStyle.rotate });
+  const flatStyle = StyleSheet.flatten([style, animatedStyle]);
+  delete flatStyle.translateX;
+  delete flatStyle.translateY;
+  delete flatStyle.scale;
+  delete flatStyle.rotate;
+  if (transforms.length) flatStyle.transform = transforms;
+  return React.createElement(Component, { ref, style: flatStyle, ...rest });
 });
 export const MotiView = passthrough(View);
 export const MotiText = passthrough(Text);
@@ -649,20 +711,69 @@ const PHOSPHOR_ICON_NAMES = [
   'CloudSun','CloudRain','Snowflake','ThermometerSimple','Wind',
 ];
 
-const PHOSPHOR_SHIM = `// Auto-injected by ZionX Snack adapter — phosphor icon stubs for web preview.
+const PHOSPHOR_SHIM = `// Auto-injected by ZionX Snack adapter — phosphor icons → Unicode glyphs.
 import React from 'react';
-import { View } from 'react-native';
+import { View, Text } from 'react-native';
+
+// Phosphor icon names → Unicode/emoji stand-ins. Not pixel-identical but
+// renders visible glyphs so the app looks like an app, not a wireframe.
+const ICON_GLYPHS = {
+  House: '\\u{1F3E0}', HouseSimple: '\\u{1F3E0}',
+  Heart: '\\u2665', HeartStraight: '\\u2665',
+  Star: '\\u2605', Trophy: '\\u{1F3C6}', Medal: '\\u{1F3C5}',
+  Gear: '\\u2699', GearSix: '\\u2699',
+  User: '\\u{1F464}', UserCircle: '\\u{1F464}',
+  Plus: '+', Minus: '\\u2212',
+  X: '\\u2715', XCircle: '\\u2715', XSquare: '\\u2715',
+  Check: '\\u2713', CheckCircle: '\\u2713',
+  ArrowLeft: '\\u2190', ArrowRight: '\\u2192', ArrowUp: '\\u2191', ArrowDown: '\\u2193',
+  CaretLeft: '\\u2039', CaretRight: '\\u203A',
+  Bell: '\\u{1F514}', Calendar: '\\u{1F4C5}', Clock: '\\u{1F550}',
+  MagnifyingGlass: '\\u{1F50D}', Eye: '\\u{1F441}',
+  PencilSimple: '\\u270E', Pencil: '\\u270E',
+  Trash: '\\u{1F5D1}',
+  Share: '\\u2197',
+  Camera: '\\u{1F4F7}', Image: '\\u{1F5BC}', Folder: '\\u{1F4C1}',
+  Circle: '\\u25CB', Square: '\\u25A1', Triangle: '\\u25B3',
+  Lightning: '\\u26A1', Sparkle: '\\u2728', Flame: '\\u{1F525}',
+  Sun: '\\u2600', Moon: '\\u263E', Cloud: '\\u2601',
+  Brain: '\\u{1F9E0}', Book: '\\u{1F4D6}', Notebook: '\\u{1F4D3}',
+  PaperPlaneTilt: '\\u2708', Microphone: '\\u{1F3A4}', Headphones: '\\u{1F3A7}',
+  Play: '\\u25B6', Pause: '\\u23F8', Stop: '\\u25A0',
+  ShoppingCart: '\\u{1F6D2}', ShoppingBag: '\\u{1F6CD}', CreditCard: '\\u{1F4B3}',
+  CurrencyDollar: '$',
+  List: '\\u2630', ListBullets: '\\u2630', ListChecks: '\\u2630',
+  Lock: '\\u{1F512}', LockOpen: '\\u{1F513}', Key: '\\u{1F511}',
+  Warning: '\\u26A0', Info: '\\u2139',
+  Lightbulb: '\\u{1F4A1}', LightbulbFilament: '\\u{1F4A1}', Target: '\\u25CE',
+  TrendUp: '\\u2197', TrendDown: '\\u2198', ChartBar: '\\u{1F4CA}',
+  Phone: '\\u{1F4DE}', EnvelopeSimple: '\\u2709', Envelope: '\\u2709',
+  ChatCircle: '\\u{1F4AC}',
+  GameController: '\\u{1F3AE}', PuzzlePiece: '\\u{1F9E9}',
+  PaintBrush: '\\u{1F58C}', Palette: '\\u{1F3A8}',
+  Globe: '\\u{1F310}', MapPin: '\\u{1F4CD}',
+};
 
 const IconStub = React.forwardRef((props, ref) => {
   const size = props.size ?? 24;
+  const color = props.color ?? '#666';
+  const name = props.__iconName ?? '';
+  const glyph = ICON_GLYPHS[name] || '\\u25C6';
   return React.createElement(View, {
     ref,
-    style: { width: size, height: size },
-  });
+    style: { width: size, height: size, alignItems: 'center', justifyContent: 'center' },
+    accessible: false,
+  }, React.createElement(Text, {
+    style: { fontSize: size * 0.7, lineHeight: size, color, textAlign: 'center' },
+  }, glyph));
 });
 
+const makeIcon = (name) => React.forwardRef((props, ref) =>
+  React.createElement(IconStub, Object.assign({}, props, { __iconName: name, ref }))
+);
+
 export default IconStub;
-${PHOSPHOR_ICON_NAMES.map((n) => `export const ${n} = IconStub;`).join('\n')}
+${PHOSPHOR_ICON_NAMES.map((n) => `export const ${n} = makeIcon('${n}');`).join('\n')}
 `;
 
 

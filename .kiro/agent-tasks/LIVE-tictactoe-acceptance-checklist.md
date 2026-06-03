@@ -90,3 +90,34 @@ the architecture is **shipped**. King taps a square — an X appears.
 King taps another — an O appears. King plays a winning line — the
 game announces it. King taps reset — board clears. King iterates with
 "add a turn indicator" — the preview reloads with the change.
+
+
+---
+
+## PART D — Phase 2: Make the preview look like VibeCode
+
+King's feedback after seeing the 10 screenshots:
+> "I saw your preview shots, they include a toolbar then the app, it should just
+> include the app preview and it should take up most of the right side of the
+> page as VibeCode app does, reconfigure, update the todo list, make the
+> corrections and finish it all."
+
+| ✅/⬜ | # | Task | Notes |
+|---|---|---|---|
+| ✅ | D1 | Probe whether `/embedded/<id>?platform=web` works for named (account) snacks | confirmed: runtime frame spawns at 720px |
+| ✅ | D2 | Switch dashboard to `/embedded/` URL (player-only, no editor chrome) | commit `2acfeaa` |
+| ✅ | D3 | CSS-clip Snack's small top header + bottom tab-bar (48px + 36px) | commit `2acfeaa` |
+| ✅ | D4 | Restructure studio grid — preview owns most of right side | `220px / 380px / 1fr` (commit `d1e6cb8`) |
+| ✅ | D5 | Trim the toolbar — platform tabs are now icon-only floating in top-right | commit `2acfeaa` |
+| ✅ | D6 | Re-run the 10-step acceptance — **10/10 passed** with cleaner layout | confirmed |
+| ✅ | D7 | Commit + push + deploy | commits `2acfeaa` + `d1e6cb8` |
+
+## Phase 2 result
+
+- Iframe width: **677px** (up from 597px) — runtime sub-frame spawns reliably
+- Iframe height: **778px** (capped, was 2656px overflow) — fits the column
+- Editor chrome (file tree, code editor, "My Device/Android/iOS/Web" tab bar): **clipped via CSS** — only the running app shows
+- Platform tabs (🌐/📱/🤖): **floating icon-only segmented control** in the top-right corner of the preview, doesn't dominate
+- Layout: **220px sidebar / 380px chat / preview takes the rest** (≈1000px at 1600px viewport)
+
+All 10 acceptance steps still pass. Screenshots refreshed in `scripts/section-6-output/`.

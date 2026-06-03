@@ -137,6 +137,11 @@ export function renderStudioStylesheet(): string {
       display: flex;
       flex-direction: column;
       background: ${t.bg.canvas};
+      /* Match the studio shell height so the project list scrolls
+         internally instead of pushing the grid taller. */
+      height: calc(100vh - 80px);
+      max-height: calc(100vh - 80px);
+      overflow: hidden;
     }
     .studio-sidebar__header {
       display: flex;
@@ -204,7 +209,11 @@ export function renderStudioStylesheet(): string {
       flex-direction: column;
       min-width: 0;
       min-height: 0;
-      max-height: 100%;
+      /* Explicit pixel cap — max-height:100% does not reliably resolve
+         to 100% of grid row the way it does in flex contexts. Match
+         the .studio shell height directly. */
+      height: calc(100vh - 80px);
+      max-height: calc(100vh - 80px);
       overflow: hidden;
       background: ${t.bg.canvas};
     }
@@ -489,11 +498,11 @@ export function renderStudioStylesheet(): string {
          (.studio-preview__platform-tabs) which floats in the top-right
          corner over the device frame. */
       position: relative;
-      /* Lock the preview pane to the studio shell's height so it
-         doesn't grow with chat content. The grid parent (.studio)
-         is height-locked to 100vh so this 100% stays equal to that. */
-      height: 100%;
-      max-height: 100%;
+      /* Explicit pixel cap matching the studio shell. Same reason as
+         .studio-main above — grid items don't resolve max-height: 100%
+         the way flex items do. */
+      height: calc(100vh - 80px);
+      max-height: calc(100vh - 80px);
       overflow: hidden;
     }
     /* The device-frame container fills the preview pane's available

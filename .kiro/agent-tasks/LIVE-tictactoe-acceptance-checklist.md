@@ -199,5 +199,28 @@ template literal in studio-tokens.ts. Fixed with no-backtick comment.
 | ✅ | F3 | Override `.dashboard-main:has(.studio)` to cap to 100vh |
 | ✅ | F4 | Make `.studio-main` and `.studio-preview` scroll internally instead of growing |
 | ✅ | F5 | Fix backtick-in-template-literal that broke the build (commit `0d0b2cc` Deploy failed) |
-| 🔄 | F6 | Re-deploy and re-probe — confirm preview pane is visible inside the viewport | next |
-| ⬜ | F7 | Re-run acceptance — iframe must render inside the visible viewport this time | next |
+| ✅ | F6 | Confirmed `.studio` is now 920px tall (windowH 1000 - 80 nav) — verified via `scripts/debug-css.ts` |
+| ✅ | F7 | Re-ran 10-step acceptance — **10/10 passed** with the new locked-height layout |
+
+## Phase F result
+
+Per `scripts/debug-css.ts` runtime measurement:
+- studio: height=920px, maxHeight=920px, overflow=hidden ✓
+- dashView: height=920px, maxHeight=920px, overflow=hidden ✓
+- dashMain: height=1000px (full viewport), overflow=hidden ✓
+- preview pane: ~760px wide × 920px tall (was 760px wide × 3239px tall before)
+- iframe: clipped via transform: scale(1.6), positioned at (-606, -60), 1920×1280 visible content
+- scrollY: 0 (page no longer scrolls past the studio)
+
+10-step acceptance final run: 10/10 passed at commit `a082088`.
+Screenshots in `scripts/section-6-output/`:
+- 01-studio-empty.png  (109 KB)
+- 02-after-send.png  (138 KB)
+- 03-narration.png  (138 KB)
+- 04-stream-done.png  (171 KB)
+- 05-preview-game.png  (149 KB) — running tic-tac-toe rendered
+- 06-after-tap-x.png  (150 KB) — X appears
+- 07-after-tap-o.png  (151 KB) — O appears
+- 08-winner.png  (156 KB) — winner announced
+- 09-after-reset.png  (149 KB) — board cleared
+- 10-turn-indicator.png  (150 KB) — iteration applied

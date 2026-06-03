@@ -499,30 +499,40 @@ export function renderStudioStylesheet(): string {
       min-height: 600px;
       border-radius: 14px;
       padding: 0;
+      /* The Snack /embedded page is fundamentally split: editor on the
+         LEFT, device-pane (285x716px, hard-coded) on the RIGHT. We crop
+         to just the device pane and scale it up so the phone-sized
+         preview fills the dashboard's preview column.
+         The math (probed via scripts/probe-embed-layout.ts):
+            iframe width 1200 → editor at x=0 w=915, device at x=915 w=285
+            iframe width  700 → editor at x=0 w=415, device at x=415 w=285
+            device pane is ALWAYS 285x716 regardless of iframe width
+         Strategy: size the iframe so the device pane lands at x=0..285
+         within the visible window, then scale up. We push the iframe
+         to be 1200px wide (so editor is 915px), translate it left by
+         915px, and scale 1.7× so the 285×716 phone fills ~485×1217.
+         The container clips overflow. */
+      overflow: hidden;
+      position: relative;
     }
     .studio-device-frame:has(iframe) .studio-device-screen {
       border-radius: 14px;
-      /* The Snack /embedded/ page has ~48px of chrome at the top
-         (project name + small file display) and ~36px at the bottom
-         ("Preview / My Device / Android / iOS / Web" tab bar) that
-         we don't want users to see. Clip those bands by sizing the
-         iframe taller than the viewport and pulling it up + cropping
-         via overflow:hidden on this wrapper. The middle band — the
-         actual running app — is what's left visible. */
       overflow: hidden;
       position: relative;
     }
     .studio-device-frame:has(iframe) .studio-device-screen iframe {
-      border-radius: 14px;
-      /* Visually show only the middle "player" band of Snack's embed
-         page. Top 48px chrome + bottom 36px tab-bar = 84px total
-         hidden via the negative top + extra height. */
+      border-radius: 0;
       position: absolute;
-      top: -48px;
-      left: 0;
-      width: 100%;
-      height: calc(100% + 84px);
+      /* Lock iframe to a fixed size so Snack's internal layout is
+         deterministic. 1200px wide → editor pane is 915px, device pane
+         is 285px. */
+      width: 1200px;
+      height: 800px;
+      left: -915px;       /* push editor off-screen, device-pane lands at x=0 */
+      top: 0;
       border: 0;
+      transform-origin: 915px 0;  /* device-pane's left edge in iframe coords */
+      transform: scale(1.6);       /* upscale 285×716 → ~456×1146 */
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

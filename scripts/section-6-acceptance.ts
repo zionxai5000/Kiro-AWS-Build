@@ -385,6 +385,13 @@ async function main() {
     await done(page, browser);
     return;
   }
+  // Give the iframe an extra 25 seconds to fully paint the cropped device
+  // pane before screenshotting — the snack runtime sub-frame mounts
+  // first (which triggers step 5's text-match pass), then the dashboard's
+  // outer iframe needs additional time to composite the cross-origin
+  // content with our `transform: scale(1.6)` applied. Without this
+  // extra wait the screenshot captures a pre-paint dark state.
+  await page.waitForTimeout(25_000);
   await pass(page, 5, 'Preview shows running Tic-Tac-Toe game', 'preview-game');
 
   // STEP 6 — tap center square (index 5 in row-major); X appears

@@ -521,18 +521,18 @@ export function renderStudioStylesheet(): string {
       position: relative;
     }
     .studio-device-frame:has(iframe) .studio-device-screen iframe {
-      border-radius: 0;
-      position: absolute;
+      border-radius: 0 !important;
+      position: absolute !important;
       /* Lock iframe to a fixed size so Snack's internal layout is
          deterministic. 1200px wide → editor pane is 915px, device pane
          is 285px. */
-      width: 1200px;
-      height: 800px;
-      left: -915px;       /* push editor off-screen, device-pane lands at x=0 */
-      top: 0;
-      border: 0;
-      transform-origin: 915px 0;  /* device-pane's left edge in iframe coords */
-      transform: scale(1.6);       /* upscale 285×716 → ~456×1146 */
+      width: 1200px !important;
+      height: 800px !important;
+      left: -915px !important;       /* push editor off-screen, device-pane lands at x=0 */
+      top: 0 !important;
+      border: 0 !important;
+      transform-origin: 915px 0 !important;  /* device-pane's left edge in iframe coords */
+      transform: scale(1.6) !important;       /* upscale 285×716 → ~456×1146 */
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

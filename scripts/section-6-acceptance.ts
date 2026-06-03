@@ -113,6 +113,138 @@ async function tapInPreview(page: Page, selector: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * Tap the Nth cell of the tic-tac-toe board (1..9, row-major).
+ *
+ * Different LLM runs label cells differently:
+ *   - "Empty cell N, tap to place X" (most common — current build)
+ *   - "Cell at row N column M"
+ *   - "Row N, Column M"
+ *   - generic "tile" / "square" / "Position N"
+ *
+ * To stay robust we ask the runtime frame to find buttons whose aria-label
+ * matches any of those patterns and return the Nth one. Fallback: any
+ * button that is roughly square-shaped (width ≈ height, between 40 and
+ * 200px) — the 9 board cells. The reset button is excluded by name.
+ */
+async function tapCellByIndex(page: Page, n: number): Promise<{ ok: boolean; reason?: string; selectorUsed?: string }> {
+  // Wait up to 30s for the snack runtime frame to mount (Snack streams the
+  // bundle into the iframe asynchronously). On the first generation after
+  // a fresh save the runtime can take 10-25s to appear.
+  let runtimeFrame = null;
+  const start = Date.now();
+  while (Date.now() - start < 30_000) {
+    runtimeFrame = page.frames().find((f) => {
+      const u = f.url();
+      return u.includes('snack-runtime') ||
+             u.includes('eascdn.net') ||
+             u.includes('snack.expo.io');
+    });
+    if (runtimeFrame) break;
+    await page.waitForTimeout(2000);
+  }
+  if (!runtimeFrame) {
+    // Fall back to ANY snack.expo.dev frame's tappables (some Snack web
+    // builds run inline rather than spawning a sub-frame).
+    runtimeFrame = page.frames().find((f) => f.url().includes('snack.expo.dev'));
+    if (!runtimeFrame) {
+      return { ok: false, reason: 'no snack frame found at all (runtime + parent both missing)' };
+    }
+  }
+  try {
+    const result = await runtimeFrame.evaluate((idx: number) => {
+      const buttons = Array.from(document.querySelectorAll('[role="button"], button, [aria-label]')) as HTMLElement[];
+      let target: HTMLElement | undefined;
+      let selectorUsed = '';
+      // Strategy 1: aria-label match
+      for (const b of buttons) {
+        const label = (b.getAttribute('aria-label') || '').toLowerCase();
+        if (!label) continue;
+        const cellMatch = label.match(/(?:^|\s)(?:empty\s+)?cell\s+(\d+)\b/);
+        if (cellMatch && parseInt(cellMatch[1]!, 10) === idx) { target = b; selectorUsed = 'aria-cell-' + idx; break; }
+        const rcMatch = label.match(/row\s+(\d+),?\s+column\s+(\d+)/);
+        if (rcMatch) {
+          const r = parseInt(rcMatch[1]!, 10), c = parseInt(rcMatch[2]!, 10);
+          if ((r - 1) * 3 + c === idx) { target = b; selectorUsed = 'aria-rc-' + idx; break; }
+        }
+        const posMatch = label.match(/position\s+(\d+)/);
+        if (posMatch && parseInt(posMatch[1]!, 10) === idx) { target = b; selectorUsed = 'aria-pos-' + idx; break; }
+      }
+      // Strategy 2: square-shaped buttons (the 9 cells)
+      if (!target) {
+        const squareButtons: HTMLElement[] = [];
+        for (const b of buttons) {
+          const r = b.getBoundingClientRect();
+          if (r.width < 40 || r.width > 200) continue;
+          if (Math.abs(r.width - r.height) > 12) continue;
+          const t = (b.innerText || '').trim().toLowerCase();
+          const al = (b.getAttribute('aria-label') || '').toLowerCase();
+          if (/new game|reset|start over/.test(t + ' ' + al)) continue;
+          squareButtons.push(b);
+        }
+        if (squareButtons.length >= 9 && idx >= 1 && idx <= 9) {
+          target = squareButtons[idx - 1]!;
+          selectorUsed = 'square-shape-' + idx;
+        }
+      }
+      if (!target) {
+        const dump: Array<{ aria: string | null; text: string; w: number; h: number }> = [];
+        for (let i = 0; i < Math.min(30, buttons.length); i++) {
+          const b = buttons[i]!;
+          const r = b.getBoundingClientRect();
+          dump.push({
+            aria: b.getAttribute('aria-label'),
+            text: (b.innerText || '').slice(0, 30),
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+          });
+        }
+        return { ok: false as const, dump };
+      }
+      target.click();
+      target.scrollIntoView({ block: 'nearest' });
+      return { ok: true as const, selectorUsed };
+    }, n);
+    if (result.ok) return { ok: true, selectorUsed: result.selectorUsed };
+    return {
+      ok: false,
+      reason:
+        `frame=${runtimeFrame.url().slice(0, 80)} ; no cell selector matched; ` +
+        `tappables: ${JSON.stringify(result.dump).slice(0, 600)}`,
+    };
+  } catch (err) {
+    return { ok: false, reason: `evaluate threw: ${(err as Error).message}` };
+  }
+}
+
+/**
+ * Tap the reset / new game button in the runtime frame.
+ */
+async function tapReset(page: Page): Promise<boolean> {
+  let runtimeFrame = page.frames().find((f) => {
+    const u = f.url();
+    return u.includes('snack-runtime') || u.includes('eascdn.net') || u.includes('snack.expo.io');
+  });
+  if (!runtimeFrame) {
+    runtimeFrame = page.frames().find((f) => f.url().includes('snack.expo.dev'));
+  }
+  if (!runtimeFrame) return false;
+  try {
+    return await runtimeFrame.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('[role="button"], button, [aria-label]')) as HTMLElement[];
+      let target: HTMLElement | undefined;
+      for (const b of buttons) {
+        const t = (b.innerText || '').trim().toLowerCase();
+        const al = (b.getAttribute('aria-label') || '').toLowerCase();
+        if (/new game|reset|start over|play again/.test(t + ' ' + al)) { target = b; break; }
+      }
+      if (!target) return false;
+      target.click();
+      return true;
+    });
+  } catch { return false; }
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   console.log('=== Section 6 — Tic-Tac-Toe acceptance test ===\n');
@@ -255,17 +387,12 @@ async function main() {
   }
   await pass(page, 5, 'Preview shows running Tic-Tac-Toe game', 'preview-game');
 
-  // STEP 6 — tap center square; X appears
-  // Claude's screen file uses accessibilityLabel="Row N, Column N, ...".
-  // Cells are 1-indexed in the label. Center square = "Row 2, Column 2".
-  console.log('Step 6 — tap center square...');
-  const tapped = await tapInPreview(page,
-    '[aria-label*="Row 2, Column 2"], [aria-label*="row 2, column 2"], ' +
-    '[data-testid="cell-1-1"], [role="button"]:nth-of-type(5)',
-  );
-  if (!tapped) {
+  // STEP 6 — tap center square (index 5 in row-major); X appears
+  console.log('Step 6 — tap center square (cell 5)...');
+  const r6 = await tapCellByIndex(page, 5);
+  if (!r6.ok) {
     await fail(page, 6, 'Tap center square; X appears', 'tap-no-target',
-      'no tappable cell selector matched in preview frame');
+      r6.reason ?? 'no tappable cell selector matched in preview frame');
     await done(page, browser);
     return;
   }
@@ -273,20 +400,17 @@ async function main() {
   const txt6 = await getRenderedAppText(page);
   if (!/\bX\b/.test(txt6)) {
     await fail(page, 6, 'Tap center square; X appears', 'no-x-after-tap',
-      `tapped, but no "X" found in any frame's text. Got: ${txt6.slice(0, 300)}`);
+      `tapped via ${r6.selectorUsed}, but no "X" found in any frame's text. Got: ${txt6.slice(0, 300)}`);
     await done(page, browser);
     return;
   }
   await pass(page, 6, 'Tap center square; X appears', 'after-tap-x');
 
-  // STEP 7 — tap second square; O appears (top-left = "Row 1, Column 1")
-  console.log('Step 7 — tap top-left square...');
-  const tapped7 = await tapInPreview(page,
-    '[aria-label*="Row 1, Column 1"], [aria-label*="row 1, column 1"], ' +
-    '[data-testid="cell-0-0"], [role="button"]:nth-of-type(1)',
-  );
-  if (!tapped7) {
-    await fail(page, 7, 'Tap second square; O appears', 'tap2-no-target', 'no second-cell selector matched');
+  // STEP 7 — tap top-left square (cell 1); O appears
+  console.log('Step 7 — tap top-left square (cell 1)...');
+  const r7 = await tapCellByIndex(page, 1);
+  if (!r7.ok) {
+    await fail(page, 7, 'Tap second square; O appears', 'tap2-no-target', r7.reason ?? 'no second-cell selector matched');
     await done(page, browser);
     return;
   }
@@ -301,21 +425,17 @@ async function main() {
   await pass(page, 7, 'Tap second square; O appears', 'after-tap-o');
 
   // STEP 8 — play out a winning line for X.
-  // Current board: X at center (2,2), O at top-left (1,1).
-  // X to win column 2: tap (1,2), let O take (3,3), then (3,2).
-  console.log('Step 8 — play out a winning line...');
-  for (const sel of [
-    '[aria-label*="Row 1, Column 2"]',  // X
-    '[aria-label*="Row 3, Column 3"]',  // O
-    '[aria-label*="Row 3, Column 2"]',  // X — completes column 2
-  ]) {
-    const ok = await tapInPreview(page, sel);
-    if (!ok) break;
+  // Board state: X at center (5), O at top-left (1).
+  // X to win column 2 (cells 2, 5, 8): tap 2, let O take 9, then 8.
+  console.log('Step 8 — play out a winning line (cells 2, 9, 8)...');
+  for (const cellIdx of [2, 9, 8]) {
+    const r = await tapCellByIndex(page, cellIdx);
+    if (!r.ok) break;
     await page.waitForTimeout(1500);
   }
   await page.waitForTimeout(2500);
   const txt8 = await getRenderedAppText(page);
-  if (!/win|winner/i.test(txt8)) {
+  if (!/win|winner|wins/i.test(txt8)) {
     await fail(page, 8, 'Play out a winning line; winner announced', 'no-winner',
       `no winner text. Got: ${txt8.slice(0, 400)}`);
     await done(page, browser);
@@ -323,12 +443,9 @@ async function main() {
   }
   await pass(page, 8, 'Play out a winning line; winner announced', 'winner');
 
-  // STEP 9 — reset (Claude's label is "New Game")
+  // STEP 9 — reset
   console.log('Step 9 — reset (New Game button)...');
-  const reset = await tapInPreview(page,
-    'button:has-text("New Game"), [aria-label*="New Game"], ' +
-    '[role="button"]:has-text("Reset"), button:has-text("Reset"), [data-testid="reset"]',
-  );
+  const reset = await tapReset(page);
   if (!reset) {
     await fail(page, 9, 'Tap reset; board clears', 'no-reset-button', 'no Reset/New Game selector matched');
     await done(page, browser);
@@ -336,7 +453,6 @@ async function main() {
   }
   await page.waitForTimeout(2500);
   const txt9 = await getRenderedAppText(page);
-  // After reset we should see "Player X's Turn" and NOT "Wins"
   if (/Wins!/i.test(txt9)) {
     await fail(page, 9, 'Tap reset; board clears', 'winner-text-still-present',
       `winner text still present after reset`);

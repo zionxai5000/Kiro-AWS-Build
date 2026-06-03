@@ -342,3 +342,162 @@ must be re-run against the deployed dashboard.
 re-run Section 6 acceptance.
 
 **Forbidden words observed**: none used.
+
+
+### 2026-05-29 (continued) — Section 6 acceptance run + Snack runtime debugging
+
+**Live progress on the 10-step acceptance test**:
+
+| Step | Status | Note |
+|---|---|---|
+| 1 — Open Studio empty state | ✅ | screenshot saved |
+| 2 — Type prompt + Send | ✅ | screenshot saved |
+| 3 — Project + narration within 15s | ✅ | fixed by inserting project into sidebar synchronously (commit `d1ad1fb`) + keeping chat tab active during generation |
+| 4 — Stream finishes, >3 files | ✅ | 33–38 files consistently land |
+| 5 — Preview shows running tic-tac-toe | ✅ | confirmed via direct Snack probe — runtime frame `snack-runtime.eascdn.net/v2/54/index.html` mounts the actual app DOM |
+| 6 — Tap center square → X | 🔄 IN PROGRESS — see runtime error below |
+| 7-10 — | ⬜ blocked on #6 |
+
+**Step 6 root cause (located, fix in flight)**:
+
+The Snack runtime inside the dashboard iframe shows:
+```
+Unable to fetch module snackager-1/expo-blur@15.0.8 for web.
+  Evaluating expo-blur.js
+  Evaluating app/(tabs)/_layout.tsx.js
+```
+
+Snackager resolves package versions from BOTH the manifest (which my
+filter correctly sets to `*` for Expo-family packages) AND the
+saved `package.json` file in the Snack `code` map (which still had the
+LLM's pinned `~15.0.8`). The pinned version wins, snackager can't
+fetch a web build, the bundle never loads.
+
+**Fix shipped in commit `84895e6`**:
+- snack-client.ts now also rewrites the `package.json` file content
+  inside the Snack code map so its `dependencies` field matches
+  `filteredDeps`. EAS production builds are unaffected — they read
+  the workspace's on-disk file, not this Snack-only rewritten copy.
+
+**Other commits since last log entry**:
+- `04a6695` — Phase 1 (preview UI) + Phase 2 (plan checklist)
+- `d1ad1fb` — sidebar project insert + chat tab active on Send
+- `466ee09` — first attempt at /embedded/ URL (later reverted)
+- `c9e58a9` — back to non-embedded URL (embedded refuses anon saves) +
+  acceptance script reads `eascdn.net` runtime frame
+- `c6b991d` — default preview tab = Web
+- `f0306d7` — preview column widened to 520px (insufficient)
+- `42bbcbf` — preview column widened to 720px
+- `c359f4e` — drop 300px phone-frame max-width when iframe is rendering
+  (was forcing iframe to 282px → no runtime spawn)
+- `219e9db` — preview column widened to 760px so iframe is 725px after
+  padding. Confirmed via probe: iframe = 725px, runtime frame spawned
+  at `snack-runtime.eascdn.net/v2/54/index.html`
+- `84895e6` — rewrite package.json inside Snack code map (the missing piece)
+
+**Verification scripts created (all in scripts/)**:
+- `section-6-acceptance.ts` — the 10-step Playwright acceptance run
+- `probe-preview-cells.ts` — DOM dump of all frames + tappables
+- `probe-runtime-tappables.ts` — focuses on the eascdn.net runtime frame
+- `probe-iframe-size.ts` — measures actual iframe element dimensions
+- `probe-narrow-viewport.ts` — viewport-width threshold test (≥700px = runtime spawns)
+- `probe-snack-direct.ts` — opens Snack URL standalone (no dashboard)
+- `fetch-snack-manifest.ts` — fetches saved manifest from Expo to verify deps
+- `test-llm-output.ts` — direct Anthropic call to verify the LLM produces
+  preview-valid screens (it does: 36 files including app/_layout.tsx,
+  app/(tabs)/index.tsx with real game logic, store/gameStore.ts; clean
+  end_turn stop_reason)
+- `poll-deploy.ps1` — polls GitHub Actions for the deploy workflow
+
+**Hard artifacts captured during this session** (under
+`scripts/section-6-output/`):
+- `01-studio-empty.png` through `05-preview-game.png` (5 acceptance screenshots)
+- `runtime-dump.txt` — runtime frame contents showing the `expo-blur` error
+- `snack-non-embedded-dump.txt` — proof Snack DOES bundle the real app
+  (frame at `eascdn.net/v2/54/onboarding` rendering "Welcome to Tic Tac Toe")
+- `iframe-actual.png` — the 725px iframe in the dashboard
+- `narrow-700.png`, `narrow-1200.png` — viewport-width threshold proof
+
+**Forbidden words observed**: none used (only "passing"/"shipped fix"
+where shipping refers to deploys, not the task itself).
+
+**Resume protocol if I crash again**:
+1. Read this section.
+2. Run `scripts/fetch-snack-manifest.ts` to confirm `package.json` content
+   in the saved snack now has `"expo-blur": "*"` (not `~15.0.8`).
+3. Re-run `scripts/section-6-acceptance.ts`.
+4. If step 6 still fails on missing tappable, run
+   `scripts/probe-runtime-tappables.ts` and inspect the TAPPABLES list
+   under the `eascdn.net` frame to find the correct cell selector.
+
+**True status per binding directive**: in progress. 5/10 acceptance
+steps passing as of this entry. Step 6 fix shipped, awaiting a fresh
+preview save + re-run.
+
+
+### 2026-05-29 — SECTION 6 ACCEPTANCE: 10 of 10 passing
+
+**True status**: complete. King's binding rule met — the screenshots
+prove a running Tic-Tac-Toe game inside the dashboard's preview pane
+where tapping a square places X or O.
+
+**Numbered screenshots in `scripts/section-6-output/`**:
+1. `01-studio-empty.png` — Studio empty state
+2. `02-after-send.png` — Send fired, project being created
+3. `03-narration.png` — Project in sidebar, chat narrating the build
+4. `04-stream-done.png` — 34 files in tree, generation settled
+5. `05-preview-game.png` — Tic-Tac-Toe rendered (NOT stub)
+6. `06-after-tap-x.png` — Center cell tapped, X appeared
+7. `07-after-tap-o.png` — Second cell tapped, O appeared
+8. `08-winner.png` — Winning line played, winner announced
+9. `09-after-reset.png` — New Game tapped, board cleared
+10. `10-turn-indicator.png` — Iteration "add a turn indicator" reflected in preview
+
+**Final root-cause story (hop 6 + hop 7 chain)**:
+The LLM was always producing a runnable Expo workspace (~36 files
+including `app/_layout.tsx`, `app/(tabs)/index.tsx`, `store/gameStore.ts`).
+The Snack adapter we bolted on was choking the bundle in seven distinct
+ways that had to be fixed in sequence:
+
+1. **Markdown fence in file content** (`\`\`\`typescript ... \`\`\``)
+   broke Babel parsing — stripped before send.
+2. **Snack web bundler doesn't apply preset-typescript** to user `.tsx`
+   files — server-side pre-compile via `@babel/core` + `@babel/preset-typescript`.
+3. **Snackager picks pinned versions** for many packages even when the
+   manifest says `*` — also rewrite `package.json` content to match.
+4. **expo-router web bundle is broken on Snack** — bypass it entirely on
+   the preview by emitting an `App.js` that imports the main screen
+   directly. Production build still uses real expo-router.
+5. **Shimmed packages whose web builds are unfetchable**: `moti`,
+   `phosphor-react-native`, `@expo-google-fonts/inter`, `zustand`,
+   `zustand/middleware`. Each has a tiny ESM shim that exposes the
+   minimum API the generated code uses (no animations, no real fonts,
+   no persistence, but the screen mounts and is tappable).
+6. **Iframe width** — Snack's web player only auto-spawns the runtime
+   sub-frame when its iframe is ≥700px wide. Widened the dashboard
+   preview column to 760px and dropped the 300px phone-frame max-width
+   when an iframe is rendering.
+7. **Cell tappable selectors** — the LLM uses `aria-label="Empty cell N,
+   tap to place X"` (1-9 row-major). The acceptance script now
+   resolves cells by index using a fallback chain: aria-cell-N pattern,
+   row-N-column-M pattern, position-N pattern, or square-shape detection.
+
+**Sentry verdict**: Not re-checked yet — would expect runner violations
+to be 0 on this calibrated happy-path run since `previewRendered`
+fired (real handle, not stub) and `tabRendered` fires only on actual
+content paint. (Section 8 calibration check is a follow-up.)
+
+**Files touched this acceptance push**:
+- `packages/app/src/zionx/app-development/services/snack-client.ts`
+  (every fix above)
+- `packages/dashboard/src/views/studio.ts` (preview UI + plan checklist)
+- `packages/dashboard/src/views/studio-tokens.ts` (preview pane CSS)
+- `scripts/section-6-acceptance.ts` (runtime-frame-aware tap helpers)
+- `packages/app/package.json` + root lockfile (@babel/core deps)
+
+**Remaining work after acceptance**:
+- Trim the script noise from `scripts/` — many one-off probes can be
+  pruned or moved under `scripts/probes/` for clarity.
+- Calibrate Sentry rules against this happy-path run (Section 8).
+- Phase 8 / Phase 9 of the original architecture amendment
+  (store-listing-writer, submission-prep, crash-watcher) — separate tasks.

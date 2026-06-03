@@ -1098,16 +1098,17 @@ export class StudioView {
 
   private renderPreviewToolbar(): string {
     const tab = (id: 'ios' | 'android' | 'web', label: string) =>
-      `<button class="studio-preview__tab ${this.state.previewPlatform === id ? 'is-active' : ''}" data-preview-platform="${id}">${label}</button>`;
-    // Web first because it's the only platform that auto-runs the app
-    // inside the iframe — iOS/Android Snack tabs require a connected
-    // phone via QR scan to actually simulate. The "Open on phone" button
-    // below the device frame covers the phone-simulation case.
+      `<button class="studio-preview__tab ${this.state.previewPlatform === id ? 'is-active' : ''}" data-preview-platform="${id}" title="${id} preview">${label}</button>`;
+    // VibeCode-style: tiny segmented control floating in the top-right
+    // corner of the preview rather than a full toolbar row. King's
+    // direction: "should just include the app preview". Web/iOS/Android
+    // is core functionality (phone QR vs browser preview), but it's
+    // collapsed to icon-only buttons that don't dominate.
     return `
       <div class="studio-preview__platform-tabs">
-        ${tab('web', '🌐 Web')}
-        ${tab('ios', '📱 iOS')}
-        ${tab('android', '🤖 Android')}
+        ${tab('web', '🌐')}
+        ${tab('ios', '📱')}
+        ${tab('android', '🤖')}
       </div>
     `;
   }
@@ -1128,18 +1129,19 @@ export class StudioView {
 
   /**
    * Build the URL for the iframe / button targets given the active platform.
-   * Snack URL params doc:
-   *   https://github.com/expo/snack/blob/main/docs/url-query-parameters.md
    *
-   * Why non-embedded (`/<id>`) and not `/embedded/<id>`:
-   *   The embedded route currently refuses to bundle anonymous-saved
-   *   snacks ("400 — Open full editor to add new dependencies"). The
-   *   non-embedded route bundles correctly and renders the running app
-   *   in a nested iframe (snack-runtime.eascdn.net). The chrome is
-   *   visible alongside, but the player frame is what users tap.
+   * Uses Snack's `/embedded/<id>` route — the player-only embed.  The
+   * non-embedded `/<id>` route also works but adds the full Snack site
+   * chrome (file tree, code editor, "Save" / "Edit details" buttons)
+   * which we don't want in the dashboard preview pane.
    *
-   * `preview=true&theme=dark&hideQueryParams=true` minimizes chrome.
-   * `supportedPlatforms=ios,android,web` keeps all three tabs available.
+   * Confirmed via probe (probe-embedded-account.ts): the embedded route
+   * DOES spawn the `snack-runtime.eascdn.net` sub-frame for accounted
+   * snacks at iframe widths >=700px. The earlier 400 errors we saw on
+   * `/embedded/` were from broken bundles (missing peer deps, etc.) —
+   * once the bundle compiles, both routes work. The embedded route adds
+   * a thin top bar and a bottom tab bar; we visually clip those out via
+   * CSS in studio-tokens.ts (.studio-device-screen iframe positioning).
    */
   private buildSnackPlatformUrl(platform: 'ios' | 'android' | 'web'): string {
     const id = this.state.previewSnackId ?? '';
@@ -1150,7 +1152,7 @@ export class StudioView {
       hideQueryParams: 'true',
       supportedPlatforms: 'ios,android,web',
     });
-    return `https://snack.expo.dev/${id}?${params.toString()}`;
+    return `https://snack.expo.dev/embedded/${id}?${params.toString()}`;
   }
 
   /**

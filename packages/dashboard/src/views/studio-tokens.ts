@@ -89,12 +89,10 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     .studio {
       display: grid;
-      /* Right column needs >=720px iframe-width for Snack's web player to
-         auto-start (probed in-iframe at 685px = no runtime frame; at
-         700px in standalone viewport = runtime spawns). 760px column
-         leaves room for padding/border. Sidebar narrows to 220 to keep
-         the chat column readable. */
-      grid-template-columns: 220px 1fr 760px;
+      /* VibeCode-style layout — preview takes most of the right side.
+         Chat is a fixed 460px column (enough for the prompt input and
+         readable chat history), preview gets all remaining width. */
+      grid-template-columns: 220px 460px 1fr;
       height: 100%;
       min-height: calc(100vh - 80px);
       background: ${t.bg.canvas};
@@ -456,6 +454,18 @@ export function renderStudioStylesheet(): string {
       flex-direction: column;
       gap: ${t.space.base};
       background: ${t.bg.canvas};
+      /* Anchor for the absolutely-positioned platform tabs toolbar
+         (.studio-preview__platform-tabs) which floats in the top-right
+         corner over the device frame. */
+      position: relative;
+    }
+    /* The device-frame container should fill the preview pane's height
+       so the iframe inside has the room it needs (>=600px) to render
+       Snack's web player. */
+    .studio-preview__device {
+      flex: 1;
+      min-height: 0;
+      display: flex;
     }
     .studio-device-frame {
       background: ${t.bg.surface};
@@ -478,15 +488,35 @@ export function renderStudioStylesheet(): string {
       max-width: none;
       aspect-ratio: auto;
       height: 100%;
+      width: 100%;
+      flex: 1;
       min-height: 600px;
       border-radius: 14px;
       padding: 0;
     }
     .studio-device-frame:has(iframe) .studio-device-screen {
       border-radius: 14px;
+      /* The Snack /embedded/ page has ~48px of chrome at the top
+         (project name + small file display) and ~36px at the bottom
+         ("Preview / My Device / Android / iOS / Web" tab bar) that
+         we don't want users to see. Clip those bands by sizing the
+         iframe taller than the viewport and pulling it up + cropping
+         via overflow:hidden on this wrapper. The middle band — the
+         actual running app — is what's left visible. */
+      overflow: hidden;
+      position: relative;
     }
     .studio-device-frame:has(iframe) .studio-device-screen iframe {
       border-radius: 14px;
+      /* Visually show only the middle "player" band of Snack's embed
+         page. Top 48px chrome + bottom 36px tab-bar = 84px total
+         hidden via the negative top + extra height. */
+      position: absolute;
+      top: -48px;
+      left: 0;
+      width: 100%;
+      height: calc(100% + 84px);
+      border: 0;
     }
     .studio-device-screen {
       background: ${t.bg.canvas};
@@ -615,25 +645,40 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     /* PREVIEW pane v2 — platform tabs, actions, modal                 */
     /* ============================================================== */
+    /* Floating segmented control in the top-right corner of the preview
+       pane. VibeCode-style: the preview is the focus; controls are
+       small, unobtrusive, hover-able. */
     .studio-preview__platform-tabs {
+      position: absolute;
+      top: ${t.space.md};
+      right: ${t.space.md};
+      z-index: 5;
       display: flex;
-      gap: ${t.space.xs};
-      padding: ${t.space.sm} ${t.space.md};
-      border-bottom: 1px solid ${t.bg.border};
-      background: ${t.bg.surface};
+      gap: 2px;
+      padding: 4px;
+      border: 1px solid ${t.bg.border};
+      border-radius: ${t.radius.md};
+      background: rgba(20, 22, 30, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: ${t.shadow.level2};
     }
     .studio-preview__tab {
-      flex: 1;
+      width: 32px;
+      height: 32px;
       background: transparent;
       border: 1px solid transparent;
       color: ${t.text.secondary};
-      padding: ${t.space.sm} ${t.space.sm};
+      padding: 0;
       border-radius: ${t.radius.sm};
       cursor: pointer;
-      font-size: ${t.type.sizeMd};
+      font-size: 16px;
+      line-height: 1;
       font-family: inherit;
-      font-weight: ${t.type.weightMedium};
-      transition: background ${t.motion.fast}, color ${t.motion.fast}, border-color ${t.motion.fast};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background ${t.motion.fast}, color ${t.motion.fast};
     }
     .studio-preview__tab:hover {
       background: ${t.bg.surfaceRaised};

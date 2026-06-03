@@ -362,11 +362,10 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
   return {
     id,
     url: `https://snack.expo.dev/${id}`,
-    // Use the non-embedded Snack URL — the `/embedded/<id>` route refuses
-    // to bundle anonymous-saved snacks (returns 400 "Open full editor to
-    // add new dependencies"). The non-embedded route bundles correctly
-    // and renders the running app in a nested iframe.
-    embedUrl: `https://snack.expo.dev/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true`,
+    // The dashboard renders this URL in its preview pane. /embedded/
+    // is the player-only route; the dashboard CSS clips out the small
+    // top/bottom chrome bands so only the running app shows.
+    embedUrl: `https://snack.expo.dev/embedded/${id}?platform=web&preview=true&theme=dark&hideQueryParams=true`,
   };
 }
 

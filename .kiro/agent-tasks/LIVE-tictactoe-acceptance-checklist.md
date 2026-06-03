@@ -175,3 +175,29 @@ cropped+scaled device pane fills it.
 | ⬜ | E7 | Re-run 10-step acceptance with new wait | re-running now |
 
 The commits are deployed and the visual is correct as of `b145286`.
+
+
+---
+
+## PART F — Phase 2.2: Lock studio shell to viewport height
+
+**Discovered**: King's screenshot showed iframe at y=-2183 (way off-screen).
+The acceptance script's pixel sampling proved the iframe element existed
+but rendered far above the viewport because the studio's grid stretched
+to ~3239px tall to fit the long chat history. The dashboard's parent
+`.dashboard-main` has `min-height: calc(100vh - 32px)` and the studio
+inherited that growth.
+
+**Build failure on commit `0d0b2cc`**: My CSS comment contained a
+backtick (`` `height: 100vh - 80` ``) which terminated the outer
+template literal in studio-tokens.ts. Fixed with no-backtick comment.
+
+| ✅/⬜ | # | Task |
+|---|---|---|
+| ✅ | F1 | Lock `.studio` to `height: calc(100vh - 80px) !important` |
+| ✅ | F2 | Override `#dashboard-view:has(.studio)` to drop max-width:1400 + padding + cap height |
+| ✅ | F3 | Override `.dashboard-main:has(.studio)` to cap to 100vh |
+| ✅ | F4 | Make `.studio-main` and `.studio-preview` scroll internally instead of growing |
+| ✅ | F5 | Fix backtick-in-template-literal that broke the build (commit `0d0b2cc` Deploy failed) |
+| 🔄 | F6 | Re-deploy and re-probe — confirm preview pane is visible inside the viewport | next |
+| ⬜ | F7 | Re-run acceptance — iframe must render inside the visible viewport this time | next |

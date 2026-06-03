@@ -115,8 +115,8 @@ export function renderStudioStylesheet(): string {
        below the 1200px iframe-width threshold Snack needs. Override
        for the studio specifically: use the full viewport width and
        drop the padding so the preview pane gets enough room. Also
-       cap the parent's height so our studio's `height: 100vh - 80`
-       has a constrained context to evaluate against. */
+       cap the parent's height so our studio's height calc has a
+       constrained context to evaluate against. */
     #dashboard-view:has(.studio) {
       max-width: none !important;
       padding: 0 !important;

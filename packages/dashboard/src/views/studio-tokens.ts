@@ -95,8 +95,14 @@ export function renderStudioStylesheet(): string {
          leaves the preview at ~1000px which is comfortably above
          Snack's 700px runtime-spawn threshold. */
       grid-template-columns: 220px 380px 1fr;
-      height: 100%;
-      min-height: calc(100vh - 80px);
+      /* Lock the studio shell to the viewport height so the preview
+         pane stays anchored. Long chat messages SCROLL inside the
+         middle column rather than pushing the whole shell taller —
+         otherwise the absolute-positioned cropped iframe ends up
+         off-screen when the user has long chat history. */
+      height: calc(100vh - 80px);
+      max-height: calc(100vh - 80px);
+      overflow: hidden;
       background: ${t.bg.canvas};
       color: ${t.text.primary};
       font-family: ${t.type.family};
@@ -177,6 +183,9 @@ export function renderStudioStylesheet(): string {
       display: flex;
       flex-direction: column;
       min-width: 0;
+      min-height: 0;
+      max-height: 100%;
+      overflow: hidden;
       background: ${t.bg.canvas};
     }
     .studio-tabs {
@@ -460,6 +469,12 @@ export function renderStudioStylesheet(): string {
          (.studio-preview__platform-tabs) which floats in the top-right
          corner over the device frame. */
       position: relative;
+      /* Lock the preview pane to the studio shell's height so it
+         doesn't grow with chat content. The grid parent (.studio)
+         is height-locked to 100vh so this 100% stays equal to that. */
+      height: 100%;
+      max-height: 100%;
+      overflow: hidden;
     }
     /* The device-frame container should fill the preview pane's height
        so the iframe inside has the room it needs (>=600px) to render

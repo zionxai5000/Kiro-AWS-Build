@@ -312,6 +312,16 @@ export class FileStreamParser {
   }
 
   private emitFile(path: string, content: string): void {
+    // Strip markdown code-fence wrappers if the LLM emitted the file
+    // body inside a fenced block (e.g. ```json ... ``` for package.json).
+    // The fences are never valid in any source file. Without this strip
+    // JSON parses fail downstream and Snack/EAS get malformed inputs.
+    let cleaned = content;
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*\r?\n/m, '');
+    cleaned = cleaned.replace(/\r?\n```\s*$/m, '');
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*$/gm, '');
+    cleaned = cleaned.replace(/^```\s*$/gm, '');
+
     // Register the final file path with RecentWritesRegistry before emitting
     if (this.recentWrites) {
       this.recentWrites.markAsOwnWrite(path);
@@ -322,6 +332,6 @@ export class FileStreamParser {
     }
 
     this.completedFiles.push(path);
-    this.callbacks.onFileEnd(path, content);
+    this.callbacks.onFileEnd(path, cleaned);
   }
 }

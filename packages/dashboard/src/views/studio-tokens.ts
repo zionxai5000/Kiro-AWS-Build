@@ -108,6 +108,15 @@ export function renderStudioStylesheet(): string {
       font-family: ${t.type.family};
       font-size: ${t.type.sizeBase};
     }
+    /* The dashboard wraps each view in #dashboard-view which has
+       max-width: 1400px and padding — those constrain the studio
+       below the 1200px iframe-width threshold Snack needs. Override
+       for the studio specifically: use the full viewport width and
+       drop the padding so the preview pane gets enough room. */
+    #dashboard-view:has(.studio) {
+      max-width: none !important;
+      padding: 0 !important;
+    }
 
     /* ============================================================== */
     /* SIDEBAR — project list                                          */

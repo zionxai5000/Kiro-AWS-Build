@@ -99,10 +99,12 @@ export function renderStudioStylesheet(): string {
          pane stays anchored. Long chat messages SCROLL inside the
          middle column rather than pushing the whole shell taller —
          otherwise the absolute-positioned cropped iframe ends up
-         off-screen when the user has long chat history. */
-      height: calc(100vh - 80px);
-      max-height: calc(100vh - 80px);
-      overflow: hidden;
+         off-screen when the user has long chat history.
+         Use !important to override the dashboard's flex parent
+         that otherwise stretches us to full content height. */
+      height: calc(100vh - 80px) !important;
+      max-height: calc(100vh - 80px) !important;
+      overflow: hidden !important;
       background: ${t.bg.canvas};
       color: ${t.text.primary};
       font-family: ${t.type.family};
@@ -112,10 +114,19 @@ export function renderStudioStylesheet(): string {
        max-width: 1400px and padding — those constrain the studio
        below the 1200px iframe-width threshold Snack needs. Override
        for the studio specifically: use the full viewport width and
-       drop the padding so the preview pane gets enough room. */
+       drop the padding so the preview pane gets enough room. Also
+       cap the parent's height so our studio's `height: 100vh - 80`
+       has a constrained context to evaluate against. */
     #dashboard-view:has(.studio) {
       max-width: none !important;
       padding: 0 !important;
+      height: calc(100vh - 80px) !important;
+      max-height: calc(100vh - 80px) !important;
+      overflow: hidden !important;
+    }
+    .dashboard-main:has(.studio) {
+      max-height: 100vh !important;
+      overflow: hidden !important;
     }
 
     /* ============================================================== */

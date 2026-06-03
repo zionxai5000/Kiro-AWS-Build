@@ -1,0 +1,115 @@
+2026-06-02 22:28:47,912 INFO hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-06-02 22:28:47,924 INFO hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-06-02 22:28:47,934 INFO hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-06-02 22:28:48,681 INFO hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-06-02 22:28:48,697 INFO hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-06-02 22:28:48,710 INFO hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-06-02 22:28:48,722 INFO hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-06-02 22:28:48,735 INFO hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-06-02 22:28:48,872 INFO hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-06-02 22:28:48,882 INFO hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-06-02 22:28:48,898 INFO hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-06-02 22:28:48,906 INFO hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-06-02 22:28:48,914 INFO hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-06-02 22:28:48,933 INFO hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-06-02 22:28:48,940 INFO hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-06-02 22:28:48,948 INFO hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-06-02 22:28:48,957 INFO hermes_cli.plugins: Plugin 'web-tavily' registered web provider: tavily
+2026-06-02 22:28:48,970 INFO hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-06-02 22:28:51,350 INFO hermes_cli.plugins: Plugin discovery complete: 33 found, 28 enabled
+2026-06-02 22:29:18,280 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:18.
+2026-06-02 22:29:18,440 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:18,444 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:18.
+2026-06-02 22:29:18,855 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:18.
+2026-06-02 22:29:18,996 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:19,002 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:19.
+2026-06-02 22:29:20,192 INFO tools.lazy_deps: Lazy-installing edge-tts==7.2.7 for feature 'tts.edge'
+2026-06-02 22:29:24,016 INFO tools.lazy_deps: Lazy install complete for feature 'tts.edge'
+2026-06-02 22:29:24,478 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:24.
+2026-06-02 22:29:24,590 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:24,593 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:24.
+2026-06-02 22:29:24,974 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:24.
+2026-06-02 22:29:25,093 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:25,097 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:25.
+2026-06-02 22:29:28,225 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:28.
+2026-06-02 22:29:28,336 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:28,339 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:28.
+2026-06-02 22:29:28,718 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:28.
+2026-06-02 22:29:28,822 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:28,825 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:28.
+2026-06-02 22:29:29,232 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:29.
+2026-06-02 22:29:29,343 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:29,347 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:29.
+2026-06-02 22:29:29,670 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:29.
+2026-06-02 22:29:29,769 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:29,774 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:29.
+2026-06-02 22:29:38,949 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:38.
+2026-06-02 22:29:39,125 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:39,128 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:39.
+2026-06-02 22:29:39,531 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:39.
+2026-06-02 22:29:39,693 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:39,699 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:39.
+2026-06-02 22:29:40,166 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:40.
+2026-06-02 22:29:40,278 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:40,281 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:40.
+2026-06-02 22:29:40,728 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:40.
+2026-06-02 22:29:40,868 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-02 22:29:40,872 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 22:30:40.
+2026-06-02 22:29:41,690 INFO tools.tirith_security: tirith not found — downloading latest release for x86_64-unknown-linux-gnu...
+2026-06-02 22:29:43,364 INFO tools.tirith_security: cosign not on PATH — installing tirith with SHA-256 verification only (install cosign for full supply chain verification)
+2026-06-02 22:29:44,191 INFO tools.tirith_security: tirith installed to /opt/data/bin/tirith (SHA-256 only)
+2026-06-03 13:37:50,435 INFO hermes_cli.plugins: Plugin 'browser-browser-use' registered browser provider: browser-use
+2026-06-03 13:37:50,440 INFO hermes_cli.plugins: Plugin 'browser-browserbase' registered browser provider: browserbase
+2026-06-03 13:37:50,446 INFO hermes_cli.plugins: Plugin 'browser-firecrawl' registered browser provider: firecrawl
+2026-06-03 13:37:50,925 INFO hermes_cli.plugins: Plugin 'fal' registered image_gen provider: fal
+2026-06-03 13:37:50,931 INFO hermes_cli.plugins: Plugin 'krea' registered image_gen provider: krea
+2026-06-03 13:37:50,934 INFO hermes_cli.plugins: Plugin 'openai' registered image_gen provider: openai
+2026-06-03 13:37:50,938 INFO hermes_cli.plugins: Plugin 'openai-codex' registered image_gen provider: openai-codex
+2026-06-03 13:37:50,944 INFO hermes_cli.plugins: Plugin 'xai' registered image_gen provider: xai
+2026-06-03 13:37:50,976 INFO hermes_cli.plugins: Plugin 'fal' registered video_gen provider: fal
+2026-06-03 13:37:50,980 INFO hermes_cli.plugins: Plugin 'xai' registered video_gen provider: xai
+2026-06-03 13:37:50,989 INFO hermes_cli.plugins: Plugin 'web-brave-free' registered web provider: brave-free
+2026-06-03 13:37:50,993 INFO hermes_cli.plugins: Plugin 'web-ddgs' registered web provider: ddgs
+2026-06-03 13:37:50,997 INFO hermes_cli.plugins: Plugin 'web-exa' registered web provider: exa
+2026-06-03 13:37:51,005 INFO hermes_cli.plugins: Plugin 'web-firecrawl' registered web provider: firecrawl
+2026-06-03 13:37:51,009 INFO hermes_cli.plugins: Plugin 'web-parallel' registered web provider: parallel
+2026-06-03 13:37:51,013 INFO hermes_cli.plugins: Plugin 'web-searxng' registered web provider: searxng
+2026-06-03 13:37:51,018 INFO hermes_cli.plugins: Plugin 'web-tavily' registered web provider: tavily
+2026-06-03 13:37:51,024 INFO hermes_cli.plugins: Plugin 'web-xai' registered web provider: xai
+2026-06-03 13:37:51,692 INFO hermes_cli.plugins: Plugin discovery complete: 33 found, 28 enabled
+2026-06-03 13:38:50,410 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:50.
+2026-06-03 13:38:50,533 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:50,536 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:50.
+2026-06-03 13:38:51,081 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:51.
+2026-06-03 13:38:51,190 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:51,194 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:51.
+2026-06-03 13:38:52,943 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:52.
+2026-06-03 13:38:53,129 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:53,132 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:53.
+2026-06-03 13:38:53,586 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:53.
+2026-06-03 13:38:53,741 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:53,745 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:53.
+2026-06-03 13:38:57,476 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:57.
+2026-06-03 13:38:57,639 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:57,643 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:57.
+2026-06-03 13:38:58,125 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:58.
+2026-06-03 13:38:58,287 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:58,292 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:58.
+2026-06-03 13:38:58,897 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:58.
+2026-06-03 13:38:59,184 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:38:59,200 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:59.
+2026-06-03 13:38:59,930 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:39:59.
+2026-06-03 13:39:00,070 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:39:00,074 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:00.
+2026-06-03 13:39:14,523 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:14.
+2026-06-03 13:39:14,692 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:39:14,697 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:14.
+2026-06-03 13:39:15,359 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:15.
+2026-06-03 13:39:15,690 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:39:15,704 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:15.
+2026-06-03 13:39:16,381 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:16.
+2026-06-03 13:39:16,514 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:39:16,519 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:16.
+2026-06-03 13:39:17,068 WARNING agent.auxiliary_client: Auxiliary: marking openrouter unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:17.
+2026-06-03 13:39:17,184 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-06-03 13:39:17,189 WARNING agent.auxiliary_client: Auxiliary: marking nous unhealthy for 60s (payment / credit error). Subsequent auxiliary calls will skip it until 13:40:17.

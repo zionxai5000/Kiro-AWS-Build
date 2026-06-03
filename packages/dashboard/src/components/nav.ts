@@ -11,6 +11,11 @@ import { logout } from '../auth.js';
 
 export type ViewName =
   | 'kings-view'
+  // Hermes Agents (autonomous workers)
+  | 'hermes-zxmg'
+  | 'hermes-zion-alpha'
+  | 'hermes-zionx'
+  | 'hermes-personal'
   // Seraphim Core
   | 'seraphim-command-center'
   | 'seraphim-governance'
@@ -91,6 +96,16 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'kings-view',
     label: "King's View",
     items: null,
+  },
+  {
+    id: 'hermes-agents',
+    label: '🤖 Agents (Live)',
+    items: [
+      { id: 'hermes-zxmg', label: '🎬 ZXMG Scout' },
+      { id: 'hermes-zion-alpha', label: '📈 Zion Alpha' },
+      { id: 'hermes-zionx', label: '📱 ZionX Scout' },
+      { id: 'hermes-personal', label: '👑 Personal Assistant' },
+    ],
   },
   {
     id: 'seraphim-core',

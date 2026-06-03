@@ -1,0 +1,20 @@
+.graph-view-container {
+  position: relative;
+}
+
+.graph-view-container::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  height: 60%;
+  background-image: url("app://local/C:/Users/antho/Kiro Seraphim/vault/assets/seraphim-logo.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}

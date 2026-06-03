@@ -70,6 +70,8 @@ import {
   ShaarAgentView,
 } from './views/pillar-views.js';
 
+import { HermesAgentView } from './views/hermes-agents.js';
+
 interface ViewInstance {
   mount(): Promise<void>;
   unmount(): void;
@@ -368,6 +370,16 @@ export class App {
       // Shaar Agent
       case 'shaar-agent':
         return new ShaarAgentView(this.viewContainer);
+
+      // Hermes Agents (autonomous workers)
+      case 'hermes-zxmg':
+        return new HermesAgentView(this.viewContainer, 'zxmg');
+      case 'hermes-zion-alpha':
+        return new HermesAgentView(this.viewContainer, 'zion-alpha');
+      case 'hermes-zionx':
+        return new HermesAgentView(this.viewContainer, 'zionx');
+      case 'hermes-personal':
+        return new HermesAgentView(this.viewContainer, 'personal');
 
       // SME Intelligence
       case 'sme-recommendations':

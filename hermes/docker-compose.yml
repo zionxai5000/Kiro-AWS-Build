@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  zxmg:
+    image: nousresearch/hermes-agent:latest
+    container_name: seraphim-zxmg
+    volumes:
+      - ./data/zxmg:/opt/data
+      - ../vault:/opt/vault
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  zion-alpha:
+    image: nousresearch/hermes-agent:latest
+    container_name: seraphim-zion-alpha
+    volumes:
+      - ./data/zion-alpha:/opt/data
+      - ../vault:/opt/vault
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  zionx:
+    image: nousresearch/hermes-agent:latest
+    container_name: seraphim-zionx
+    volumes:
+      - ./data/zionx:/opt/data
+      - ../vault:/opt/vault
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "3003:3000"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  personal:
+    image: nousresearch/hermes-agent:latest
+    container_name: seraphim-personal
+    volumes:
+      - ./data/personal:/opt/data
+      - ../vault:/opt/vault
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "3004:3000"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

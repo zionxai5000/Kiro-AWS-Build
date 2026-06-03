@@ -90,9 +90,11 @@ export function renderStudioStylesheet(): string {
     .studio {
       display: grid;
       /* VibeCode-style layout — preview takes most of the right side.
-         Chat is a fixed 460px column (enough for the prompt input and
-         readable chat history), preview gets all remaining width. */
-      grid-template-columns: 220px 460px 1fr;
+         Chat is a fixed 380px column (compact prompt-and-history),
+         preview gets all remaining width. At a 1600px viewport this
+         leaves the preview at ~1000px which is comfortably above
+         Snack's 700px runtime-spawn threshold. */
+      grid-template-columns: 220px 380px 1fr;
       height: 100%;
       min-height: calc(100vh - 80px);
       background: ${t.bg.canvas};
@@ -461,11 +463,15 @@ export function renderStudioStylesheet(): string {
     }
     /* The device-frame container should fill the preview pane's height
        so the iframe inside has the room it needs (>=600px) to render
-       Snack's web player. */
+       Snack's web player. min-height + max-height keeps it bounded so
+       it doesn't grow to fit content (Snack's embed page is ~900px
+       tall but renders the player in the middle band only). */
     .studio-preview__device {
       flex: 1;
-      min-height: 0;
+      min-height: 600px;
+      max-height: calc(100vh - 220px);
       display: flex;
+      overflow: hidden;
     }
     .studio-device-frame {
       background: ${t.bg.surface};

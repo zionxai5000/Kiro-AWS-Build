@@ -525,14 +525,19 @@ export function renderStudioStylesheet(): string {
       position: absolute !important;
       /* Lock iframe to a fixed size so Snack's internal layout is
          deterministic. 1200px wide → editor pane is 915px, device pane
-         is 285px. */
+         is 285px. Snack puts the device pane at y=48 (top header band)
+         and the player area is 716px tall so device-pane spans y=48..764. */
       width: 1200px !important;
       height: 800px !important;
-      left: -915px !important;       /* push editor off-screen, device-pane lands at x=0 */
-      top: 0 !important;
+      /* Pull iframe up by 48px AND left by 915px so the device pane's
+         top-left lands at the visible window's (0, 0). */
+      left: -915px !important;
+      top: -48px !important;
       border: 0 !important;
-      transform-origin: 915px 0 !important;  /* device-pane's left edge in iframe coords */
-      transform: scale(1.6) !important;       /* upscale 285×716 → ~456×1146 */
+      /* Origin at the device pane's top-left corner in iframe coords
+         (915, 48). Scale 1.6× upscales 285×716 → ~456×1146 visible. */
+      transform-origin: 915px 48px !important;
+      transform: scale(1.6) !important;
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

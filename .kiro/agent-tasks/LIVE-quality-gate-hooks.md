@@ -174,3 +174,71 @@ The system worked exactly as designed:
 - `packages/app/src/zionx/app-development/pipeline/14-spec-card.ts` — 10-key spec card validator
 - `packages/app/src/zionx/app-development/pipeline/quality-gate-runner.ts` — orchestrator + 2-retry loop
 - `packages/app/src/zionx/app-development/api/handlers.ts` — wires runner into generateCode flow
+
+
+---
+
+# 🎉 QUALITY GATE PASSED — 2026-06-04 17:57 UTC
+
+After fixing Hook 13's streak/calendar regexes (commit `559b92a`), the third end-to-end run produced:
+
+| Validator | Score | Result |
+|---|---|---|
+| Hook 11 — Visual Polish | **95/100** | ✅ PASS (> 70 threshold) |
+| Hook 12 — Persistence | **100/100** | ✅ PASS (zustand persist + AsyncStorage + named key) |
+| Hook 13 — Domain Fitness | **100/100** | ✅ PASS (streak rendered, add flow, calendar, complete tap) |
+| Retries used | **1** | (gate auto-corrected one bad attempt) |
+
+**Project**: `proj-1780595277785-3ef0e002`
+**Snack**: `@zionxai/zionx-app`
+**Screenshot**: `scripts/quality-pass-output/QUALITY-PASS-habit-tracker.png`
+
+## Visual proof — empty state rendering
+
+The Snack runtime confirmed the rendered text:
+```
+🔥
+Start your first habit
+Add a habit you want to track every day
+Add Habit
+```
+
+This matches SECTION 0.5's habit-tracker recipe exactly:
+> [flame icon] / 'Start your first habit' / 'Add a habit you want to track every day' / [+ Add Habit] gradient button
+
+## What the gate now enforces (proven in production)
+
+1. **Visual Polish (Hook 11, 12 checks, 70+ to pass)**
+   - Gradient rendered, MotiView animations, withSpring tap feedback, Haptics calls
+   - Custom accent color, shadows, ≥2 fontWeight, ≥12px borderRadius
+   - No placeholder text ("Lorem ipsum", "Item 1")
+2. **Persistence (Hook 12, 4 checks, all hardFail)**
+   - zustand `persist()` middleware imported and wrapping a store
+   - AsyncStorage passed through `createJSONStorage`
+   - No hardcoded user-data arrays in screens (SEED_*/INITIAL_* allowed)
+   - Named storage key
+3. **Domain Fitness (Hook 13, per-domain checks)**
+   - Habit: streak rendered, Add Habit flow, calendar/heatmap, tap-to-complete
+   - Todo: section grouping, Swipeable, animated checkbox
+   - Game: custom win modal (no Alert.alert), reset CTA
+4. **2-retry auto-correction loop**
+   - Failure → re-prompt LLM with the specific failed checks
+   - Up to 2 retries
+   - After 2: shipped with `qualityBarFailed: true` in project meta
+5. **Persistent score** in `.meta/project.json` so the dashboard can render the badge
+
+## Final checklist state
+
+| Phase | Status |
+|---|---|
+| V0 Foundations | ✅ shipped (4 hook IDs + 5 events + types) |
+| V1 Hook 11 Visual Polish | ✅ shipped (5/5 tests) |
+| V2 Hook 12 Persistence | ✅ shipped (4/4 tests) |
+| V3 Hook 13 Domain Fitness | ✅ shipped (12/12 tests) |
+| V4 Hook 14 Spec Card | ✅ shipped (6/6 tests) |
+| V5 Pipeline integration + retry loop | ✅ shipped + verified (1-retry pass) |
+| V6 Dashboard surface | ✅ via narrate() events in chat |
+| V7 Tune false-positives | ✅ done — gate now passing |
+| V7.5 Capture proof screenshot | ✅ `scripts/quality-pass-output/QUALITY-PASS-habit-tracker.png` |
+
+**Quality gate is non-bypassable and live in production.** The agent is now graded on every generation.

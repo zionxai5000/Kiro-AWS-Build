@@ -1,0 +1,63 @@
+[
+  {
+    "step": 1,
+    "description": "Studio empty state with 4 example prompts",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\01-studio-empty.png"
+  },
+  {
+    "step": 2,
+    "description": "Clicked habit tracker example, send fired",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\02-after-send.png"
+  },
+  {
+    "step": 3,
+    "description": "Project named (smart name) appears in sidebar",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\03-narration.png"
+  },
+  {
+    "step": 4,
+    "description": "Stream produced 10 files",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\04-stream-done.png"
+  },
+  {
+    "step": 5,
+    "description": "Preview renders (brightness=64, variance=7375, runtimeFound=true, habitText=true)",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\05-preview-app.png"
+  },
+  {
+    "step": 6,
+    "description": "Add-habit affordance reachable",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\06-add-flow.png"
+  },
+  {
+    "step": 7,
+    "description": "Added habit \"Drink water\" (input filled=false)",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\07-habit-added.png"
+  },
+  {
+    "step": 8,
+    "description": "Mark complete attempted (clicked=true)",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\08-habit-complete.png"
+  },
+  {
+    "step": 9,
+    "description": "Persistence after refresh (habit-text-found=true)",
+    "passed": true,
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\09-persistence.png"
+  },
+  {
+    "step": 10,
+    "description": "Iteration finishes within 4 min",
+    "passed": false,
+    "reason": "still generating after 240s",
+    "screenshot": "C:\\Users\\eftn\\Desktop\\githubcopy\\Kiro-AWS-Build\\scripts\\section-7-output\\10-iterate.png"
+  }
+]

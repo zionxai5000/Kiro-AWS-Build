@@ -1,0 +1,5 @@
+page.waitForSelector: Timeout 20000ms exceeded.
+Call log:
+[2m  - waiting for locator('a.sidebar-link') to be visible[22m
+
+    at main (C:\Users\eftn\Desktop\githubcopy\Kiro-AWS-Build\scripts\section-7-habit-tracker.ts:131:14)

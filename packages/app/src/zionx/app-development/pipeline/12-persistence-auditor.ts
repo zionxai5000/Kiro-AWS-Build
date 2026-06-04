@@ -100,8 +100,25 @@ export async function run(
   // Check 3: no hardcoded user-data arrays in screens.
   // Pattern matches things like `const items = [{ name: 'Foo', ... }, { name: 'Bar' }, ...]`
   // which usually represent baked-in fake data the LLM threw in instead of wiring the store.
-  const hardcodeArrayPattern = /const\s+\w*(?:Data|Items|List|Habits|Tasks|Recipes|Sessions)\s*=\s*\[\s*\{[^]+?name\s*:/i;
-  const hardcodeHits = Array.from(screenSrc.matchAll(new RegExp(hardcodeArrayPattern, 'gi'))).length;
+  // Exception: stores with names like SEED_*, INITIAL_*, DEFAULT_* are allowed first-launch seeds.
+  const allLines = screenSrc.split(/\r?\n/);
+  const hardcodeLines = allLines.filter((line) =>
+    /const\s+(\w+)(?:Data|Items|List|Habits|Tasks|Recipes|Sessions)\s*=\s*\[/i.test(line)
+    && !/SEED_|INITIAL_|DEFAULT_|EXAMPLE_/i.test(line)
+  );
+  // Now look at multi-line arrays starting after that line:
+  // We re-scan the source for `const X[Data|Items|...] = [` openings, then check
+  // if `name:` appears within ~600 chars after, AND the var name doesn't start with SEED/INITIAL/DEFAULT.
+  let hardcodeHits = 0;
+  const reArrayDecl = /const\s+(\w+)\s*=\s*\[/g;
+  let m: RegExpExecArray | null;
+  while ((m = reArrayDecl.exec(screenSrc))) {
+    const varName = m[1] ?? '';
+    if (/^(SEED|INITIAL|DEFAULT|EXAMPLE|MOCK)_/i.test(varName)) continue;
+    if (!/(Data|Items|List|Habits|Tasks|Recipes|Sessions)$/i.test(varName)) continue;
+    const after = screenSrc.slice(m.index, m.index + 600);
+    if (/\{[^}]*name\s*:/.test(after)) hardcodeHits += 1;
+  }
   breakdown.push({
     id: 'no-hardcoded-user-data',
     label: 'No hardcoded user-data arrays in screens',

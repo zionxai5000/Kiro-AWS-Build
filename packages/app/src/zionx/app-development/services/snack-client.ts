@@ -711,22 +711,23 @@ const PHOSPHOR_ICON_NAMES = [
   'Globe','MapPin','MapTrifold','Compass','NavigationArrow',
   'CloudSun','CloudRain','Snowflake','ThermometerSimple','Wind',
   // Aliases / additions for habit-tracker / fitness / common app domains
-  'Fire','Drop','Walking','Trophy','Activity','Pulse','Bookmark','BookmarkSimple',
+  'Fire','Walking','Activity','Pulse','Bookmark','BookmarkSimple',
   'CalendarBlank','CalendarCheck','CalendarPlus','CheckSquare','CheckSquareOffset',
   'TimerSimple','Timer','Repeat','RepeatOnce','ArrowsClockwise','ArrowClockwise',
-  'Plant','Tree','Mountains','Drop','DropHalf','Glasses','Eyeglasses',
+  'Plant','Tree','Mountains','DropHalf','Glasses','Eyeglasses',
   'Ruler','Scales','BatteryFull','BatteryHigh','BatteryMedium',
   'Sparkles','Confetti','Crown','Diamond','Gem','Smiley','SmileyMeh',
   'Bookmarks','Books','BookmarkSimpleSlash',
-  'PaperPlaneRight','PaperPlaneTilt','PaperPlane','Note','NotePencil','NoteBlank',
+  'PaperPlaneRight','PaperPlane','Note','NotePencil','NoteBlank',
   'Article','ListPlus','TextAa','TextB','TextItalic',
   'BookOpenText','GraduationCap','Student','Backpack',
   'Stethoscope','FirstAid','HeartPulse','Pill','Syringe',
   'PersonSimple','PersonSimpleWalk','PersonSimpleBike','PersonSimpleSwim',
-  'CarSimple','Bus','Train','Airplane','Bicycle',
-  'WashingMachine','Bathtub','Bed','Couch','TableIcon',
-  'CarrotIcon','AppleIcon','LeafyGreens','Egg','Bread','Cake',
-  'Star4','StarHalf','StarFour','StarSix','StarOfDavid',
+  'CarSimple','Bus','Train','Airplane',
+  'WashingMachine','Bathtub','Bed','Couch',
+  'LeafyGreens','Egg','Bread','Cake',
+  'StarHalf','StarFour','StarSix','StarOfDavid',
+  'Drop',
 ];
 
 const PHOSPHOR_SHIM = `// Auto-injected by ZionX Snack adapter — phosphor icons → Unicode glyphs.
@@ -801,7 +802,7 @@ const makeIcon = (name) => React.forwardRef((props, ref) =>
 );
 
 export default IconStub;
-${PHOSPHOR_ICON_NAMES.map((n) => `export const ${n} = makeIcon('${n}');`).join('\n')}
+${Array.from(new Set(PHOSPHOR_ICON_NAMES)).map((n) => `export const ${n} = makeIcon('${n}');`).join('\n')}
 `;
 
 

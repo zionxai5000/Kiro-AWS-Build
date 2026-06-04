@@ -28,22 +28,22 @@
 
 | ✅/⬜ | # | Task |
 |---|---|---|
-| ⬜ | Q1.1 | Create `.kiro/steering/00-quality-bar.md` |
-| ⬜ | Q1.2 | Create `.kiro/steering/10-design-system.md` |
-| ⬜ | Q1.3 | Create `.kiro/steering/20-persistence.md` |
-| ⬜ | Q1.4 | Create `.kiro/steering/30-onboarding.md` |
-| ⬜ | Q1.5 | Create `.kiro/steering/40-store-readiness.md` |
+| ✅ | Q1.1 | Create `.kiro/steering/00-quality-bar.md` |
+| ✅ | Q1.2 | Create `.kiro/steering/10-design-system.md` |
+| ✅ | Q1.3 | Create `.kiro/steering/20-persistence.md` |
+| ✅ | Q1.4 | Create `.kiro/steering/30-onboarding.md` |
+| ✅ | Q1.5 | Create `.kiro/steering/40-store-readiness.md` |
 
 ## PHASE Q2 — Scripts + Hooks setup doc
 
 | ✅/⬜ | # | Task |
 |---|---|---|
-| ⬜ | Q2.1 | Create `.kiro/scripts/verify-app.sh` |
-| ⬜ | Q2.2 | Create `.kiro/scripts/check-no-static-data.mjs` |
-| ⬜ | Q2.3 | Create `.kiro/hooks/HOOKS-SETUP.md` |
-| ⬜ | Q2.4 | Use `createHook` tool to programmatically create Hook 1 (Prompt Submit) |
-| ⬜ | Q2.5 | Use `createHook` tool to programmatically create Hook 2 (Agent Stop) |
-| ⬜ | Q2.6 | Sanity-check the scripts (Node + bash via Git Bash) |
+| ✅ | Q2.1 | Create `.kiro/scripts/verify-app.sh` |
+| ✅ | Q2.2 | Create `.kiro/scripts/check-no-static-data.mjs` |
+| ✅ | Q2.3 | Create `.kiro/hooks/HOOKS-SETUP.md` |
+| ✅ | Q2.4 | Use `createHook` tool to programmatically create Hook 1 (Prompt Submit) — `spec-first-build` |
+| ✅ | Q2.5 | Use `createHook` tool to programmatically create Hook 2 (Agent Stop) — `quality-gate-on-stop` |
+| ✅ | Q2.6 | Sanity-check the scripts (Node + bash via Git Bash) — scanner passes on workspace |
 
 ## PHASE Q3 — Pipeline upgrade: per-screen visual scoring
 

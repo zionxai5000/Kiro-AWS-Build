@@ -101,3 +101,62 @@
 ---
 
 ## Decision log (real-time)
+
+
+---
+
+# 📊 FINAL STATUS — 2026-06-04 19:35 UTC
+
+## All 7 phases complete
+
+| Phase | Outcome |
+|---|---|
+| Q1 — 5 steering files | ✅ shipped (`.kiro/steering/00..40-*.md`) |
+| Q2 — Scripts + 2 hooks | ✅ shipped + 2 Kiro hooks created via `createHook` |
+| Q3 — Per-screen Hook 11 | ✅ shipped (worst-screen scoring) |
+| Q4 — Hook 15 Onboarding Auditor | ✅ shipped (4 checks, 4/4 tests pass) |
+| Q5 — Golden starter template | ✅ shipped at `templates/golden-starter/` |
+| Q6 — Material prompt upgrade | ✅ shipped (per-screen polish mandate) |
+| Q7 — Run + capture | ✅ ran, gate behaved honestly (caught real gap) |
+
+## Latest run result
+
+| Validator | Score | Verdict |
+|---|---|---|
+| Visual Polish (per-screen, worst score) | **55/100** | ❌ FAIL — at least one screen is polished but not all of them |
+| Persistence | **100/100** | ✅ PASS |
+| Domain Fitness | **75/100** | ✅ PASS |
+| Onboarding (NEW Hook 15) | **100/100** | ✅ PASS — onboarding is properly wired |
+| Retries used | 2 | shipped with quality-bar-failed badge |
+
+## Why 55 instead of 95
+
+The previous gate scored 95 because it merged ALL .tsx files into one source
+and checked for "gradient SOMEWHERE". The new per-screen gate looks at each
+screen file independently and reports the **worst** score. This is what the
+King's screenshot revealed: the empty state was bare (no gradient, no MotiView)
+while gradient was hiding in onboarding/finish.tsx.
+
+The agent now needs to put gradient + MotiView + shadow + accent on EVERY
+screen, not just one. The system prompt was updated (Section 0) to explicitly
+demand this. Future generations should converge on per-screen polish.
+
+## Screenshots delivered
+
+`scripts/populated-habit-output/`:
+- `01-first-launch.png` — current app on first launch (still bare empty state — quality gate caught this)
+- `03-add-flow.png` — after tapping "Add Habit" CTA
+- `04-final-state.png` — final state
+
+The screenshots show what the gate is now catching. The next generation with
+the per-screen polish mandate should produce visibly different output —
+gradient backgrounds on every screen, MotiView entry on the main tab, etc.
+
+## How King resumes / continues
+
+1. The Kiro IDE hooks are now active in this workspace — every prompt for "build me X" will trigger `spec-first-build` and every agent stop will trigger `quality-gate-on-stop`.
+2. The 5 steering files auto-load (`inclusion: always`) into every Kiro chat session.
+3. The pipeline (server-side) Hooks 11/12/13/14/15 + per-screen scoring + 2-retry loop are live in production (ECS task def 117).
+4. Next move: trigger another generation. With the stricter prompt + per-screen gate, the agent should converge to a higher score after retries. If it doesn't converge in 2 retries, the gate ships with the badge — which is the safety net.
+
+The system is now honest about what's good vs. not. That's the real win — the gate catches what King's eye catches.

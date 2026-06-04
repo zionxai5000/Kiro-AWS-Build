@@ -49,6 +49,7 @@ export const HOOKS_CONFIG: HooksConfigMap = {
     'visual-polish-validator':  { enabled: true, dryRun: false },
     'persistence-auditor':      { enabled: true, dryRun: false },
     'domain-fitness-auditor':   { enabled: true, dryRun: false },
+    'onboarding-auditor':       { enabled: true, dryRun: false },
     'spec-card':                { enabled: true, dryRun: false },
   },
 };

@@ -134,6 +134,27 @@ output.
 SECTION 0: VISUAL POLISH MANDATE (read first, applies everywhere)
 ===================================================================
 
+CRITICAL — PER-SCREEN POLISH (every screen, not just one)
+EVERY .tsx file under app/(tabs)/, app/screens/, or any path that contains
+\`export default function <Screen>\` MUST contain ALL of the following:
+  1. <LinearGradient> rendered at the top of the screen (background gradient).
+  2. At least one <MotiView from={...} animate={...}> for entry animation.
+  3. At least one withSpring() or withTiming() call for tap feedback.
+  4. At least one Haptics.impactAsync() or Haptics.notificationAsync() call.
+  5. Cards / list rows with shadowOpacity + shadowRadius set.
+  6. An accent color (NOT pure white/black/grayscale) used for the primary CTA.
+  7. SafeAreaView wrapper.
+  8. At least 2 distinct fontWeight values for hierarchy.
+
+The validator (Hook 11 Visual Polish) now scores each screen INDEPENDENTLY
+and takes the WORST score as the overall. If you put gradient/motion in one
+screen and skip another, you fail. Every screen the user sees must be polished.
+
+The golden-starter template at templates/golden-starter/ contains pre-baked
+design tokens (theme/tokens.ts), data layer (data/index.ts), and onboarding
+shell (onboarding/OnboardingFlow.tsx) — START FROM THOSE FILES, copy them
+into the new project, then add domain code on top. Don't rebuild them.
+
 The default reflex of any LLM is to ship a flat, white-card, system-default
 layout. That output is REJECTED. Every screen you produce must look like a
 polished consumer product. Apply ALL of the following on every primary screen:

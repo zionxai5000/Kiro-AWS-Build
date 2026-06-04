@@ -17,6 +17,7 @@ import { LIMITS } from '../config/limits.js';
 import { run as runVisualPolish } from './11-visual-polish-validator.js';
 import { run as runPersistence } from './12-persistence-auditor.js';
 import { run as runDomainFitness } from './13-domain-fitness-auditor.js';
+import { run as runOnboarding } from './15-onboarding-auditor.js';
 import { APPDEV_EVENTS, createAppDevEvent } from '../events/event-types.js';
 import type { HookContext } from './types.js';
 import type { QualityScore, RetryDirective } from './quality-types.js';
@@ -43,6 +44,7 @@ export interface QualityGateResult {
     visualPolish: QualityScore;
     persistence: QualityScore;
     domainFitness: QualityScore;
+    onboarding: QualityScore;
   };
   directive?: RetryDirective;
 }
@@ -77,14 +79,20 @@ function buildRetryDirective(
   visualPolish: QualityScore,
   persistence: QualityScore,
   domainFitness: QualityScore,
+  onboarding: QualityScore,
 ): RetryDirective {
   const failureBullets: string[] = [];
-  for (const c of [...visualPolish.failedChecks, ...persistence.failedChecks, ...domainFitness.failedChecks]) {
+  for (const c of [
+    ...visualPolish.failedChecks,
+    ...persistence.failedChecks,
+    ...domainFitness.failedChecks,
+    ...onboarding.failedChecks,
+  ]) {
     failureBullets.push(`- ${c.label}${c.evidence ? ` — ${c.evidence}` : ''}`);
   }
   // The set of files most likely to need fixing — we don't know specifically,
-  // so we ask Claude to regenerate any screen file plus the store.
-  const filesToFix = ['app/(tabs)/index.tsx', 'store/*.ts'];
+  // so we ask Claude to regenerate any screen file plus the store + onboarding.
+  const filesToFix = ['app/(tabs)/index.tsx', 'app/_layout.tsx', 'src/onboarding/OnboardingFlow.tsx', 'store/*.ts'];
   return {
     retryNumber,
     scores: { visualPolish, persistence, domainFitness },
@@ -122,11 +130,12 @@ export function renderDirectiveForLLM(directive: RetryDirective, originalPrompt:
 async function runValidators(
   input: QualityGateInput,
   files: Record<string, string>,
-): Promise<{ visualPolish: QualityScore; persistence: QualityScore; domainFitness: QualityScore }> {
-  const [vp, ps, df] = await Promise.all([
+): Promise<{ visualPolish: QualityScore; persistence: QualityScore; domainFitness: QualityScore; onboarding: QualityScore }> {
+  const [vp, ps, df, ob] = await Promise.all([
     runVisualPolish({ projectId: input.projectId, files }, input.ctx),
     runPersistence({ projectId: input.projectId, files }, input.ctx),
     runDomainFitness({ projectId: input.projectId, prompt: input.prompt, files }, input.ctx),
+    runOnboarding({ projectId: input.projectId, files }, input.ctx),
   ]);
   // Each hook returns success=true even when the score fails — the score
   // is the contract. Use defensive defaults if the hook didn't return data.
@@ -135,6 +144,7 @@ async function runValidators(
     visualPolish: vp.data?.score ?? empty,
     persistence: ps.data?.score ?? empty,
     domainFitness: df.data?.score ?? empty,
+    onboarding: ob.data?.score ?? empty,
   };
 }
 
@@ -144,7 +154,7 @@ async function runValidators(
 export async function runQualityGate(input: QualityGateInput): Promise<QualityGateResult> {
   const maxRetries = LIMITS.qualityRetriesMax ?? 2;
   let retries = 0;
-  let scores = { visualPolish: emptyScore(), persistence: emptyScore(), domainFitness: emptyScore() };
+  let scores = { visualPolish: emptyScore(), persistence: emptyScore(), domainFitness: emptyScore(), onboarding: emptyScore() };
 
   while (retries <= maxRetries) {
     const files = await loadProjectFiles(input.workspace, input.projectId);
@@ -158,6 +168,7 @@ export async function runQualityGate(input: QualityGateInput): Promise<QualityGa
         visualPolishScore: scores.visualPolish.total,
         persistenceScore: scores.persistence.total,
         domainFitnessScore: scores.domainFitness.total,
+        onboardingScore: scores.onboarding.total,
       },
       input.tenantId,
     ));
@@ -165,7 +176,8 @@ export async function runQualityGate(input: QualityGateInput): Promise<QualityGa
     const allPass =
       scores.visualPolish.passed &&
       scores.persistence.passed &&
-      scores.domainFitness.passed;
+      scores.domainFitness.passed &&
+      scores.onboarding.passed;
 
     if (allPass) {
       await input.eventBus.publish(createAppDevEvent(
@@ -179,7 +191,7 @@ export async function runQualityGate(input: QualityGateInput): Promise<QualityGa
     if (retries >= maxRetries) break;
 
     // Build directive + re-prompt
-    const directive = buildRetryDirective(retries + 1, scores.visualPolish, scores.persistence, scores.domainFitness);
+    const directive = buildRetryDirective(retries + 1, scores.visualPolish, scores.persistence, scores.domainFitness, scores.onboarding);
     await input.eventBus.publish(createAppDevEvent(
       APPDEV_EVENTS.QUALITY_RETRY_REQUESTED,
       { projectId: input.projectId, retry: retries + 1, failures: directive.failureBullets },
@@ -205,10 +217,12 @@ export async function runQualityGate(input: QualityGateInput): Promise<QualityGa
       visualPolishScore: scores.visualPolish.total,
       persistenceScore: scores.persistence.total,
       domainFitnessScore: scores.domainFitness.total,
+      onboardingScore: scores.onboarding.total,
       failures: [
         ...scores.visualPolish.failedChecks,
         ...scores.persistence.failedChecks,
         ...scores.domainFitness.failedChecks,
+        ...scores.onboarding.failedChecks,
       ].map((c) => c.label),
     },
     input.tenantId,

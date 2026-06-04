@@ -235,12 +235,21 @@ export async function run(
     };
   }
 
-  // Merge all .tsx / .jsx files into one source string. The checks are
-  // presence-based — if ANY screen has a gradient that's enough.
+  // ----------------------------------------------------------------------
+  // Per-screen scoring (V3 fix). The previous implementation merged every
+  // .tsx file before scoring — which let polish hide in unused files (e.g.
+  // gradient imported in onboarding/finish.tsx, never visible in the main
+  // tab). We now score each user-facing screen independently and the
+  // overall score = MIN(per-screen scores). This forces every visible
+  // screen to be polished, not just somewhere in the project.
+  //
+  // What counts as a "user-facing screen":
+  //   - .tsx file under app/(tabs)/ or app/screens/ or app/<route>.tsx
+  //   - has `export default function` (a screen export)
+  //   - excludes _layout.tsx, +not-found.tsx, components/, hooks/, store/
+  // ----------------------------------------------------------------------
   const tsxFiles = Object.entries(input.files).filter(([p]) => /\.(tsx|jsx)$/.test(p));
-  const merged = tsxFiles.map(([, c]) => c).join('\n\n');
-
-  if (merged.length === 0) {
+  if (tsxFiles.length === 0) {
     ctx.log(`[${HOOK_METADATA.id}] no .tsx files in input`);
     return {
       success: false,
@@ -251,36 +260,65 @@ export async function run(
     };
   }
 
-  const breakdown: QualityCheck[] = CHECKS.map((c) => {
-    const r = c.fn(merged);
+  const screenFiles = tsxFiles.filter(([p, content]) => {
+    if (!/^(app|src\/screens|src\/app|screens)\//.test(p)) return false;
+    if (/_layout\./.test(p) || /\+not-found/.test(p)) return false;
+    if (/^components?\//.test(p) || /^hooks?\//.test(p) || /^stores?\//.test(p)) return false;
+    if (/onboarding/i.test(p)) return false; // onboarding has its own gate (Hook 15)
+    return /export\s+default\s+function/.test(content);
+  });
+
+  // Fall back to merged-source if no screen file matched (legacy projects).
+  if (screenFiles.length === 0) {
+    ctx.log(`[${HOOK_METADATA.id}] no recognized screen files — falling back to merged-source scoring`);
+    const merged = tsxFiles.map(([, c]) => c).join('\n\n');
+    return scoreOne(merged, '__merged__', start, ctx);
+  }
+
+  // Score each screen. Take the WORST score as the overall.
+  type PerScreen = { path: string; score: QualityScore };
+  const perScreen: PerScreen[] = screenFiles.map(([path, content]) => {
+    const breakdown: QualityCheck[] = CHECKS.map((c) => {
+      const r = c.fn(content);
+      return {
+        id: c.id,
+        label: `[${path}] ${c.label}`,
+        weight: c.weight,
+        hardFail: c.hardFail,
+        passed: r.passed,
+        evidence: r.passed ? undefined : r.evidence,
+      };
+    });
+    const total = Math.min(100, breakdown.reduce((s, c) => s + (c.passed ? c.weight : 0), 0));
+    const failedChecks = breakdown.filter((c) => !c.passed);
+    const hardFailHit = failedChecks.some((c) => c.hardFail);
+    const passThreshold = LIMITS.qualityVisualPolishThreshold ?? 70;
     return {
-      id: c.id,
-      label: c.label,
-      weight: c.weight,
-      hardFail: c.hardFail,
-      passed: r.passed,
-      evidence: r.passed ? undefined : r.evidence,
+      path,
+      score: {
+        total,
+        breakdown,
+        failedChecks,
+        passed: !hardFailHit && total >= passThreshold,
+        passThreshold,
+      },
     };
   });
 
-  const total = breakdown.reduce((s, c) => s + (c.passed ? c.weight : 0), 0);
-  const totalCapped = Math.min(100, total);
-  const failedChecks = breakdown.filter((c) => !c.passed);
-  const hardFailHit = failedChecks.some((c) => c.hardFail);
-  const passThreshold = LIMITS.qualityVisualPolishThreshold ?? 70;
-  const passed = !hardFailHit && totalCapped >= passThreshold;
-
+  // Overall = the worst per-screen score. Aggregate failedChecks from any failed screens.
+  const worst = perScreen.reduce((a, b) => (a.score.total <= b.score.total ? a : b));
+  const allFailed = perScreen.flatMap((s) => s.score.passed ? [] : s.score.failedChecks);
   const score: QualityScore = {
-    total: totalCapped,
-    breakdown,
-    failedChecks,
-    passed,
-    passThreshold,
+    total: worst.score.total,
+    breakdown: worst.score.breakdown,
+    failedChecks: allFailed.length ? allFailed : worst.score.failedChecks,
+    passed: perScreen.every((s) => s.score.passed),
+    passThreshold: worst.score.passThreshold,
   };
 
   ctx.log(
-    `[${HOOK_METADATA.id}] score=${totalCapped}/${passThreshold} pass=${passed} ` +
-    `failed=${failedChecks.length} hardFail=${hardFailHit}`,
+    `[${HOOK_METADATA.id}] per-screen scoring: ${perScreen.length} screens, ` +
+    `worst=${worst.score.total} (${worst.path}), pass=${score.passed}`,
   );
 
   return {
@@ -288,6 +326,27 @@ export async function run(
     hookId: HOOK_METADATA.id,
     dryRun: ctx.dryRun,
     data: { score },
+    durationMs: Date.now() - start,
+  };
+}
+
+/** Helper for the legacy merged-source path. */
+function scoreOne(src: string, label: string, start: number, ctx: HookContext): HookResult<VisualPolishOutput> {
+  const breakdown: QualityCheck[] = CHECKS.map((c) => {
+    const r = c.fn(src);
+    return { id: c.id, label: c.label, weight: c.weight, hardFail: c.hardFail, passed: r.passed, evidence: r.passed ? undefined : r.evidence };
+  });
+  const total = Math.min(100, breakdown.reduce((s, c) => s + (c.passed ? c.weight : 0), 0));
+  const failedChecks = breakdown.filter((c) => !c.passed);
+  const hardFailHit = failedChecks.some((c) => c.hardFail);
+  const passThreshold = LIMITS.qualityVisualPolishThreshold ?? 70;
+  const passed = !hardFailHit && total >= passThreshold;
+  ctx.log(`[${HOOK_METADATA.id}] merged-source score=${total} pass=${passed} (${label})`);
+  return {
+    success: true,
+    hookId: HOOK_METADATA.id,
+    dryRun: ctx.dryRun,
+    data: { score: { total, breakdown, failedChecks, passed, passThreshold } },
     durationMs: Date.now() - start,
   };
 }

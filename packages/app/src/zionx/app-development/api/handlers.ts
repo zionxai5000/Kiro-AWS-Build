@@ -420,6 +420,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                       visualPolish: qgResult.finalScores.visualPolish.total,
                       persistence: qgResult.finalScores.persistence.total,
                       domainFitness: qgResult.finalScores.domainFitness.total,
+                      onboarding: qgResult.finalScores.onboarding.total,
                     },
                   );
                   // Persist the score to project meta so the dashboard can show it.
@@ -430,6 +431,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                       visualPolish: qgResult.finalScores.visualPolish.total,
                       persistence: qgResult.finalScores.persistence.total,
                       domainFitness: qgResult.finalScores.domainFitness.total,
+                      onboarding: qgResult.finalScores.onboarding.total,
                       evaluatedAt: new Date().toISOString(),
                     },
                   } as any).catch(() => { /* meta is best-effort */ });

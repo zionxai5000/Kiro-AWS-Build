@@ -54,7 +54,7 @@ export interface QualityGateResult {
  */
 async function loadProjectFiles(workspace: Workspace, projectId: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  const list = await workspace.listProjectFiles(projectId).catch(() => [] as string[]);
+  const list = await workspace.listFiles(projectId).catch(() => [] as string[]);
   for (const path of list) {
     if (!/\.(tsx|jsx|ts|js)$/.test(path)) continue;
     if (path.includes('node_modules') || path.startsWith('.git/') || path.startsWith('dist/')) continue;

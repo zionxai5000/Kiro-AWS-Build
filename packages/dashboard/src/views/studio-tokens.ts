@@ -644,11 +644,12 @@ export function renderStudioStylesheet(): string {
       top: -48px !important;
       border: 0 !important;
       /* Origin at the device pane's top-left corner in iframe coords
-         (915, 48). Scale 1.2× upscales 285×716 → ~342×859 visible —
-         which is the maximum that fits inside the ~880px-tall preview
-         pane without cropping the bottom of the running app. */
+         (915, 48). Scale 1.0× shows the device pane at native 285×716,
+         which fits the preview pane completely with NO bottom-cutoff.
+         (Earlier 1.2× looked nicer but cut the bottom; 1.0× is the
+          honest fit.) */
       transform-origin: 915px 48px !important;
-      transform: scale(1.2) !important;
+      transform: scale(1.0) !important;
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

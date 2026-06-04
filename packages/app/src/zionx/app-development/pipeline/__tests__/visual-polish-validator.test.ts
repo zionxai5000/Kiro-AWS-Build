@@ -27,16 +27,18 @@ export default function Today() {
   const scale = useSharedValue(1);
   return (
     <SafeAreaView style={{ flex: 1 }}>
+      <LinearGradient colors={['#0E1424', '#161E33', '#2A2F5C']} style={StyleSheet.absoluteFill} />
       <LinearGradient colors={['#fafbff', '#f0f4ff']} style={styles.bg}>
         <MotiView from={{ opacity: 0, translateY: 16 }} animate={{ opacity: 1, translateY: 0 }}>
           <Text style={styles.title}>Today</Text>
           <Text style={styles.sub}>Drink 8 glasses of water</Text>
-          <Pressable
-            onPress={() => { scale.value = withSpring(0.97); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            style={styles.card}
-          >
-            <Text style={{ fontWeight: '700' }}>Mark Complete</Text>
-          </Pressable>
+          <LinearGradient colors={['#7C83FF', '#5FB6A6']} style={styles.cta}>
+            <Pressable
+              onPress={() => { scale.value = withSpring(0.97); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            >
+              <Text style={{ fontWeight: '700', color: '#fff' }}>Mark Complete</Text>
+            </Pressable>
+          </LinearGradient>
           <Pressable style={styles.card}>
             <Text style={{ fontWeight: '500' }}>Settings</Text>
           </Pressable>
@@ -48,10 +50,10 @@ export default function Today() {
 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
-  title: { fontSize: 32, fontWeight: '700', color: '#10b981' },
+  title: { fontSize: 32, fontWeight: '700', color: '#7C83FF' },
   sub: { fontSize: 14, fontWeight: '400', color: '#6b7080' },
-  card: { backgroundColor: '#10b981', padding: 16, borderRadius: 14, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-  cta: { borderRadius: 16, shadowOpacity: 0.2, shadowRadius: 12, shadowColor: '#10b981' },
+  card: { backgroundColor: '#161E33', padding: 16, borderRadius: 14, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 4 } },
+  cta: { borderRadius: 16, shadowOpacity: 0.2, shadowRadius: 12, shadowColor: '#7C83FF' },
   hero: { borderRadius: 20, shadowOpacity: 0.18, shadowRadius: 16, shadowColor: '#000' },
 });
 `;

@@ -57,6 +57,45 @@ const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boole
     }),
   },
   {
+    id: 'gradient-on-body-or-glass',
+    label: 'Screen body has gradient bg OR a BlurView (no flat backgrounds)',
+    weight: 15,
+    hardFail: true,
+    fn: (s) => {
+      // Look for a LinearGradient that wraps the screen content (typically
+      // styled as flex:1 or absoluteFill) — that's the body gradient.
+      // Also accept BlurView usage (glassmorphism).
+      const bodyGradient =
+        /<LinearGradient[\s\S]{0,400}(StyleSheet\.absoluteFill|flex\s*:\s*1|absoluteFillObject)/i.test(s) ||
+        /<LinearGradient[^>]{0,300}colors=\{?\[\s*['"]#[0-9A-F]{3,6}['"]\s*,\s*['"]#[0-9A-F]{3,6}['"]/i.test(s);
+      const blur = /<BlurView\b/.test(s) && /from ['"]expo-blur['"]/.test(s);
+      return {
+        passed: bodyGradient || blur,
+        evidence: 'Screen body is flat. Wrap it with <LinearGradient style={StyleSheet.absoluteFill} colors={[...]}> or use <BlurView intensity={40}>.',
+      };
+    },
+  },
+  {
+    id: 'no-flat-orange-cta',
+    label: 'Primary CTA is a GRADIENT, not a solid orange/single color',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => {
+      // FAIL if a Pressable/TouchableOpacity has backgroundColor: '#orange' or '#FF8C00'-like
+      // and no LinearGradient nearby. We approximate by looking for solid CTA buttons.
+      const hasGradientCTA = /<LinearGradient[\s\S]{0,500}<(Pressable|TouchableOpacity|Text)/i.test(s);
+      const hasSolidOrangeCTA =
+        /backgroundColor\s*:\s*['"]#(FF6B35|F97316|FF8C00|FFA500|FF7700|FF7733|F87171)['"]/i.test(s) ||
+        /backgroundColor\s*:\s*['"]orange['"]/i.test(s);
+      return {
+        passed: hasGradientCTA && !hasSolidOrangeCTA,
+        evidence: hasSolidOrangeCTA
+          ? 'Solid-orange CTA detected — wrap the Pressable in <LinearGradient colors={[accent, accentSoft]}>.'
+          : 'No gradient-wrapped CTA found. The primary button must be a LinearGradient, not a flat color.',
+      };
+    },
+  },
+  {
     id: 'entry-animation',
     label: 'MotiView OR Animated.View with from/animate entry props',
     weight: 10,

@@ -131,8 +131,75 @@ output.
 
 
 ===================================================================
-SECTION 0: VISUAL POLISH MANDATE (read first, applies everywhere)
+SECTION 0: VISUAL POLISH MANDATE — 2026 TIER (read first, applies everywhere)
 ===================================================================
+
+The bar is "would Apple feature this in 2026". That means: layered depth,
+mesh / radial gradients, glassmorphism, oversized expressive typography,
+soft motion. Flat orange buttons on white cards are 2018, REJECTED.
+
+NON-NEGOTIABLES (the agent fails the gate if any are missing):
+
+[1] BACKGROUND IS NEVER SOLID
+   The screen body MUST have a multi-stop gradient or mesh. Examples:
+     - LinearGradient colors={['#0E1424', '#1E2740', '#2A2F5C']} (tranquil dark)
+     - LinearGradient colors={['#F0EEF8', '#FFFFFF']} (calm light, two stops min)
+     - Skia <Canvas> with a soft radial gradient blob in the corner for depth
+   A flat backgroundColor on the screen container = AUTO-FAIL.
+
+[2] CARDS HAVE GLASS / DEPTH
+   Cards are NOT flat white rectangles. Use ONE of:
+     - <BlurView intensity={40} tint="default"> with semi-transparent bg
+     - LinearGradient at low contrast inside the card (subtle shimmer)
+     - shadowOpacity 0.12+ AND shadowRadius 24+ (soft, large, never harsh 1px)
+   Plain `backgroundColor: '#fff'` or `'#161E33'` with no other treatment = FAIL.
+
+[3] PRIMARY CTA IS A GRADIENT, NOT A SOLID
+   Every primary button (Add Habit, Save, Get Started, etc.) MUST be:
+     - <LinearGradient colors={[accent, accentSoft]}> wrapping the Pressable
+     - OR a multi-stop gradient using the design tokens
+     - With shadow for lift
+   Solid `backgroundColor: '#FF8C00'` button = FAIL. Orange #FF6B35 is BANNED
+   on its own; if used, it must be a GRADIENT stop with a calmer second color.
+
+[4] TYPOGRAPHY IS EXPRESSIVE
+   Display headers MUST be 32-44pt with letterSpacing -0.5 to -1.0 and
+   fontWeight 700 or 800. Body 15pt. Subhead 13pt. Sentence case only.
+   Three sizes minimum on the home screen. No 17pt headers.
+
+[5] COLOR PALETTE IS 2026, NOT 2018
+   Use these accent families. PICK ONE per app, never mix:
+     - "Twilight": #7C83FF periwinkle + #5FB6A6 sage + #E8B58A warm — calm wellness
+     - "Aurora": #C7A8FF lavender + #8AE5C9 mint + #FFD5A0 peach — playful + warm
+     - "Carbon": #00D4FF cyan + #FF4889 hot pink — bold, gen-z energy
+     - "Ember": #FF6B35 + #FFD166 + #06D6A0 — earthy, grounded
+   AUTO-FAIL: pure orange #FF8C00 / #F97316 alone, basic white card patterns,
+   stock Material design colors.
+
+[6] DEPTH IN LAYERS
+   Every screen has 3+ z-layers visible at once:
+     - Background gradient (z=0)
+     - Cards / surfaces with shadow (z=1)
+     - Floating action button or header chip with stronger shadow (z=2)
+   This is what gives a "designed" feel vs. a Bootstrap form.
+
+[7] MOTION IS PRESENT, NOT JUST ANIMATED
+   - Entry: <MotiView from={{opacity:0, translateY:24}} animate={{opacity:1, translateY:0}}>
+     transition: {type:'timing', duration:480, easing: Easing.bezier(0.32, 0.72, 0, 1)}
+   - Tap: useSharedValue + withSpring scale 1 → 0.97 → 1
+   - Page-level: stagger children entry by 60ms (use delay prop on each MotiView)
+   Static screens with no entry animation = FAIL.
+
+[8] SCREEN DENSITY (CRITICAL — preview cuts off if too long)
+   Mobile preview is 285×716 native. Your home screen MUST fit ALL key content
+   (header + 3-5 habit rows + add CTA) in 716px WITHOUT scrolling. Means:
+     - Header: 80px max (one large title + date)
+     - Cards: 72-88px each, 12px gap
+     - 5 cards = 5×80 + 4×12 = 448px
+     - Footer Add CTA: 72px floating
+     - Total: ~600px — fits with breathing room
+   If your screen scrolls past the visible 716px on first load, you've over-stuffed.
+   Remove subtitle text, reduce card padding, drop secondary metadata.
 
 CRITICAL — PER-SCREEN POLISH (every screen, not just one)
 EVERY .tsx file under app/(tabs)/, app/screens/, or any path that contains

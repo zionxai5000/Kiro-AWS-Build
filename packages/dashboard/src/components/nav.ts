@@ -40,6 +40,7 @@ export type ViewName =
   // ZionX
   | 'zionx-pipeline'
   | 'zionx-app-development'
+  | 'zionx-app-projects'
   | 'zionx-app-store'
   | 'zionx-marketing'
   | 'zionx-design'
@@ -144,6 +145,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'zionx-pipeline', label: 'Pipeline' },
       { id: 'zionx-app-development', label: '⚡ App Development' },
+      { id: 'zionx-app-projects', label: '📦 Projects' },
       { id: 'zionx-app-store', label: 'App Store' },
       { id: 'zionx-marketing', label: 'Marketing' },
       { id: 'zionx-design', label: 'Design' },

@@ -43,11 +43,11 @@
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | H3.1 | Add a new top-level dashboard tab: "Projects" (sibling to "Studio") | |
-| ⬜ | H3.2 | Renders grid of completed projects (status=ready) with name + screenshot | |
-| ⬜ | H3.3 | "View" button → opens read-only preview in modal | |
-| ⬜ | H3.4 | "Edit" button → opens project in Studio with chat history loaded | |
-| ⬜ | H3.5 | Empty state: "No completed projects yet — create one in Studio" | |
+| ✅ | H3.1 | Add a new top-level dashboard tab: "Projects" (sibling to "Studio") | nav entry + route |
+| ✅ | H3.2 | Renders grid of completed projects (status=ready) with name + screenshot | grid view + meta |
+| ✅ | H3.3 | "View" button → opens read-only preview in modal | Snack iframe modal |
+| ✅ | H3.4 | "Edit" button → opens project in Studio with chat history loaded | localStorage handoff + nav click |
+| ✅ | H3.5 | Empty state: "No completed projects yet — create one in Studio" | done with CTA |
 
 ## PHASE H4 — Visual polish: rewrite the system prompt for 5-star quality
 

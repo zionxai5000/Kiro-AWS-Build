@@ -25,6 +25,7 @@ import { ReferencesView } from './views/references.js';
 import { QualityGateView } from './views/quality-gate.js';
 import { BaselinesView } from './views/baselines.js';
 import { StudioView } from './views/studio.js';
+import { ProjectsView } from './views/projects.js';
 import { VideoStudioView } from './views/video-studio.js';
 import { OV1View } from './views/seraphim-core/ov1-view.js';
 import { SV1View } from './views/seraphim-core/sv1-view.js';
@@ -332,6 +333,8 @@ export class App {
         return new ZionXPipelineView(this.viewContainer);
       case 'zionx-app-development':
         return new StudioView(this.viewContainer);
+      case 'zionx-app-projects':
+        return new ProjectsView(this.viewContainer);
       case 'zionx-app-store':
         return new ZionXAppStoreView(this.viewContainer);
       case 'zionx-marketing':

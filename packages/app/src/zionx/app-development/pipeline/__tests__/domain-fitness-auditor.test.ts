@@ -25,14 +25,19 @@ describe('Hook 13: Domain Fitness Auditor', () => {
 
   describe('habit checks', () => {
     const goodHabit = `
-      import { Pressable, Text } from 'react-native';
+      import React, { useState } from 'react';
+      import { Pressable, Text, Modal } from 'react-native';
       function HabitCard() {
+        const [showAdd, setShowAdd] = useState(false);
         const toggle = () => {};
         return (
-          <Pressable onPress={() => toggle()}>
-            <Text>streak: 5 days</Text>
-            <Text>+ Add Habit</Text>
-          </Pressable>
+          <>
+            <Pressable onPress={() => toggle()}>
+              <Text>streak: 5 days</Text>
+              <Text>+ Add Habit</Text>
+            </Pressable>
+            <Modal visible={showAdd}>{null}</Modal>
+          </>
         );
       }
     `;

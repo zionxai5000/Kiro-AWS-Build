@@ -66,7 +66,7 @@ const HABIT_CHECKS: CheckDef[] = [
   {
     id: 'streak-rendered',
     label: 'Streak field rendered (text or component)',
-    weight: 25,
+    weight: 20,
     hardFail: true,
     fn: (s) => ({
       // Pass if the source mentions "streak" as a value being rendered:
@@ -85,7 +85,7 @@ const HABIT_CHECKS: CheckDef[] = [
   {
     id: 'add-habit-flow',
     label: 'Add Habit flow (button + form/sheet)',
-    weight: 25,
+    weight: 20,
     hardFail: true,
     fn: (s) => ({
       passed: /add\s*habit/i.test(s) || /\baddHabit\b/.test(s) || /(['"]\+['"][^]{0,200}<Pressable)/.test(s),
@@ -93,9 +93,29 @@ const HABIT_CHECKS: CheckDef[] = [
     }),
   },
   {
+    id: 'add-flow-state-driven',
+    label: 'Add Habit flow is STATE-DRIVEN (modal/sheet, not router-based)',
+    weight: 20,
+    hardFail: true,
+    fn: (s) => {
+      // Look for: useState toggling Add visibility AND/OR a Modal/BottomSheet inside the screen.
+      const hasUseState = /useState\s*[<(]\s*(boolean|false|true)/i.test(s) ||
+                          /(showAdd|showSheet|isAddOpen|addOpen|isModalOpen)\s*[,=]/i.test(s);
+      const hasModal = /<Modal\b|<BottomSheet\b|<Sheet\b/.test(s);
+      const onlyRouter = /router\.(push|navigate)\s*\(\s*['"][^'"]*add/i.test(s) && !hasUseState && !hasModal;
+      const passed = (hasUseState || hasModal) && !onlyRouter;
+      return {
+        passed,
+        evidence: passed
+          ? undefined
+          : 'Primary Add flow appears router-based. Use useState + a Modal/Sheet inside the screen so the web preview and tests can exercise the create flow.',
+      };
+    },
+  },
+  {
     id: 'calendar-or-heatmap',
     label: 'Calendar or heatmap component (history view)',
-    weight: 25,
+    weight: 20,
     hardFail: false,
     fn: (s) => ({
       passed: /<Calendar\b|<Heatmap\b|heatmap|HabitGrid|CalendarGrid|getDay\(/i.test(s) ||
@@ -106,7 +126,7 @@ const HABIT_CHECKS: CheckDef[] = [
   {
     id: 'complete-tap',
     label: 'Tap-to-complete handler (Pressable + completion state mutation)',
-    weight: 25,
+    weight: 20,
     hardFail: true,
     fn: (s) => ({
       passed: /(toggle|complete|markDone|markComplete)\s*\(/i.test(s) && /<Pressable/.test(s),

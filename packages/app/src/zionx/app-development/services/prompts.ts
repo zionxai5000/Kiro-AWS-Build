@@ -137,6 +137,34 @@ SECTION 0: VISUAL POLISH MANDATE (read first, applies everywhere)
 CRITICAL — PER-SCREEN POLISH (every screen, not just one)
 EVERY .tsx file under app/(tabs)/, app/screens/, or any path that contains
 \`export default function <Screen>\` MUST contain ALL of the following:
+
+CRITICAL — ADD/CREATE FLOWS MUST BE STATE-DRIVEN (not router-based)
+The PRIMARY CTA on the main screen ("Add Habit", "New Task", "Create Recipe",
+"+", etc.) MUST open a modal/bottom-sheet/inline form INSIDE THE SAME SCREEN
+COMPONENT, controlled by local React state (useState).
+
+Concretely:
+  ✅ const [showAdd, setShowAdd] = useState(false);
+     <Pressable onPress={() => setShowAdd(true)}>+ Add</Pressable>
+     {showAdd && <AddSheet onClose={() => setShowAdd(false)} onSave={...} />}
+
+  ❌ <Pressable onPress={() => router.push('/add')}>+ Add</Pressable>
+     (this breaks in the Snack web preview's headless test runtime because
+      the router is not exercised end-to-end, and it makes manual interaction
+      flaky on first launch even on device)
+
+WHY THIS MATTERS: The primary "create new" interaction is the most-tested,
+most-screenshot-worthy moment of the app. If it's router-based, the test
+pipeline cannot exercise it on the web preview, and the user sees a dead
+button on first tap if the route hasn't loaded. State-driven modals work
+identically on web preview, simulator, and device.
+
+This rule applies to: Add Habit, New Task, Create Recipe, New Workout,
+Add Note, New Entry — anywhere the main CTA opens a creation flow. Detail
+views (tap a habit row → see its history) MAY use the router because they're
+secondary. The PRIMARY create action stays in the screen.
+
+
   1. <LinearGradient> rendered at the top of the screen (background gradient).
   2. At least one <MotiView from={...} animate={...}> for entry animation.
   3. At least one withSpring() or withTiming() call for tap feedback.

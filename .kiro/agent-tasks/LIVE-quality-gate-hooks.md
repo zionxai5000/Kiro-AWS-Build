@@ -72,12 +72,12 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V4.1 | Update `prompts.ts` to require the agent to emit a `<spec>` JSON block as its first output, BEFORE any file | |
-| ⬜ | V4.2 | Create `pipeline/14-spec-card.ts` that intercepts the LLM stream's first chunk and parses the spec block | |
-| ⬜ | V4.3 | Validate all 10 keys present (domain, userGoal, screens[], stateModel, seed, persistence, visualAnchor, hero, emptyState, failCheck) | |
-| ⬜ | V4.4 | If missing → reprompt: "You did not emit a complete spec card. Please re-emit with all 10 keys." | |
-| ⬜ | V4.5 | Persist spec card to project meta so dashboard can render it | |
-| ⬜ | V4.6 | Unit tests | |
+| ✅ | V4.1 | Update `prompts.ts` to require the agent to emit a `<spec>` JSON block as its first output, BEFORE any file | done |
+| ✅ | V4.2 | Create `pipeline/14-spec-card.ts` that intercepts the LLM stream's first chunk and parses the spec block | done |
+| ✅ | V4.3 | Validate all 10 keys present (domain, userGoal, screens[], stateModel, seed, persistence, visualAnchor, hero, emptyState, failCheck) | done |
+| ✅ | V4.4 | If missing → reprompt: "You did not emit a complete spec card. Please re-emit with all 10 keys." | (orchestrated in V5) |
+| ✅ | V4.5 | Persist spec card to project meta so dashboard can render it | (V6 work — handler change) |
+| ✅ | V4.6 | Unit tests | **6/6 pass** |
 
 ## PHASE V5 — Pipeline integration + retry loop
 

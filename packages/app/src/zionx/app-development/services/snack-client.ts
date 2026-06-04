@@ -83,6 +83,7 @@ export async function createSnack(input: SnackSaveInput): Promise<SnackSaveResul
     'phosphor-react-native': PHOSPHOR_SHIM,
     'zustand': ZUSTAND_SHIM,
     'zustand/middleware': ZUSTAND_MIDDLEWARE_SHIM,
+    '@react-navigation/bottom-tabs': REACT_NAVIGATION_BOTTOM_TABS_SHIM,
   };
 
   // Inject the shim files. The path is relative to project root.
@@ -850,4 +851,30 @@ export const redux = (reducer, initial) => (set, get) => ({ dispatch: (action) =
 // AsyncStorage-style createJSONStorage stub for persist()
 export const createJSONStorage = () => undefined;
 export default { persist, devtools, subscribeWithSelector, immer, combine, redux, createJSONStorage };
+`;
+
+/**
+ * @react-navigation/bottom-tabs shim — the agent occasionally imports
+ * { useBottomTabBarHeight, BottomTabBarHeightContext } from this package
+ * from inside screens to compensate for the tab bar's height. The web
+ * preview uses a single-screen adapter (no real tabs), so we stub all
+ * common exports to safe no-ops:
+ *  - useBottomTabBarHeight() -> 0
+ *  - BottomTabBarHeightContext -> a React context with default value 0
+ *  - createBottomTabNavigator() -> a fake navigator that just renders
+ *    the first screen child (in case some other code path hits it)
+ */
+const REACT_NAVIGATION_BOTTOM_TABS_SHIM = `// Auto-injected by ZionX Snack adapter — bottom-tabs stubs for web preview.
+import React from 'react';
+export const useBottomTabBarHeight = () => 0;
+export const BottomTabBarHeightContext = React.createContext(0);
+export const BottomTabBarHeightCallbackContext = React.createContext(() => {});
+export function createBottomTabNavigator() {
+  return {
+    Navigator: ({ children }) => React.createElement(React.Fragment, null, children),
+    Screen: ({ children }) => React.createElement(React.Fragment, null, typeof children === 'function' ? children({}) : children),
+    Group: ({ children }) => React.createElement(React.Fragment, null, children),
+  };
+}
+export default { useBottomTabBarHeight, BottomTabBarHeightContext, createBottomTabNavigator };
 `;

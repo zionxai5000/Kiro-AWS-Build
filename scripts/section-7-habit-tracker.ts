@@ -154,22 +154,20 @@ async function main() {
   // ---------------------------------------------------------------------
   // STEP 2 — Click "Habit Tracker" example → fills input, sends.
   // ---------------------------------------------------------------------
-  // Find the Habit Tracker example button by its visible text.
-  const habitBtn = await page.$('button[data-example-prompt*="habit tracker" i]');
-  if (!habitBtn) {
-    // Fallback: find by visible text content
-    const found = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll<HTMLElement>('[data-example-prompt]'));
-      const target = btns.find((b) => b.textContent?.toLowerCase().includes('habit'));
-      target?.click();
-      return !!target;
-    });
-    if (!found) {
-      await fail(page, 2, 'Click Habit Tracker example', 'after-send', 'no habit example button found');
-      return finish(browser);
+  // Click the Habit Tracker example button by visible text (in-context click
+  // for reliability — matches the probe-after-send behavior that succeeded).
+  const habitClicked = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll<HTMLElement>('[data-example-prompt]'));
+    const target = btns.find((b) => b.textContent?.toLowerCase().includes('habit'));
+    if (target) {
+      target.click();
+      return true;
     }
-  } else {
-    await habitBtn.click();
+    return false;
+  });
+  if (!habitClicked) {
+    await fail(page, 2, 'Click Habit Tracker example', 'after-send', 'no habit example button found');
+    return finish(browser);
   }
   await page.waitForTimeout(3000);
   await pass(page, 2, 'Clicked habit tracker example, send fired', 'after-send');

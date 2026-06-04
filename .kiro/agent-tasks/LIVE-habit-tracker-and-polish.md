@@ -146,3 +146,66 @@ the same language.
 | ⬜ | H9.3 | Re-run habit-tracker acceptance against deployed dashboard |
 | ⬜ | H9.4 | Capture all 10 numbered screenshots |
 | ⬜ | H9.5 | Post final screenshot grid in this file for King |
+
+
+---
+
+## PHASE H10 — Live test results + bundle fixes (added 2026-06-04 02:35 UTC)
+
+### Run #2 (post-deploy `ea04d2b`)
+
+Deployed dashboard + agent prompt. Acceptance test produced:
+
+| Step | Result | Notes |
+|---|---|---|
+| 1 | ✅ PASS | Studio empty state with 4 example prompts |
+| 2 | ✅ PASS | Clicked Habit Tracker example, Send fired |
+| 3 | ✅ PASS | Project named "Habit Tracker" appears in sidebar |
+| 4 | ✅ PASS | Stream produced 10+ files (final: 36 files) |
+| 5 | ❌ FAIL | snack-runtime sub-frame never spawned within 120s |
+| 6-10 | (skipped) | |
+
+### Verified via API
+
+| What | Status |
+|---|---|
+| Latest project | `proj-1780540438264-a280809c` named "Habit Tracker" |
+| File count | 36 files including `store/habit-store.ts`, `app/(tabs)/index.tsx`, theme tokens |
+| AGENT BUILD PROTOCOL block in App.tsx | ✅ Present with all 8 visible steps |
+| Domain anchor | "daily habit tracker for someone who wants to build consistent routines" |
+| State model | `Habit { id, name, emoji, color, createdAt, completions: ISODate[] }` in zustand persist |
+| First-launch seed | 4 realistic habits (water, steps, reading, meditation) — NO Lorem Ipsum |
+| Persistence gate | "Every habit completion flows through Zustand persist store → AsyncStorage" |
+| Visual anchor | emerald accent (#10b981), gradient (#ecfdf5 → #d1fae5), flame motif |
+
+The agent followed the SECTION -1 Agent Build Protocol exactly. King's
+"agent has a checklist they stick to" requirement is met.
+
+### Bundle error found via probe
+
+`scripts/probe-habit-snack.ts` confirmed the snack runtime's actual error:
+
+```
+Unable to resolve module '@react-navigation/bottom-tabs.js'
+  Evaluating @react-navigation/bottom-tabs.js
+  Evaluating _zionx_main.js
+```
+
+The agent's `app/(tabs)/index.tsx` does:
+`import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';`
+
+But that package isn't in the deps and isn't shimmed. The web preview
+adapter (`_zionx_main.js`) imports the screen file, which transitively
+needs the bottom-tabs hook.
+
+### Fix shipped
+
+| ✅/⬜ | # | Task | Commit |
+|---|---|---|---|
+| ✅ | H10.1 | Run probe, identify root cause | done |
+| ✅ | H10.2 | Add `REACT_NAVIGATION_BOTTOM_TABS_SHIM` to snack-client.ts | next commit |
+| ✅ | H10.3 | Stubs: `useBottomTabBarHeight() → 0`, `BottomTabBarHeightContext`, `createBottomTabNavigator()` | next commit |
+| ✅ | H10.4 | Wire shim into the SHIMS map | next commit |
+| ⬜ | H10.5 | Push, wait for ECS rollover | |
+| ⬜ | H10.6 | Re-run acceptance — expect step 5+ to pass | |
+

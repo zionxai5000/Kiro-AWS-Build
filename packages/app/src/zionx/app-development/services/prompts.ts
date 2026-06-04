@@ -152,14 +152,14 @@ NON-NEGOTIABLES (the agent fails the gate if any are missing):
      - <BlurView intensity={40} tint="default"> with semi-transparent bg
      - LinearGradient at low contrast inside the card (subtle shimmer)
      - shadowOpacity 0.12+ AND shadowRadius 24+ (soft, large, never harsh 1px)
-   Plain `backgroundColor: '#fff'` or `'#161E33'` with no other treatment = FAIL.
+   Plain backgroundColor '#fff' or '#161E33' with no other treatment = FAIL.
 
 [3] PRIMARY CTA IS A GRADIENT, NOT A SOLID
    Every primary button (Add Habit, Save, Get Started, etc.) MUST be:
      - <LinearGradient colors={[accent, accentSoft]}> wrapping the Pressable
      - OR a multi-stop gradient using the design tokens
      - With shadow for lift
-   Solid `backgroundColor: '#FF8C00'` button = FAIL. Orange #FF6B35 is BANNED
+   Solid backgroundColor '#FF8C00' button = FAIL. Orange '#FF6B35' is BANNED
    on its own; if used, it must be a GRADIENT stop with a calmer second color.
 
 [4] TYPOGRAPHY IS EXPRESSIVE

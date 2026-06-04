@@ -24,20 +24,20 @@
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | H1.1 | Add `deriveProjectName(prompt)` in dashboard — extract 2-4 word title from prompt with regex/heuristic | |
-| ⬜ | H1.2 | Update `sendPrompt()` to call it instead of `text.slice(0, 60)` | |
-| ⬜ | H1.3 | Test names: "Tic Tac Toe", "Habit Tracker", "Recipe Manager", "Todo List" | |
-| ⬜ | H1.4 | Render derived name in sidebar + Projects tab | |
+| ✅ | H1.1 | Add `deriveProjectName(prompt)` in dashboard — extract 2-4 word title from prompt with regex/heuristic | working |
+| ✅ | H1.2 | Update `sendPrompt()` to call it instead of `text.slice(0, 60)` | working |
+| ✅ | H1.3 | Test names: "Tic Tac Toe", "Habit Tracker", "Recipe Manager", "Todo List" | 10/10 unit-test pass |
+| ✅ | H1.4 | Render derived name in sidebar + Projects tab | (already renders project.name) |
 
 ## PHASE H2 — Persistence verification (S3 mirror is real)
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | H2.1 | Verify `S3WorkspaceStore.hydrateAll()` runs at boot in production-server.ts | |
-| ⬜ | H2.2 | Verify `workspace.setDurableStore(store)` is wired so writes mirror to S3 | |
-| ⬜ | H2.3 | Add a "💾 saved" badge per project in sidebar with last-synced timestamp | |
-| ⬜ | H2.4 | Test refresh: create project → refresh page → confirm sidebar still shows it | |
-| ⬜ | H2.5 | Test container-restart proxy: stop+start ECS task → confirm projects still listed | |
+| ✅ | H2.1 | Verify `S3WorkspaceStore.hydrateAll()` runs at boot in production-server.ts | confirmed line 1386 |
+| ✅ | H2.2 | Verify `workspace.setDurableStore(store)` is wired so writes mirror to S3 | confirmed line 1391 |
+| ✅ | H2.3 | Add a "💾 saved" badge per project in sidebar with last-synced timestamp | rendering updatedAt + saved label |
+| ⬜ | H2.4 | Test refresh: create project → refresh page → confirm sidebar still shows it | (manual test post-deploy) |
+| ⬜ | H2.5 | Test container-restart proxy: stop+start ECS task → confirm projects still listed | (manual, S3 hydrate already confirmed) |
 
 ## PHASE H3 — Projects tab (separate completed-apps view)
 

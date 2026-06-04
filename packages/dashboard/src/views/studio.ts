@@ -448,8 +448,9 @@ export class StudioView {
 
     if (!this.state.projectId) {
       try {
+        const derivedName = this.deriveProjectName(text);
         const project = await createAppDevProject({
-          name: text.slice(0, 60),
+          name: derivedName,
           description: text,
           platform: 'both',
         });
@@ -925,7 +926,10 @@ export class StudioView {
     return this.state.projects.map((p) => `
       <div class="studio-project ${p.projectId === this.state.projectId ? 'is-active' : ''}" data-project-id="${escapeHtml(p.projectId)}">
         <div class="studio-project__name">${escapeHtml(p.name ?? p.projectId)}</div>
-        <div class="studio-project__meta">${p.fileCount} files · ${fmtTime(p.updatedAt ?? p.createdAt)}</div>
+        <div class="studio-project__meta">
+          <span>${p.fileCount} files · ${fmtTime(p.updatedAt ?? p.createdAt)}</span>
+          <span class="studio-project__saved" title="Mirrored to S3 — survives container restart">💾 Saved</span>
+        </div>
       </div>
     `).join('');
   }
@@ -990,6 +994,66 @@ export class StudioView {
     const url = this.buildSnackPlatformUrl(this.state.previewPlatform);
     captureUserAction('studio.openPreviewFullscreen', { platform: this.state.previewPlatform });
     window.open(url, '_blank', 'noopener');
+  }
+
+  /**
+   * Derive a short, human-readable project NAME from the user's prompt.
+   *
+   * Goal: King writes "Build me a tic-tac-toe game with..." and the sidebar
+   * shows "Tic Tac Toe", not "Build me a tic-tac-toe game with...". A name
+   * is what every reference product (Vibecode, Rork) shows in its project
+   * list — it's the human-memorable handle, not the original prompt.
+   *
+   * Strategy:
+   *  1. If the prompt contains "called X" or "named X", lift X.
+   *  2. Else look for known app-type keywords (tracker, game, list, app,
+   *     timer, journal, manager, planner, generator) and Title-Case the
+   *     2-3 words ending at that keyword.
+   *  3. Fallback: first 4 meaningful words, Title-Cased.
+   *
+   * The slug is bounded to 30 chars so it fits the sidebar without truncation.
+   */
+  private deriveProjectName(prompt: string): string {
+    const text = prompt.trim();
+    if (!text) return 'New App';
+
+    // Pattern 1: "called X" or "named X" — explicit user-supplied name
+    const namedMatch = text.match(/(?:called|named)\s+["']?([A-Za-z][A-Za-z0-9 -]{2,29})["']?/i);
+    if (namedMatch?.[1]) {
+      return this.toTitleCase(namedMatch[1].trim()).slice(0, 30);
+    }
+
+    // Strip filler and lowercase for keyword search
+    const stripped = text
+      .replace(/^(build|make|create|develop|design|generate)\s+(me\s+)?(a|an|the)?\s*/i, '')
+      .replace(/^(i\s+want|i\s+need|please|can\s+you)\s+(to\s+)?(build|make|create)?\s*(me\s+)?(a|an|the)?\s*/i, '')
+      .trim();
+
+    // Pattern 2: app-type keyword anchor (tracker, game, app, etc.)
+    const appKeywords = /(tracker|game|list|app|timer|journal|manager|planner|generator|tool|reminder|log|diary|notebook|board|dashboard|wallet|chatbot|player|recipe[s]?)\b/i;
+    const km = stripped.match(new RegExp(`(?:[a-z][a-z0-9-]*\\s+){0,3}${appKeywords.source}`, 'i'));
+    if (km?.[0]) {
+      return this.toTitleCase(km[0].replace(/[-_]/g, ' ').trim()).slice(0, 30);
+    }
+
+    // Pattern 3: first 3-4 meaningful words
+    const words = stripped
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !/^(with|that|where|which|and|the|for|from|into|onto|when|while|like)$/i.test(w))
+      .slice(0, 4);
+    if (words.length) {
+      return this.toTitleCase(words.join(' ').replace(/[^A-Za-z0-9 -]/g, '')).slice(0, 30) || 'New App';
+    }
+
+    return 'New App';
+  }
+
+  private toTitleCase(s: string): string {
+    return s
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   /**

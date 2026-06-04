@@ -190,6 +190,19 @@ export function renderStudioStylesheet(): string {
       font-size: ${t.type.sizeXs};
       color: ${t.text.tertiary};
       margin-top: ${t.space.xs};
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: ${t.space.sm};
+    }
+    .studio-project__saved {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(52, 211, 153, 0.12);
+      color: rgb(52, 211, 153);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
     }
     .studio-sidebar__footer {
       padding: ${t.space.md} ${t.space.base};

@@ -1366,8 +1366,11 @@ export class StudioView {
   }
 
   private renderChatContent(): string {
-    // Empty-state hero with example prompts (VibeCode parity)
-    const showEmptyState = this.messages.length === 0 && !this.state.projectId;
+    // Empty-state hero with example prompts (VibeCode parity).
+    // Render when there's no project yet and the user hasn't sent anything.
+    // The seed assistant welcome message counts as 0 user messages.
+    const hasUserMessage = this.messages.some((m) => m.role === 'user');
+    const showEmptyState = !this.state.projectId && !hasUserMessage;
     const examplePrompts = [
       { emoji: '🔥', name: 'Habit Tracker', prompt: 'Build a habit tracker where I can add habits, mark them complete each day, see my streaks, and view a calendar heatmap. 5-star App Store quality.' },
       { emoji: '✓', name: 'Todo List', prompt: 'Build a todo list with sections for Today / Tomorrow / Later, swipe to complete, swipe to delete, and a satisfying animated checkbox.' },

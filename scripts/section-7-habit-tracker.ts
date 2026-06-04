@@ -118,21 +118,30 @@ async function main() {
   // ---------------------------------------------------------------------
   // STEP 1 — Open Studio empty state. Confirm 4 example buttons render.
   // ---------------------------------------------------------------------
-  await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  // Bypass any login overlay (mirrors section-6).
-  await page.evaluate(() => {
-    document.querySelectorAll<HTMLElement>('[id*="login"], [class*="login-overlay"], [data-overlay]').forEach((el) => {
-      el.style.display = 'none';
-    });
-  });
+  await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle' });
+  // Bypass Cognito login by injecting fake JWT tokens (mirrors section-6).
+  await page.evaluate(`(() => {
+    const h = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const p = btoa(JSON.stringify({
+      sub: 'tracer', email: 't@t', 'cognito:username': 'Tracer',
+      'cognito:groups': ['king'], exp: Math.floor(Date.now()/1000)+86400, iat: Math.floor(Date.now()/1000)
+    }));
+    localStorage.setItem('seraphim_id_token', h + '.' + p + '.x');
+    localStorage.setItem('seraphim_access_token', h + '.' + p + '.x');
+    localStorage.setItem('seraphim_refresh_token', 'r');
+  })()`);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('a.sidebar-link', { timeout: 20_000 });
+  await page.click('.sidebar-section-header[data-section="zionx"]').catch(() => {});
+  await page.waitForTimeout(500);
   // Click the App Development nav.
-  const appDevLink = await page.$('a[data-view="zionx-app-development"]');
+  const appDevLink = await page.$('a.sidebar-link[data-view="zionx-app-development"]');
   if (!appDevLink) {
     await fail(page, 1, 'Open Studio empty state', 'studio-empty', 'App Development nav link not found');
     return finish(browser);
   }
   await appDevLink.click();
+  await page.waitForSelector('.studio', { timeout: 20_000 });
   await page.waitForTimeout(2000);
   // Confirm 4 example prompt buttons exist (H6 deliverable).
   const exampleCount = await page.$$eval('[data-example-prompt]', (els) => els.length);

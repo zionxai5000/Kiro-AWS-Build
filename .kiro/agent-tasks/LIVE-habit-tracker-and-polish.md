@@ -61,6 +61,7 @@
 | ✅ | H4.6 | Add typography hierarchy directive: SF Pro / Inter, 28-32px headers, line-height 1.2, letter-spacing -0.02em | covered in Section 0 |
 | ✅ | H4.7 | Add motion directive: every state change is animated (Moti or Reanimated), 250ms ease-out | covered in Section 0 |
 | ✅ | H4.8 | Add color-token directive: a primary accent color, 2 surface tones, 1 accent gradient — declared at top of design system file | covered + final checklist |
+| ✅ | H4.9 | NEW: Add SECTION -1 "Agent Build Protocol" — 10-step checklist the agent MUST work through and emit at top of App.tsx (matches the way Kiro itself works: phases, persistence rule, visual mandate, fail check) | (this turn) |
 
 ## PHASE H5 — Habit Tracker acceptance test (5-star quality bar)
 
@@ -97,3 +98,51 @@
 
 ## Decision log (real-time)
 
+
+
+---
+
+## PHASE H8 — Live debug findings + Agent Build Protocol (added 2026-06-04)
+
+King's correction: "everything that you're doing should be the same thing
+that is done inside the app — ensure the agent assigned has a checklist
+of how to create, act, perform when tasked and they stick to it."
+
+### What I found
+
+| ✅/⬜ | # | Finding / fix | Commit |
+|---|---|---|---|
+| ✅ | H8.1 | First acceptance run failed: `App Development nav link not found`. Root cause: missing Cognito JWT bypass + collapsed ZionX nav section. | next commit |
+| ✅ | H8.2 | Fixed acceptance: inject fake JWT → reload → expand zionx section → click app-development link. Mirrors `section-6-acceptance.ts` exactly. | next commit |
+| ✅ | H8.3 | Second run failed: 0 example-prompt buttons. Probe (`probe-empty-state.ts`) showed `studio-empty-hero` rendered=false. | next commit |
+| ✅ | H8.4 | Root cause of empty hero never showing: studio mounts a seed assistant welcome message → `messages.length === 0` is always false → empty state branch never fires. | next commit |
+| ✅ | H8.5 | Fix: gate empty hero on `!projectId && !hasUserMessage` instead of `messages.length === 0 && !projectId`. The seed welcome message no longer suppresses the hero. | next commit |
+| ✅ | H8.6 | Inserted SECTION -1 "AGENT BUILD PROTOCOL" at the top of `prompts.ts` — a 10-step checklist the LLM agent MUST follow and emit at the top of App.tsx | next commit |
+| ✅ | H8.7 | The 10 protocol steps: (1) domain anchor, (2) primary user goal, (3) screen inventory, (4) state model, (5) first-launch seed, (6) persistence gate, (7) visual anchor, (8) hero interaction, (9) empty state, (10) fail check | bound in prompt |
+| ✅ | H8.8 | Output requirement: every generated app starts with an "AGENT BUILD PROTOCOL" comment block in App.tsx so the user can read what was built and why | bound in prompt |
+
+### Why this matters
+
+The dashboard's tab-based UX, persistence-mirror, derive-name, and
+visual-mandate are all the SAME design as the agent's checklist for
+generating an app. King's instruction stands: agent + dashboard speak
+the same language.
+
+| Dashboard concern | Agent protocol step | Match |
+|---|---|---|
+| Smart project name | Step 1 (domain anchor) | ✅ |
+| Plan + checklist bubble | Step 3 (screen inventory) | ✅ |
+| 💾 Saved badge | Step 6 (persistence gate) | ✅ |
+| Visual Polish Mandate | Step 7 (visual anchor) | ✅ |
+| 5-star quality bar | Step 10 (fail check) | ✅ |
+| Acceptance test | Per-step verification | ✅ |
+
+## PHASE H9 — Run acceptance + capture screenshots (current step)
+
+| ✅/⬜ | # | Task |
+|---|---|---|
+| 🔄 | H9.1 | Commit + push H8.1-H8.8 (empty-hero fix + SECTION -1 Agent Protocol) |
+| ⬜ | H9.2 | Wait for ECS rollover + dashboard S3 sync |
+| ⬜ | H9.3 | Re-run habit-tracker acceptance against deployed dashboard |
+| ⬜ | H9.4 | Capture all 10 numbered screenshots |
+| ⬜ | H9.5 | Post final screenshot grid in this file for King |

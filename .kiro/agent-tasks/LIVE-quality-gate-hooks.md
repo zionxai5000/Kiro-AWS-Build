@@ -47,12 +47,12 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V2.1 | Create `pipeline/12-persistence-auditor.ts` | |
-| ⬜ | V2.2 | Check 1: zustand persist middleware imported in ≥1 store file | |
-| ⬜ | V2.3 | Check 2: AsyncStorage imported and passed to createJSONStorage | |
-| ⬜ | V2.4 | Check 3: no hardcoded user-data arrays in screens (regex `const \w+(?:Data\|Items\|List) = \[ *\{`) | |
-| ⬜ | V2.5 | Check 4: persist key declared with non-default name | |
-| ⬜ | V2.6 | Unit tests | |
+| ✅ | V2.1 | Create `pipeline/12-persistence-auditor.ts` | done |
+| ✅ | V2.2 | Check 1: zustand persist middleware imported in ≥1 store file | done |
+| ✅ | V2.3 | Check 2: AsyncStorage imported and passed to createJSONStorage | done |
+| ✅ | V2.4 | Check 3: no hardcoded user-data arrays in screens (regex `const \w+(?:Data\|Items\|List) = \[ *\{`) | done |
+| ✅ | V2.5 | Check 4: persist key declared with non-default name | done |
+| ✅ | V2.6 | Unit tests | **4/4 pass** |
 
 ## PHASE V3 — Hook 13: Domain Fitness Auditor
 

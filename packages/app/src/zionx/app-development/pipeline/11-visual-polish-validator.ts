@@ -1,0 +1,293 @@
+/**
+ * Pipeline Hook 11: Visual Polish Validator
+ *
+ * Trigger: After Hook 2 (code-generator) finishes streaming all files.
+ * Action: Score every screen file against 12 polish checks. Fail = retry.
+ * Failure mode: NOTIFY (orchestrator decides to re-prompt or ship-with-badge).
+ *
+ * The 12 checks below collectively encode SECTION 0.5 of prompts.ts. The
+ * pass threshold (default 70/100) is configurable via LIMITS.qualityVisualPolishThreshold.
+ * Hard-fail items (placeholder copy, missing gradient, missing animation)
+ * force the overall result to fail regardless of total score.
+ */
+
+import { isHookEnabled } from '../config/hooks.config.js';
+import { LIMITS } from '../config/limits.js';
+import type { HookContext, HookMetadata, HookResult } from './types.js';
+import type { QualityCheck, QualityScore } from './quality-types.js';
+
+export const HOOK_METADATA: HookMetadata = {
+  id: 'visual-polish-validator',
+  name: 'Visual Polish Validator',
+  triggerType: 'manual',
+  failureMode: 'notify',
+  timeoutMs: 10_000,
+  maxConcurrent: 1,
+} as const;
+
+export interface VisualPolishInput {
+  projectId: string;
+  /** Map of file path -> file content. Hook expects only .tsx / .jsx files. */
+  files: Record<string, string>;
+}
+
+export interface VisualPolishOutput {
+  score: QualityScore;
+}
+
+
+// ---------------------------------------------------------------------------
+// 12 Checks — each takes the merged source of all .tsx files and returns
+// (passed, evidence). Implemented with regex against source rather than full
+// AST because (a) we only check for presence patterns and (b) parsing 30+
+// files at every generation costs more than the regex pass.
+// ---------------------------------------------------------------------------
+
+type CheckFn = (src: string) => { passed: boolean; evidence?: string };
+
+const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boolean; fn: CheckFn }> = [
+  {
+    id: 'gradient-rendered',
+    label: 'expo-linear-gradient imported AND <LinearGradient> rendered',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => ({
+      passed: /from ['"]expo-linear-gradient['"]/.test(s) && /<LinearGradient[\s>]/.test(s),
+      evidence: 'No <LinearGradient> tag found in any screen.',
+    }),
+  },
+  {
+    id: 'entry-animation',
+    label: 'MotiView OR Animated.View with from/animate entry props',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => ({
+      passed: /<MotiView[\s\S]{0,400}?(from|animate)=/.test(s) ||
+              /<Animated\.View[\s\S]{0,400}?(entering|exiting)=/.test(s),
+      evidence: 'No entry animation found (need <MotiView from={...}> or <Animated.View entering={...}>).',
+    }),
+  },
+  {
+    id: 'spring-on-tap',
+    label: 'withSpring OR withTiming used (tap feedback)',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => ({
+      passed: /withSpring\s*\(/.test(s) || /withTiming\s*\(/.test(s),
+      evidence: 'No withSpring/withTiming calls. Tap interactions need scale-spring feedback.',
+    }),
+  },
+  {
+    id: 'haptics-on-tap',
+    label: 'Haptics.impactAsync OR notificationAsync called',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => ({
+      passed: /Haptics\.(impactAsync|notificationAsync|selectionAsync)\s*\(/.test(s),
+      evidence: 'No Haptics calls. Every primary tap should fire Haptics.impactAsync(Light) at minimum.',
+    }),
+  },
+  {
+    id: 'shadows-set',
+    label: 'shadowOpacity AND shadowRadius set in ≥3 places (cards have depth)',
+    weight: 10,
+    hardFail: false,
+    fn: (s) => {
+      const shadowOpacityCount = (s.match(/shadowOpacity\s*:/g) ?? []).length;
+      return {
+        passed: shadowOpacityCount >= 3,
+        evidence: `Only ${shadowOpacityCount} shadowOpacity declarations found (need ≥3 — cards, CTAs, hero block).`,
+      };
+    },
+  },
+  {
+    id: 'accent-color',
+    label: 'Custom accent color (not pure white/black/grayscale) used in styles',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => {
+      // Find hex colors in styles. Reject pure white/black and grayscale.
+      const hexColors = s.match(/#[0-9a-fA-F]{6}\b/g) ?? [];
+      const isAccent = (h: string): boolean => {
+        const r = parseInt(h.slice(1, 3), 16);
+        const g = parseInt(h.slice(3, 5), 16);
+        const b = parseInt(h.slice(5, 7), 16);
+        // Reject grayscale (R≈G≈B within 8 units)
+        if (Math.abs(r - g) < 8 && Math.abs(g - b) < 8) return false;
+        return true;
+      };
+      const accents = hexColors.filter(isAccent);
+      return {
+        passed: accents.length >= 1,
+        evidence: `Found ${hexColors.length} hex colors but ${accents.length} accent colors. Need at least one non-grayscale brand color.`,
+      };
+    },
+  },
+  {
+    id: 'safearea-wrap',
+    label: 'SafeAreaView OR useSafeAreaInsets used in screens',
+    weight: 5,
+    hardFail: false,
+    fn: (s) => ({
+      passed: /SafeAreaView/.test(s) || /useSafeAreaInsets/.test(s),
+      evidence: 'No SafeAreaView wrapper detected — screens may clip on notch devices.',
+    }),
+  },
+  {
+    id: 'card-radius',
+    label: 'Cards use borderRadius >= 12 (rounded, not square)',
+    weight: 10,
+    hardFail: false,
+    fn: (s) => {
+      const radii = Array.from(s.matchAll(/borderRadius\s*:\s*(\d+)/g)).map((m) => parseInt(m[1]!, 10));
+      const ok = radii.filter((r) => r >= 12).length;
+      return {
+        passed: ok >= 2,
+        evidence: `Only ${ok} borderRadius values >=12 found. Cards/buttons should be 12-20px rounded.`,
+      };
+    },
+  },
+  {
+    id: 'typography-weights',
+    label: 'Typography uses ≥2 distinct fontWeight values (visual hierarchy)',
+    weight: 10,
+    hardFail: false,
+    fn: (s) => {
+      const weights = new Set(Array.from(s.matchAll(/fontWeight\s*:\s*['"]?(\d+|bold|normal|semibold)/g)).map((m) => m[1]));
+      return {
+        passed: weights.size >= 2,
+        evidence: `Only ${weights.size} distinct fontWeight values used (${[...weights].join(', ')}). Need 2+ for hierarchy.`,
+      };
+    },
+  },
+  {
+    id: 'no-placeholder-copy',
+    label: 'No "Lorem ipsum" / "Coming soon" / "Item N" placeholder copy',
+    weight: 10,
+    hardFail: true,
+    fn: (s) => {
+      const placeholders = [
+        /\blorem ipsum\b/i,
+        /\bcoming soon\b/i,
+        /\btodo\s*:\s*[a-z]/i,  // "todo: implement"
+        /['"](Item|Habit|Task|Entry)\s*\d+['"]/,  // "Item 1", "Habit 2"
+        /\bplaceholder text\b/i,
+        /['"]hello world['"]/i,
+      ];
+      const hits = placeholders.filter((re) => re.test(s));
+      return {
+        passed: hits.length === 0,
+        evidence: hits.length ? `Found ${hits.length} placeholder pattern(s): ${hits.map(String).join(', ')}` : undefined,
+      };
+    },
+  },
+  {
+    id: 'custom-button-component',
+    label: 'Custom Button or CTA component (not bare RN <Button>)',
+    weight: 5,
+    hardFail: false,
+    fn: (s) => {
+      const usesNativeButton = /<Button[\s>]/.test(s) && !/from ['"]\.\.\/.+\/Button['"]/.test(s);
+      // Pass if a custom Button is imported from theme/components, OR Pressable wraps the CTA
+      const hasCustomCTA = /from ['"][\.\/].*\/Button['"]/.test(s) || /<Pressable[^>]*style=\{?\[?\s*\{?\s*backgroundColor/.test(s);
+      return {
+        passed: hasCustomCTA && !usesNativeButton,
+        evidence: usesNativeButton ? 'Bare React Native <Button> used — replace with Pressable+gradient.' : undefined,
+      };
+    },
+  },
+  {
+    id: 'two-pressables-or-more',
+    label: 'At least 2 Pressable instances (interactive surfaces)',
+    weight: 5,
+    hardFail: false,
+    fn: (s) => {
+      const count = (s.match(/<Pressable[\s>]/g) ?? []).length;
+      return {
+        passed: count >= 2,
+        evidence: `${count} Pressable(s) found — need ≥2 to count as interactive.`,
+      };
+    },
+  },
+];
+
+
+// ---------------------------------------------------------------------------
+// Run
+// ---------------------------------------------------------------------------
+
+export async function run(
+  input: VisualPolishInput,
+  ctx: HookContext,
+): Promise<HookResult<VisualPolishOutput>> {
+  const start = Date.now();
+
+  if (!isHookEnabled(HOOK_METADATA.id)) {
+    ctx.log(`[${HOOK_METADATA.id}] disabled — skipping`);
+    return {
+      success: true,
+      hookId: HOOK_METADATA.id,
+      dryRun: ctx.dryRun,
+      data: {
+        score: { total: 100, breakdown: [], passed: true, passThreshold: 0, failedChecks: [] },
+      },
+      durationMs: Date.now() - start,
+    };
+  }
+
+  // Merge all .tsx / .jsx files into one source string. The checks are
+  // presence-based — if ANY screen has a gradient that's enough.
+  const tsxFiles = Object.entries(input.files).filter(([p]) => /\.(tsx|jsx)$/.test(p));
+  const merged = tsxFiles.map(([, c]) => c).join('\n\n');
+
+  if (merged.length === 0) {
+    ctx.log(`[${HOOK_METADATA.id}] no .tsx files in input`);
+    return {
+      success: false,
+      hookId: HOOK_METADATA.id,
+      dryRun: ctx.dryRun,
+      error: 'no_tsx_files',
+      durationMs: Date.now() - start,
+    };
+  }
+
+  const breakdown: QualityCheck[] = CHECKS.map((c) => {
+    const r = c.fn(merged);
+    return {
+      id: c.id,
+      label: c.label,
+      weight: c.weight,
+      hardFail: c.hardFail,
+      passed: r.passed,
+      evidence: r.passed ? undefined : r.evidence,
+    };
+  });
+
+  const total = breakdown.reduce((s, c) => s + (c.passed ? c.weight : 0), 0);
+  const totalCapped = Math.min(100, total);
+  const failedChecks = breakdown.filter((c) => !c.passed);
+  const hardFailHit = failedChecks.some((c) => c.hardFail);
+  const passThreshold = LIMITS.qualityVisualPolishThreshold ?? 70;
+  const passed = !hardFailHit && totalCapped >= passThreshold;
+
+  const score: QualityScore = {
+    total: totalCapped,
+    breakdown,
+    failedChecks,
+    passed,
+    passThreshold,
+  };
+
+  ctx.log(
+    `[${HOOK_METADATA.id}] score=${totalCapped}/${passThreshold} pass=${passed} ` +
+    `failed=${failedChecks.length} hardFail=${hardFailHit}`,
+  );
+
+  return {
+    success: true,
+    hookId: HOOK_METADATA.id,
+    dryRun: ctx.dryRun,
+    data: { score },
+    durationMs: Date.now() - start,
+  };
+}

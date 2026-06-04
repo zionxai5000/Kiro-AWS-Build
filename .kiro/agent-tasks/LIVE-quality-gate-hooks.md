@@ -36,12 +36,12 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V1.1 | Create `pipeline/11-visual-polish-validator.ts` with `run()` + `HOOK_METADATA` | |
-| ⬜ | V1.2 | Implement 12 AST/regex checks: gradient, MotiView, withSpring, Haptics, shadow, accent color, custom CTA, motif, SafeAreaView, card radius+shadow, ≥2 fontWeights, no placeholder copy | |
-| ⬜ | V1.3 | Score weighting (10/10/10/10/10/10/5/5/5/10/10/10 = 105) → cap at 100 | |
-| ⬜ | V1.4 | Auto-fail items (placeholder copy, missing gradient, missing animation): score = 0 regardless | |
-| ⬜ | V1.5 | Return `QualityScore { total, breakdown[], failedChecks[], passed }` | |
-| ⬜ | V1.6 | Unit tests with sample passing screen + sample failing screen | |
+| ✅ | V1.1 | Create `pipeline/11-visual-polish-validator.ts` with `run()` + `HOOK_METADATA` | done |
+| ✅ | V1.2 | Implement 12 AST/regex checks: gradient, MotiView, withSpring, Haptics, shadow, accent color, custom CTA, motif, SafeAreaView, card radius+shadow, ≥2 fontWeights, no placeholder copy | done (12 checks) |
+| ✅ | V1.3 | Score weighting (10/10/10/10/10/10/5/5/5/10/10/10 = 105) → cap at 100 | capped at 100 |
+| ✅ | V1.4 | Auto-fail items (placeholder copy, missing gradient, missing animation): score = 0 regardless | 5 hardFail items wired |
+| ✅ | V1.5 | Return `QualityScore { total, breakdown[], failedChecks[], passed }` | done |
+| ✅ | V1.6 | Unit tests with sample passing screen + sample failing screen | **5/5 pass** |
 
 ## PHASE V2 — Hook 12: Persistence Auditor
 

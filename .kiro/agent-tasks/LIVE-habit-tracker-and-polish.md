@@ -53,14 +53,14 @@
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | H4.1 | Re-read VibeCode audit Section 10 (Native UI primitives vocabulary) | |
-| ⬜ | H4.2 | Strengthen SECTION 0 with explicit "5-star App Store quality" mandate | |
-| ⬜ | H4.3 | Add Native UI vocabulary: Large Header Titles, Bottom Sheets (Gorhom), Swipe-to-delete (RNGH), Haptics, Segmented Control, Liquid Glass tabs, ContextMenu (Zeego), Date pickers | |
-| ⬜ | H4.4 | Add per-domain visual guidance section: habit-tracker → streak flames + calendar heatmap + progress rings; todo → swipe-delete + organic checkmarks; recipe → photo cards with shadow | |
-| ⬜ | H4.5 | Explicit ban on placeholder/lorem-ipsum/static-array data — "no `const fakeData = [...]`. Use AsyncStorage or zustand-persist for state. Seed with 3-5 realistic examples on first launch only." | |
-| ⬜ | H4.6 | Add typography hierarchy directive: SF Pro / Inter, 28-32px headers, line-height 1.2, letter-spacing -0.02em | |
-| ⬜ | H4.7 | Add motion directive: every state change is animated (Moti or Reanimated), 250ms ease-out | |
-| ⬜ | H4.8 | Add color-token directive: a primary accent color, 2 surface tones, 1 accent gradient — declared at top of design system file | |
+| ✅ | H4.1 | Re-read VibeCode audit Section 10 (Native UI primitives vocabulary) | done |
+| ✅ | H4.2 | Strengthen SECTION 0 with explicit "5-star App Store quality" mandate | new SECTION 0.5 added |
+| ✅ | H4.3 | Add Native UI vocabulary: Large Header Titles, Bottom Sheets (Gorhom), Swipe-to-delete (RNGH), Haptics, Segmented Control, Liquid Glass tabs, ContextMenu (Zeego), Date pickers | all named explicitly |
+| ✅ | H4.4 | Add per-domain visual guidance section: habit-tracker → streak flames + calendar heatmap + progress rings; todo → swipe-delete + organic checkmarks; recipe → photo cards with shadow | 6 domain recipes added |
+| ✅ | H4.5 | Explicit ban on placeholder/lorem-ipsum/static-array data — "no `const fakeData = [...]`. Use AsyncStorage or zustand-persist for state. Seed with 3-5 realistic examples on first launch only." | done |
+| ✅ | H4.6 | Add typography hierarchy directive: SF Pro / Inter, 28-32px headers, line-height 1.2, letter-spacing -0.02em | covered in Section 0 |
+| ✅ | H4.7 | Add motion directive: every state change is animated (Moti or Reanimated), 250ms ease-out | covered in Section 0 |
+| ✅ | H4.8 | Add color-token directive: a primary accent color, 2 surface tones, 1 accent gradient — declared at top of design system file | covered + final checklist |
 
 ## PHASE H5 — Habit Tracker acceptance test (5-star quality bar)
 

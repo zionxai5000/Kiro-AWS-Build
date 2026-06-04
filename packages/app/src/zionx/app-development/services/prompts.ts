@@ -85,6 +85,130 @@ LOOKS like a $0.99 App Store game with a coherent visual identity, not a
 school project. Same rule applies to every prompt category.
 
 ===================================================================
+SECTION 0.5: 5-STAR APP STORE QUALITY MANDATE
+===================================================================
+
+The user's expectation is **5-star App Store grade**. That means:
+visually distinctive, motion-rich, persistence-correct, with native iOS
+patterns. Apps below this bar are not acceptable. The bar is set by
+products like Things, Streaks, Calm, Apple Health, Linear.
+
+NATIVE iOS UI VOCABULARY (use these libraries by name when relevant):
+- Large Header Titles via React Navigation Native Stack:
+    \`headerLargeTitle: true\`, \`headerTransparent: true\`,
+    \`contentInsetAdjustmentBehavior: "automatic"\`. Title shrinks on scroll.
+- Bottom Sheets (modal flows, settings, add-item): @gorhom/bottom-sheet with
+  multiple snap points (e.g. ['25%', '60%', '90%']) and a handle indicator.
+- Swipe-to-delete on lists: react-native-gesture-handler Swipeable +
+  Reanimated, with an accent-red right action revealing on swipe.
+- Haptics on every meaningful action: completing a habit, tapping a CTA,
+  toggling state. Use Haptics.impactAsync(ImpactFeedbackStyle.Light) for
+  taps, Haptics.notificationAsync(NotificationFeedbackType.Success) for
+  completions.
+- Segmented Control for view-switching (e.g. Today / Week / Month):
+  @react-native-segmented-control/segmented-control.
+- ContextMenu on long-press for inline actions: zeego ContextMenu with
+  items + submenus, native-rendered.
+- Pull-to-refresh on every list screen via RefreshControl.
+- iOS-native switches via React Native's built-in <Switch> with native
+  trackColor matched to the accent.
+
+PERSISTENCE — ABSOLUTE RULE (this is non-negotiable):
+- ZERO static data arrays for user content. Lines like
+  \`const fakeData = [{name:'foo'}, ...]\` are REJECTED.
+- All user-created data (habits, todos, entries, notes, sessions) MUST flow
+  through a Zustand store with persist() middleware backed by AsyncStorage.
+  Example pattern:
+    \`create(persist((set)=>({ items:[], add:(i)=>... }), {
+       name: 'habits-storage',
+       storage: createJSONStorage(()=>AsyncStorage)
+    }))\`
+- First-launch seed: if you want the app to feel populated on first open,
+  call \`seed()\` ONLY when persisted state is empty AND mark a hasSeeded flag.
+  3-5 realistic example items maximum, clearly themed to the app's domain.
+- After first launch, all data the user adds is what shows up. Refresh the
+  app — same data persists. Container restart — same data persists.
+
+NO PLACEHOLDER COPY:
+- Lorem ipsum is REJECTED.
+- "Coming soon", "Click here", "Hello world" placeholders are REJECTED.
+- Empty states must have purpose-built copy: an icon, a one-line headline,
+  one-line subtitle, a primary CTA. Example for habit tracker empty state:
+    [streak-flame icon]
+    "Start your first habit"
+    "Add a habit you want to track every day"
+    [+ Add Habit] (gradient button)
+
+PER-DOMAIN VISUAL RECIPES:
+
+HABIT TRACKER (when the prompt mentions habit / streak / daily routine):
+- Header: large title "Today" + date, optional weather/greeting microcopy.
+- Today card per habit: large circular progress ring (animated stroke fill),
+  habit emoji or phosphor icon centered, streak number with flame emoji.
+- Tap to complete: ring fills with accent gradient, scale spring 1.0→1.08→1.0,
+  Haptics.notificationAsync(Success). Long-press opens edit bottom sheet.
+- Streak display: prominent "🔥 7 day streak" card with gradient bg.
+- Calendar heatmap (GitHub-style) on the detail screen: 7-column grid showing
+  last 12 weeks; each cell tinted with completion intensity.
+- Stats panel: best streak, current streak, completion %, total completes —
+  all read from persisted store.
+- Add Habit flow: bottom sheet with name, emoji picker, color picker,
+  frequency (daily / weekdays / custom), reminder time, target (days/week).
+- Settings: dark mode toggle, weekly report toggle, theme color choice.
+
+TODO LIST (when the prompt mentions todo / task / list):
+- Sectioned list grouped by Today / Tomorrow / Later, with section headers.
+- Swipe right to complete (green check + haptic), swipe left to delete (red
+  trash + haptic confirm). Use Reanimated values, not transforms.
+- Animated checkbox: filled circle that draws the check on tap, 220ms.
+- Add via bottom sheet with title, due date picker, priority pills.
+- Empty state: drawn checklist illustration + "All clear", subtitle + CTA.
+
+RECIPE MANAGER:
+- Card grid (2 cols on phone) with photo (expo-image with blurhash),
+  title, time/servings pills, gradient overlay on image bottom for legibility.
+- Detail screen: parallax-scrolling header with hero image + ingredients +
+  steps. Persistent floating "Cook" CTA at bottom with shadow.
+- Search bar with sticky scroll behavior; swipe-to-delete on saved recipes.
+
+WORKOUT / FITNESS:
+- Today's plan card with progress ring + "Start" CTA in accent gradient.
+- Exercise list with reps/sets, set-completion checkboxes that pulse.
+- Rest timer with circular countdown (Skia Canvas + animated stroke arc).
+- History log with sparkline chart per exercise (Skia Path).
+
+JOURNAL / DIARY:
+- Calendar strip at top (horizontal FlatList of last 30 days).
+- Today's entry full-bleed editor with mood selector (5 emojis).
+- Past entries cards with date chip, first-line preview, mood emoji.
+
+GAMES (any board / puzzle / arcade game):
+- Splash with title in 800-weight gradient text + tagline.
+- Board fills 60-75% of screen. Cells animate on tap (scale spring + glow).
+- Score / stats header pill with shadow.
+- Win/loss overlay with confetti (or subtle Skia particles), high-score chip,
+  "Play Again" gradient CTA. NEVER an Alert.alert — always a custom modal.
+
+GENERIC (when domain is unclear):
+- Hero card on home with gradient bg, app's purpose stated in 1 line, primary CTA.
+- Tab bar with 3-4 destinations max (Home, History/Detail, Profile, Settings).
+- Liquid Glass tab bar via react-native-bottom-tabs when on iOS.
+
+FINAL CHECK BEFORE EMITTING:
+1. Does any screen render flat #ffffff with system fonts? FAIL — add gradient + tokens.
+2. Is any user-data list a hardcoded array? FAIL — wire to persist store.
+3. Do any taps lack haptics + scale-spring? FAIL — add both.
+4. Do empty states use lorem-ipsum or "Coming soon"? FAIL — purpose-built copy.
+5. Does the primary CTA lack a gradient or shadow? FAIL — add both.
+6. Are icons missing on list rows? FAIL — every row has a leading icon.
+7. Does the app survive a refresh? Run mental simulation: kill app, relaunch,
+   confirm last-added data is still visible. If not, the persist middleware
+   is missing or misconfigured.
+
+If any check fails, fix it before emitting. The user is judging this on
+App Store quality, not "did it compile".
+
+===================================================================
 SECTION 1: HARD CONSTRAINTS
 ===================================================================
 

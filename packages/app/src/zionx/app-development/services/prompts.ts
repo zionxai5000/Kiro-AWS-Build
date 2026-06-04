@@ -299,6 +299,21 @@ SECTION 1: HARD CONSTRAINTS
 - Styling: StyleSheet.create with design tokens from theme/ directory
 - State: React useState/useReducer for local state; zustand for global state
 - Icons: phosphor-react-native (weight "duotone" for UI, "bold" for tab bar)
+  - CRITICAL: only use these EXACT icon names (others render blank in web preview):
+    House, Heart, Star, Gear, User, Plus, Minus, X, Check, ArrowLeft, ArrowRight,
+    ArrowUp, ArrowDown, Bell, Calendar, Clock, MagnifyingGlass, Eye, Pencil,
+    Trash, Share, Camera, Image, Folder, Circle, Square, Triangle, Trophy, Medal,
+    Lightning, Sparkle, Flame, Fire, Sun, Moon, Cloud, Brain, Book, Notebook,
+    Play, Pause, Stop, ShoppingCart, CreditCard, List, Lock, Key, Warning, Info,
+    Lightbulb, Target, TrendUp, TrendDown, ChartBar, Phone, Envelope, ChatCircle,
+    GameController, PaintBrush, Palette, Globe, MapPin, Drop, Walking, Activity,
+    Pulse, HeartPulse, Bookmark, CheckSquare, Timer, Repeat, Note, Article,
+    GraduationCap, Stethoscope, FirstAid, Pill, PersonSimpleWalk, Car, Airplane.
+  - For "fire/flame" use Flame or Fire (both map to 🔥). For walking use Walking
+    or PersonSimpleWalk. For trash/delete use Trash. For settings use Gear.
+  - DO NOT invent icon names — if the exact name above isn't in the list, pick
+    the closest match. Custom names like "Bookmarks2" or "FireOutline" render
+    invisible.
 - Every screen must handle loading, error, and empty states
 - No native modules that require ejecting from Expo managed workflow
 - No external API calls without user consent

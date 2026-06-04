@@ -209,3 +209,24 @@ needs the bottom-tabs hook.
 | ⬜ | H10.5 | Push, wait for ECS rollover | |
 | ⬜ | H10.6 | Re-run acceptance — expect step 5+ to pass | |
 
+
+
+## PHASE H11 — Second bundle error: phosphor icon `Fire` not in shim
+
+After H10 fix shipped, re-ran acceptance. Got 4/10 again. Probe found new error:
+
+```
+Minified React error #130; visit https://react.dev/errors/130
+```
+
+This is React's "Element type is invalid: expected a string... got: undefined".
+Caused by `import { Plus, Fire } from 'phosphor-react-native'` — `Fire` isn't
+in the PHOSPHOR_ICON_NAMES static export list, so it's `undefined`, and JSX
+`<Fire />` becomes `<undefined />` → error #130.
+
+| ✅/⬜ | # | Task | Commit |
+|---|---|---|---|
+| ✅ | H11.1 | Add `Fire`, `Drop`, `Walking`, `HeartPulse`, `Bookmark`, `CheckSquare`, `Timer`, `Note`, `Article` and ~30 more domain-relevant icons to PHOSPHOR_ICON_NAMES | (this turn) |
+| ✅ | H11.2 | Add `Fire: '🔥'` to ICON_GLYPHS so it renders the flame emoji (alias of Flame) | (this turn) |
+| ✅ | H11.3 | Update prompt to list canonical icon names so agent doesn't invent `Bookmarks2` / `FireOutline` etc. | (this turn) |
+| ⬜ | H11.4 | Push, deploy, re-run acceptance |

@@ -1,41 +1,61 @@
 /**
- * Design system tokens — the only place styling literals live.
- * Calm-inspired (soft, warm, low-contrast).
+ * Design system tokens — "Midnight Aurora" 2026 luxury palette.
  *
- * Allowlisted by `.kiro/scripts/check-no-static-data.mjs` (theme/** is config).
+ * The ONLY place styling literals live. Allowlisted by the no-static-data
+ * scanner. Every screen must consume these tokens; ad-hoc inline hex codes
+ * are banned by Hook 11.
+ *
+ * Gradient pairings (use these, not random colors):
+ *   - Background:    [#0A0E1F, #14182E, #1B1F3A]   (3-stop deep indigo)
+ *   - Hero card:     [#A78BFA, #E0AAFF]            (electric violet → pink)
+ *   - Primary CTA:   [#F5C97B, #FF7B9C]            (champagne gold → rose)
+ *   - Streak chip:   [#4FD1C5, #A78BFA]            (aurora teal → violet)
  */
 
 export const colors = {
   dark: {
-    bgBase: '#0E1424',
-    bgElevated: '#161E33',
-    bgElevated2: '#1E2740',
-    textPrimary: '#EDF0FA',
-    textSecondary: '#A7AECB',
-    textTertiary: '#6C7494',
-    accent: '#7C83FF',
-    accentSoft: '#2A2F5C',
-    calmTeal: '#5FB6A6',
-    warm: '#E8B58A',
+    bgBase: '#0A0E1F',         // deep midnight indigo
+    bgElevated: '#14182E',     // card surface
+    bgElevated2: '#1B1F3A',    // nested surface
+    textPrimary: '#F0F2FF',    // near-white, cool tint
+    textSecondary: '#8B92B2',  // muted lavender-gray
+    textTertiary: '#5A6080',   // hints
+    accent: '#A78BFA',         // electric violet
+    accentGlow: '#E0AAFF',     // pink-violet for gradient stops
+    accentSoft: '#2A2750',     // accent backgrounds
+    gold: '#F5C97B',           // champagne gold
+    rose: '#FF7B9C',           // sunset coral
+    teal: '#4FD1C5',           // aurora teal
     borderSubtle: '#26304D',
-    success: '#5FB682',
-    danger: '#E2807C',
+    success: '#4FD1C5',
+    danger: '#FF7B9C',
   },
   light: {
-    bgBase: '#F7F6FB',
+    bgBase: '#FAFAFC',
     bgElevated: '#FFFFFF',
-    bgElevated2: '#F0EEF8',
-    textPrimary: '#1B2138',
+    bgElevated2: '#F2F0FA',
+    textPrimary: '#0A0E1F',
     textSecondary: '#5A6080',
-    textTertiary: '#8A90AC',
-    accent: '#5A62E8',
-    accentSoft: '#E6E7FB',
-    calmTeal: '#3E9E8E',
-    warm: '#D79A66',
+    textTertiary: '#8B92B2',
+    accent: '#7C5BE0',
+    accentGlow: '#A78BFA',
+    accentSoft: '#E6E1FB',
+    gold: '#D9A84A',
+    rose: '#E0507C',
+    teal: '#3CB0A4',
     borderSubtle: '#E4E2F0',
-    success: '#3E9E63',
-    danger: '#C9554F',
+    success: '#3CB0A4',
+    danger: '#E0507C',
   },
+} as const;
+
+/** Canonical gradient color stops — Hook 11 enforces these. */
+export const gradients = {
+  background: ['#0A0E1F', '#14182E', '#1B1F3A'],
+  hero: ['#A78BFA', '#E0AAFF'],
+  cta: ['#F5C97B', '#FF7B9C'],
+  streak: ['#4FD1C5', '#A78BFA'],
+  glow: ['#A78BFA', '#E0AAFF', '#FF7B9C'],
 } as const;
 
 export const typography = {
@@ -43,8 +63,8 @@ export const typography = {
   body: { fontSize: 15, lineHeight: 22 },
   bodyEmph: { fontSize: 17, lineHeight: 24, fontWeight: '600' as const },
   title: { fontSize: 22, lineHeight: 28, fontWeight: '600' as const },
-  largeTitle: { fontSize: 28, lineHeight: 34, fontWeight: '600' as const },
-  display: { fontSize: 40, lineHeight: 46, fontWeight: '600' as const, letterSpacing: -0.5 },
+  largeTitle: { fontSize: 28, lineHeight: 34, fontWeight: '700' as const, letterSpacing: -0.5 },
+  display: { fontSize: 40, lineHeight: 46, fontWeight: '800' as const, letterSpacing: -0.8 },
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 12, base: 16, lg: 24, xl: 32, xxl: 48, xxxl: 64 } as const;
@@ -52,8 +72,9 @@ export const spacing = { xs: 4, sm: 8, md: 12, base: 16, lg: 24, xl: 32, xxl: 48
 export const radius = { sm: 8, md: 12, card: 16, sheet: 24, pill: 999 } as const;
 
 export const elevation = {
-  level1: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4 },
-  level2: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 8 },
+  level1: { shadowColor: '#A78BFA', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 24, elevation: 6 },
+  level2: { shadowColor: '#0A0E1F', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.32, shadowRadius: 36, elevation: 12 },
+  glow: { shadowColor: '#E0AAFF', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 28, elevation: 8 },
 } as const;
 
 export const motion = {

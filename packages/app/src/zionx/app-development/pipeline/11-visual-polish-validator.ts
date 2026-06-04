@@ -49,7 +49,7 @@ const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boole
   {
     id: 'gradient-rendered',
     label: 'expo-linear-gradient imported AND <LinearGradient> rendered',
-    weight: 10,
+    weight: 5,
     hardFail: true,
     fn: (s) => ({
       passed: /from ['"]expo-linear-gradient['"]/.test(s) && /<LinearGradient[\s>]/.test(s),
@@ -57,41 +57,62 @@ const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boole
     }),
   },
   {
-    id: 'gradient-on-body-or-glass',
-    label: 'Screen body has gradient bg OR a BlurView (no flat backgrounds)',
+    id: 'body-gradient-absolute-fill',
+    label: 'Body gradient is StyleSheet.absoluteFill (covers full screen, not just a card)',
     weight: 15,
     hardFail: true,
+    fn: (s) => ({
+      passed: /<LinearGradient[\s\S]{0,400}style=\{?\s*StyleSheet\.absoluteFill/i.test(s) ||
+              /<LinearGradient[\s\S]{0,400}absoluteFillObject/i.test(s),
+      evidence: 'No body-level gradient. Add <LinearGradient style={StyleSheet.absoluteFill} colors={["#0A0E1F","#14182E","#1B1F3A"]} /> as first child of the root container.',
+    }),
+  },
+  {
+    id: 'gradient-3-stops',
+    label: 'Body gradient has 3+ stops (richer depth)',
+    weight: 5,
+    hardFail: false,
+    fn: (s) => ({
+      passed: /colors=\{?\s*\[\s*['"]#[0-9A-Fa-f]{3,8}['"]\s*,\s*['"]#[0-9A-Fa-f]{3,8}['"]\s*,\s*['"]#[0-9A-Fa-f]{3,8}['"]/.test(s),
+      evidence: 'No 3-stop gradient detected. Use colors={["#0A0E1F","#14182E","#1B1F3A"]} for the body.',
+    }),
+  },
+  {
+    id: 'palette-violet-or-gold',
+    label: 'Uses violet (#A78BFA) or gold (#F5C97B) accent — Midnight Aurora palette',
+    weight: 10,
+    hardFail: true,
     fn: (s) => {
-      // Look for a LinearGradient that wraps the screen content (typically
-      // styled as flex:1 or absoluteFill) — that's the body gradient.
-      // Also accept BlurView usage (glassmorphism).
-      const bodyGradient =
-        /<LinearGradient[\s\S]{0,400}(StyleSheet\.absoluteFill|flex\s*:\s*1|absoluteFillObject)/i.test(s) ||
-        /<LinearGradient[^>]{0,300}colors=\{?\[\s*['"]#[0-9A-F]{3,6}['"]\s*,\s*['"]#[0-9A-F]{3,6}['"]/i.test(s);
-      const blur = /<BlurView\b/.test(s) && /from ['"]expo-blur['"]/.test(s);
+      const hasViolet = /#A78BFA|#E0AAFF/i.test(s);
+      const hasGold = /#F5C97B|#FF7B9C/i.test(s);
+      const hasTeal = /#4FD1C5/i.test(s);
       return {
-        passed: bodyGradient || blur,
-        evidence: 'Screen body is flat. Wrap it with <LinearGradient style={StyleSheet.absoluteFill} colors={[...]}> or use <BlurView intensity={40}>.',
+        passed: hasViolet || hasGold || hasTeal,
+        evidence: 'No Midnight Aurora palette colors found. Use #A78BFA, #E0AAFF, #F5C97B, #FF7B9C, or #4FD1C5 for accents.',
       };
     },
   },
   {
-    id: 'no-flat-orange-cta',
-    label: 'Primary CTA is a GRADIENT, not a solid orange/single color',
-    weight: 10,
+    id: 'no-banned-hex',
+    label: 'No banned hex codes (#FF8C00, #FFFFFF body, #10B981, etc.)',
+    weight: 15,
     hardFail: true,
     fn: (s) => {
-      // FAIL if a Pressable/TouchableOpacity has backgroundColor: '#orange' or '#FF8C00'-like
-      // and no LinearGradient nearby. We approximate by looking for solid CTA buttons.
-      const hasGradientCTA = /<LinearGradient[\s\S]{0,500}<(Pressable|TouchableOpacity|Text)/i.test(s);
-      const hasSolidOrangeCTA =
-        /backgroundColor\s*:\s*['"]#(FF6B35|F97316|FF8C00|FFA500|FF7700|FF7733|F87171)['"]/i.test(s) ||
-        /backgroundColor\s*:\s*['"]orange['"]/i.test(s);
+      const bannedColors = [
+        '#FF8C00', '#F97316', '#FFA500', '#FF6B35', '#FF7700',
+        '#10B981', '#3B82F6', '#EF4444', '#6366F1', '#FF4889',
+        '#00D4FF', '#FFD166', '#10b981', '#FF8C00',
+      ];
+      const offenders = bannedColors.filter((c) => new RegExp(c, 'i').test(s));
+      // Also flag plain white/black backgroundColor
+      const hasWhiteBg = /backgroundColor\s*:\s*['"]#?(FFF(FFF)?|fff(fff)?|white)['"]/i.test(s);
+      const hasBlackBg = /backgroundColor\s*:\s*['"]#?(000(000)?|black)['"]/i.test(s);
+      const passed = offenders.length === 0 && !hasWhiteBg && !hasBlackBg;
       return {
-        passed: hasGradientCTA && !hasSolidOrangeCTA,
-        evidence: hasSolidOrangeCTA
-          ? 'Solid-orange CTA detected — wrap the Pressable in <LinearGradient colors={[accent, accentSoft]}>.'
-          : 'No gradient-wrapped CTA found. The primary button must be a LinearGradient, not a flat color.',
+        passed,
+        evidence: passed
+          ? undefined
+          : `Banned colors detected: ${[...offenders, hasWhiteBg ? 'white body' : '', hasBlackBg ? 'black body' : ''].filter(Boolean).join(', ')}. Use the Midnight Aurora palette only.`,
       };
     },
   },

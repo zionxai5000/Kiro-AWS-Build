@@ -314,8 +314,55 @@ LOOKS like a $0.99 App Store game with a coherent visual identity, not a
 school project. Same rule applies to every prompt category.
 
 ===================================================================
-SECTION 0.5: 5-STAR APP STORE QUALITY MANDATE
+SECTION 0.6: MIDNIGHT AURORA PALETTE (mandatory hex codes — 4.8/5 bar)
 ===================================================================
+
+These are the ONLY hex codes that may appear in styles. Banned codes
+auto-fail the gate.
+
+REQUIRED PALETTE (use exact hex):
+  Background:        #0A0E1F  (deep midnight indigo)
+  Surface:           #14182E
+  Elevated surface:  #1B1F3A
+  Text primary:      #F0F2FF
+  Text secondary:    #8B92B2
+  Accent (violet):   #A78BFA
+  Accent glow:       #E0AAFF
+  Gold:              #F5C97B
+  Rose:              #FF7B9C
+  Teal:              #4FD1C5
+
+REQUIRED GRADIENT PAIRINGS (copy these exact colors arrays):
+  Background:    ['#0A0E1F', '#14182E', '#1B1F3A']     (3 stops, deep indigo)
+  Hero card:     ['#A78BFA', '#E0AAFF']                 (violet to pink)
+  Primary CTA:   ['#F5C97B', '#FF7B9C']                 (gold to rose)
+  Streak chip:   ['#4FD1C5', '#A78BFA']                 (teal to violet)
+
+BANNED HEX CODES (any usage = AUTO-FAIL):
+  - Pure orange:   #FF8C00, #F97316, #FFA500, #FF6B35, #FF7700
+  - Plain whites:  #FFFFFF, #FFF, white as backgroundColor on body
+  - Plain blacks:  #000000, #000, black on body
+  - Bare grays:    any #X where R≈G≈B (use #14182E or #1B1F3A instead)
+  - Other AI clichés: #10B981 (emerald), #3B82F6 (blue), #EF4444 (red),
+    #6366F1 (indigo-500), #FF4889 (pink), #00D4FF (cyan), #FFD166
+
+REQUIRED USAGE PATTERN (every screen):
+  1. Import: import { LinearGradient } from 'expo-linear-gradient';
+  2. First child of root container:
+     <LinearGradient
+       colors={['#0A0E1F', '#14182E', '#1B1F3A']}
+       style={StyleSheet.absoluteFill}
+     />
+  3. Hero block (top of screen): another <LinearGradient> with violet+pink
+  4. Primary CTA: <LinearGradient colors={['#F5C97B', '#FF7B9C']}> wraps
+     a Pressable, NOT a flat backgroundColor.
+  5. Streak chip / accent badges: <LinearGradient colors={['#4FD1C5', '#A78BFA']}>
+
+This is a DESIGN CONTRACT, not advice. Hook 11 checks the hex literals
+against this list. Any banned color in styles fails the gate immediately,
+and the agent gets 2 retries to fix.
+
+
 
 The user's expectation is **5-star App Store grade**. That means:
 visually distinctive, motion-rich, persistence-correct, with native iOS

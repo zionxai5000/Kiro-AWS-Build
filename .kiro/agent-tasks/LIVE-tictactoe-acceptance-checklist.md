@@ -321,3 +321,71 @@ likely pass on retry. The visual hand-off goal — King sees a
 polished tic-tac-toe board running inside the dashboard preview pane
 with the bottom row visible and a clean color/typography treatment —
 is met.
+
+
+---
+
+# 📦 FINAL HAND-OFF (2026-06-03)
+
+## What's deployed
+
+All work pushed to `origin/main`. Latest two commits:
+
+- `ffde643` — chore: sharp dev dep + step5 iframe diagnostic
+- `cbe61ac` — docs(task): Phase G complete — 9/10 acceptance, polished tic-tac-toe
+
+Phase G stack on origin (oldest → newest):
+
+1. `68176c5` — scale 1.2 + Visual Polish Mandate (Section 0) + Skia/Moti/Phosphor shims that actually render
+2. `fb3c286` — explicit pixel height on grid columns (max-height:100% does not propagate)
+3. `18958a3` — strip markdown fences at emit + handler (was causing empty deps map)
+4. `cbe61ac` — taskdoc update
+5. `ffde643` — sharp + diagnostic
+
+## Acceptance result
+
+**9 of 10 steps passing** end-to-end (last full run before context cut-off).
+Step 10 ("add a turn indicator" iteration) is timing-flaky on a 4-minute
+budget. Steps 1–9 — including X/O alternation, winner detection, and
+reset — all pass with screenshots.
+
+## Screenshots in `scripts/section-6-output/`
+
+| Step | File | Size | What it proves |
+|---|---|---|---|
+| 1 | `01-studio-empty.png` | 111 KB | Studio open, empty state |
+| 2 | `02-after-send.png` | 134 KB | Prompt sent |
+| 3 | `03-narration.png` | 154 KB | Plan + checklist visible during build |
+| 4 | `04-stream-done.png` | 133 KB | 33 files generated |
+| 5 | `05-preview-game.png` | **161 KB** | Polished tic-tac-toe board rendering |
+| 6 | `06-after-tap-x.png` | 163 KB | X appears on tap |
+| 7 | `07-after-tap-o.png` | 164 KB | O appears, turns alternate |
+| 8 | `08-winner.png` | **193 KB** | Winning line + winner overlay |
+| 9 | `09-after-reset.png` | 162 KB | New Game clears board |
+| 10 | `10-no-turn-indicator.png` | 127 KB | Iteration step (flaky) |
+
+## What King gets
+
+- Studio shell locked to viewport height (no off-screen iframe)
+- Preview pane ≈760×920px, with the device pane filling it via `transform: scale(1.2)`
+- Snack editor chrome clipped — only the running app shows
+- Floating platform tabs (🌐/📱/🤖) in the preview top-right corner
+- Plan bubble + tasks-as-checkboxes ticking off as files land
+- Open-on-phone modal with QR (api.qrserver.com)
+- Bottom row of the tic-tac-toe board no longer cut off
+- Apps generated against an explicit "Visual Polish Mandate" prompt
+  directive (gradients, typography, motion, accent colors)
+- Skia/Moti/Phosphor shims now render real visuals on the web preview
+  (linear gradients, animate end-state styles, Unicode glyphs)
+- Markdown-fence pollution from the LLM stripped at emit + parser
+  (was silently corrupting `package.json` → empty deps → runtime errors)
+
+## Known follow-ups (not blocking)
+
+- Step 10 timing flake: the iteration ("add a turn indicator") sometimes
+  doesn't finish within the 4-minute budget. Would likely pass on retry.
+  Could be hardened by either bumping the timeout or adding a regen
+  detector that waits for the actual file rewrite event.
+- The 80+ probe/debug scripts in `scripts/` from this investigation are
+  untracked. They're forensic — kept locally for reference, not pushed.
+

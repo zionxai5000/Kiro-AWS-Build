@@ -89,12 +89,10 @@ export function renderStudioStylesheet(): string {
     /* ============================================================== */
     .studio {
       display: grid;
-      /* VibeCode-style layout — preview takes most of the right side.
-         Chat is a fixed 380px column (compact prompt-and-history),
-         preview gets all remaining width. At a 1600px viewport this
-         leaves the preview at ~1000px which is comfortably above
-         Snack's 700px runtime-spawn threshold. */
-      grid-template-columns: 220px 380px 1fr;
+      /* VibeCode-style layout — preview is the hero, sidebar + chat are
+         compact rails. 180 + 320 + ~1100px preview at 1600px viewport.
+         The preview pane is the visual focus. */
+      grid-template-columns: 180px 320px 1fr;
       /* Lock the studio shell to the viewport height so the preview
          pane stays anchored. Long chat messages SCROLL inside the
          middle column rather than pushing the whole shell taller —
@@ -632,24 +630,19 @@ export function renderStudioStylesheet(): string {
     .studio-device-frame:has(iframe) .studio-device-screen iframe {
       border-radius: 0 !important;
       position: absolute !important;
-      /* Lock iframe to a fixed size so Snack's internal layout is
-         deterministic. 1200px wide → editor pane is 915px, device pane
-         is 285px. Snack puts the device pane at y=48 (top header band)
-         and the player area is 716px tall so device-pane spans y=48..764. */
+      /* Fixed iframe size so Snack's internal layout is deterministic.
+         1200×800 → editor pane is 915px wide (offscreen left), device
+         pane is 285px wide × 716px tall starting at y=48. */
       width: 1200px !important;
       height: 800px !important;
-      /* Pull iframe up by 48px AND left by 915px so the device pane's
-         top-left lands at the visible window's (0, 0). */
       left: -915px !important;
       top: -48px !important;
       border: 0 !important;
-      /* Origin at the device pane's top-left corner in iframe coords
-         (915, 48). Scale 1.0× shows the device pane at native 285×716,
-         which fits the preview pane completely with NO bottom-cutoff.
-         (Earlier 1.2× looked nicer but cut the bottom; 1.0× is the
-          honest fit.) */
+      /* Origin at device-pane top-left corner in iframe coords.
+         Scale 1.2× upscales 285×716 → ~342×859 visible. Pane budget
+         is ~880px tall so 859 fits with ~21px breathing room. */
       transform-origin: 915px 48px !important;
-      transform: scale(1.0) !important;
+      transform: scale(1.2) !important;
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

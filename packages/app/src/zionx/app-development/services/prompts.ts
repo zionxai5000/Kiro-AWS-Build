@@ -201,6 +201,32 @@ NON-NEGOTIABLES (the agent fails the gate if any are missing):
    If your screen scrolls past the visible 716px on first load, you've over-stuffed.
    Remove subtitle text, reduce card padding, drop secondary metadata.
 
+[9] EMPTY-STATE LAYOUT (KING-LEVEL CRITICAL)
+   The empty state (no habits yet) MUST be CENTERED VERTICALLY in the viewport,
+   NOT scrollable, NOT pushed below the fold. Use:
+     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+       <FlameIcon />
+       <Text>Start your first habit</Text>
+       <Text>Add a habit you want to track every day</Text>
+       <AddHabitGradientCTA />
+     </View>
+   The icon + title + subtitle + CTA must all be visible in a single 716px viewport.
+   AUTO-FAIL: if the "Start your first habit" title gets cut off at the top,
+   you used too much padding above it or wrapped it in a ScrollView.
+   The empty state has NO ScrollView wrapper. Fixed flex layout only.
+
+[10] MODAL POSITIONING (when Add Habit opens)
+   The modal MUST overlay from the BOTTOM of the screen (bottom sheet style)
+   with a backdrop, OR be CENTERED vertically. Never push existing screen
+   content up out of view. Use:
+     <Modal visible={showAdd} animationType="slide" transparent>
+       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+         <View style={[styles.sheet, { marginTop: 'auto' }]}>...</View>
+       </View>
+     </Modal>
+   The modal sheet must fit within the bottom 60-80% of the 716px viewport
+   so the user can still see the screen behind it (scrim) AND tap close.
+
 CRITICAL — PER-SCREEN POLISH (every screen, not just one)
 EVERY .tsx file under app/(tabs)/, app/screens/, or any path that contains
 \`export default function <Screen>\` MUST contain ALL of the following:

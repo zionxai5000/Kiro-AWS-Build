@@ -271,6 +271,20 @@ const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boole
       };
     },
   },
+  {
+    id: 'no-scrollview-empty-state',
+    label: 'Empty state is NOT wrapped in ScrollView (causes top-cutoff bug)',
+    weight: 5,
+    hardFail: false,
+    fn: (s) => {
+      const hasEmptyState = /(start\s+your\s+first|add\s+your\s+first|no\s+habits|empty)/i.test(s);
+      const wrappedInScrollView = /<ScrollView[\s\S]{0,500}(start\s+your\s+first|add\s+your\s+first)/i.test(s);
+      return {
+        passed: !(hasEmptyState && wrappedInScrollView),
+        evidence: 'Empty state should use <View flex:1 justifyContent:center>, not <ScrollView>. Causes top-cutoff bug.',
+      };
+    },
+  },
 ];
 
 

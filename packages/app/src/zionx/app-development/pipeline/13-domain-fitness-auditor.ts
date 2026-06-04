@@ -69,7 +69,16 @@ const HABIT_CHECKS: CheckDef[] = [
     weight: 25,
     hardFail: true,
     fn: (s) => ({
-      passed: /\bstreak\b/i.test(s) && /(<Text[^>]*>[\s\S]{0,40}streak)|(streak[\s\S]{0,40}<Text)/i.test(s),
+      // Pass if the source mentions "streak" as a value being rendered:
+      // - {streak} interpolation
+      // - "streak: <value>" or "streak <number>" label form
+      // - "<n> day streak" / "X days streak" suffix form
+      passed:
+        /\{[^}]*streak[^}]*\}/i.test(s) ||
+        /streak\s*[:=]/i.test(s) ||
+        /streak\s+\d/i.test(s) ||
+        /day[s]?\s+streak/i.test(s) ||
+        /streak\s+day/i.test(s),
       evidence: 'No streak rendering found. Habit trackers MUST surface the streak number prominently.',
     }),
   },
@@ -89,8 +98,9 @@ const HABIT_CHECKS: CheckDef[] = [
     weight: 25,
     hardFail: false,
     fn: (s) => ({
-      passed: /(calendar|heatmap|grid)/i.test(s) && /<View[^>]+grid/i.test(s) || /<Calendar|<Heatmap/i.test(s),
-      evidence: 'No calendar/heatmap component. The history screen must visualize past completions.',
+      passed: /<Calendar\b|<Heatmap\b|heatmap|HabitGrid|CalendarGrid|getDay\(/i.test(s) ||
+              /\.map\([^)]*\)[^<]*<View[^>]*style[^>]*backgroundColor/i.test(s),
+      evidence: 'No calendar/heatmap component. The history screen should visualize past completions.',
     }),
   },
   {

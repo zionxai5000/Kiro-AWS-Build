@@ -63,6 +63,11 @@ export const LIMITS = {
   /** Max retries for any retriable operation */
   maxRetries: 3,
 
+  /** Max re-prompts when quality gate hooks (11/12/13) fail */
+  qualityRetriesMax: 2,
+  /** Visual-polish-validator pass threshold (0..100) */
+  qualityVisualPolishThreshold: 70,
+
   /** Exponential backoff delays (ms) */
   retryBackoffMs: [1_000, 3_000, 9_000] as const,
 

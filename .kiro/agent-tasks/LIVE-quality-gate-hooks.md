@@ -27,10 +27,10 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V0.1 | Add 4 new hook IDs to `hooks.config.ts` (visual-polish-validator, persistence-auditor, domain-fitness-auditor, spec-card) | |
-| ⬜ | V0.2 | Add 4 new event types to `event-types.ts` (`appdev.quality.validator.fired`, `appdev.quality.gate.passed`, `appdev.quality.gate.failed`, `appdev.spec.card.received`) | |
-| ⬜ | V0.3 | Author shared types in `pipeline/quality-types.ts` (`QualityCheckResult`, `QualityScore`, `RetryDirective`) | |
-| ⬜ | V0.4 | Add `qualityRetriesMax: 2` to `limits.ts` | |
+| ✅ | V0.1 | Add 4 new hook IDs to `hooks.config.ts` (visual-polish-validator, persistence-auditor, domain-fitness-auditor, spec-card) | next commit |
+| ✅ | V0.2 | Add 4 new event types to `event-types.ts` (`appdev.quality.validator.fired`, `appdev.quality.gate.passed`, `appdev.quality.gate.failed`, `appdev.spec.card.received`) | next commit |
+| ✅ | V0.3 | Author shared types in `pipeline/quality-types.ts` (`QualityCheckResult`, `QualityScore`, `RetryDirective`) | next commit |
+| ✅ | V0.4 | Add `qualityRetriesMax: 2` to `limits.ts` | next commit |
 
 ## PHASE V1 — Hook 11: Visual Polish Validator
 

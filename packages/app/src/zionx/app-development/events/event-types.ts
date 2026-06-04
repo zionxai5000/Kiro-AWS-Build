@@ -39,6 +39,17 @@ export const APPDEV_EVENTS = {
   ESCALATION_CREATED: 'appdev.escalation.created',
   /** Self-heal agent posted a proposed fix that resolved the escalation. */
   ESCALATION_RESOLVED: 'appdev.escalation.resolved',
+  // Quality gate events (V11-V14)
+  /** Hook 14 received the agent's spec card (10-key JSON). */
+  SPEC_CARD_RECEIVED: 'appdev.spec.card.received',
+  /** A quality validator ran and emitted a score. */
+  QUALITY_VALIDATOR_FIRED: 'appdev.quality.validator.fired',
+  /** All quality gates passed; pipeline continues to preview. */
+  QUALITY_GATE_PASSED: 'appdev.quality.gate.passed',
+  /** Quality gates failed even after retries; project marked qualityBarFailed. */
+  QUALITY_GATE_FAILED: 'appdev.quality.gate.failed',
+  /** Quality validator triggered an automatic re-prompt to the LLM. */
+  QUALITY_RETRY_REQUESTED: 'appdev.quality.retry.requested',
 } as const;
 
 export type AppDevEventType = typeof APPDEV_EVENTS[keyof typeof APPDEV_EVENTS];

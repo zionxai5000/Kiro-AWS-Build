@@ -41,6 +41,15 @@ export const HOOKS_CONFIG: HooksConfigMap = {
     'crash-watcher':        { enabled: true, dryRun: false },
     'sentry-provisioner':   { enabled: true, dryRun: false },
     'self-heal-agent':      { enabled: true, dryRun: false },
+
+    // Quality gate hooks (V11-V14) — run after Hook 2 to enforce visual
+    // polish, persistence, and domain-fitness rules. They re-prompt the
+    // LLM up to 2 times if checks fail. Live by default — the entire
+    // point is they cannot be bypassed.
+    'visual-polish-validator':  { enabled: true, dryRun: false },
+    'persistence-auditor':      { enabled: true, dryRun: false },
+    'domain-fitness-auditor':   { enabled: true, dryRun: false },
+    'spec-card':                { enabled: true, dryRun: false },
   },
 };
 

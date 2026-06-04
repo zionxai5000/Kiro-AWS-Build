@@ -58,15 +58,15 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V3.1 | Create `pipeline/13-domain-fitness-auditor.ts` | |
-| ⬜ | V3.2 | Domain detector: keyword scan over the prompt (habit/todo/recipe/workout/game/journal/generic) | |
-| ⬜ | V3.3 | Habit: streak field rendered, calendar/heatmap component, Add Habit flow, complete-tap | |
-| ⬜ | V3.4 | Todo: section grouping, swipe-to-delete (RNGH Swipeable), animated checkbox | |
-| ⬜ | V3.5 | Recipe: image grid (expo-image), parallax detail | |
-| ⬜ | V3.6 | Workout: progress ring, rest timer, exercise list | |
-| ⬜ | V3.7 | Game: cells fill ≥60% screen, custom win modal (no Alert.alert), reset CTA | |
-| ⬜ | V3.8 | Journal: mood selector, date strip | |
-| ⬜ | V3.9 | Unit tests | |
+| ✅ | V3.1 | Create `pipeline/13-domain-fitness-auditor.ts` | done |
+| ✅ | V3.2 | Domain detector: keyword scan over the prompt (habit/todo/recipe/workout/game/journal/generic) | 7 domains |
+| ✅ | V3.3 | Habit: streak field rendered, calendar/heatmap component, Add Habit flow, complete-tap | done |
+| ✅ | V3.4 | Todo: section grouping, swipe-to-delete (RNGH Swipeable), animated checkbox | done |
+| ✅ | V3.5 | Recipe: image grid (expo-image), parallax detail | done |
+| ✅ | V3.6 | Workout: progress ring, rest timer, exercise list | done |
+| ✅ | V3.7 | Game: cells fill ≥60% screen, custom win modal (no Alert.alert), reset CTA | done |
+| ✅ | V3.8 | Journal: mood selector, date strip | done |
+| ✅ | V3.9 | Unit tests | **12/12 pass** |
 
 ## PHASE V4 — Hook 14: Pre-Gen Spec Card
 

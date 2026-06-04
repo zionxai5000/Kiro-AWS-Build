@@ -83,12 +83,12 @@ If 11/12/13 fail → re-prompt agent with the failures listed → max 2 retries 
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | V5.1 | Modify `handlers.ts generateCode` to call Hook 14 first | |
-| ⬜ | V5.2 | After Hook 2 completes, run Hooks 11+12+13 in parallel via `Promise.all` | |
-| ⬜ | V5.3 | If any hook fails: aggregate failures, build `RetryDirective`, re-prompt LLM with the directive prepended to the user prompt | |
-| ⬜ | V5.4 | Track `retryCount` per generation; bail at 2 | |
-| ⬜ | V5.5 | After 2 failed retries: emit `appdev.quality.gate.failed` event, mark project with `qualityBarFailed: true` | |
-| ⬜ | V5.6 | After pass: emit `appdev.quality.gate.passed` event, store the final score in project meta | |
+| ✅ | V5.1 | Modify `handlers.ts generateCode` to call Hook 14 first | spec card check is part of LLM stream onToken |
+| ✅ | V5.2 | After Hook 2 completes, run Hooks 11+12+13 in parallel via `Promise.all` | done in `quality-gate-runner.ts` |
+| ✅ | V5.3 | If any hook fails: aggregate failures, build `RetryDirective`, re-prompt LLM with the directive prepended to the user prompt | `renderDirectiveForLLM` + retry loop |
+| ✅ | V5.4 | Track `retryCount` per generation; bail at 2 | LIMITS.qualityRetriesMax |
+| ✅ | V5.5 | After 2 failed retries: emit `appdev.quality.gate.failed` event, mark project with `qualityBarFailed: true` | done — meta written |
+| ✅ | V5.6 | After pass: emit `appdev.quality.gate.passed` event, store the final score in project meta | done |
 
 ## PHASE V6 — Dashboard surface
 

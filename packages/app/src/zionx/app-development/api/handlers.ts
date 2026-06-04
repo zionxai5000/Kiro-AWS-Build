@@ -378,6 +378,65 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                   },
                   req.tenantId,
                 ));
+
+                // ----------------------------------------------------------
+                // Quality Gate (Hooks 11/12/13 + retry loop)
+                // ----------------------------------------------------------
+                narrate('quality-gate', 'Running visual polish + persistence + domain fitness validators');
+                try {
+                  const { runQualityGate } = await import('../pipeline/quality-gate-runner.js');
+                  const qgResult = await runQualityGate({
+                    projectId,
+                    prompt: sanitizedPrompt,
+                    workspace,
+                    llmService,
+                    eventBus,
+                    streamOptions: {
+                      onToken: (text: string) => sendEvent({ type: 'token', content: text }),
+                      onFileStart: (path: string) => sendEvent({ type: 'file_start', path }),
+                      onFileEnd: async (path: string, content: string) => {
+                        await workspace.writeFile(projectId, path, content);
+                        sendEvent({ type: 'file_end', path });
+                      },
+                      onComplete: () => {},
+                      onError: () => {},
+                    },
+                    tenantId: req.tenantId,
+                    ctx: {
+                      executionId: randomUUID(),
+                      dryRun: false,
+                      startedAt: new Date().toISOString(),
+                      log: (msg: string) => console.log(`[quality-gate][${projectId}] ${msg}`),
+                    } as any,
+                  });
+                  narrate(
+                    qgResult.passed ? 'quality-pass' : 'quality-fail',
+                    qgResult.passed
+                      ? `Quality gate passed (visual=${qgResult.finalScores.visualPolish.total}/100) after ${qgResult.retries} retries`
+                      : `Quality gate failed after ${qgResult.retries} retries — shipping with quality-bar-failed badge`,
+                    {
+                      passed: qgResult.passed,
+                      retries: qgResult.retries,
+                      visualPolish: qgResult.finalScores.visualPolish.total,
+                      persistence: qgResult.finalScores.persistence.total,
+                      domainFitness: qgResult.finalScores.domainFitness.total,
+                    },
+                  );
+                  // Persist the score to project meta so the dashboard can show it.
+                  await workspace.writeProjectMeta(projectId, {
+                    qualityGate: {
+                      passed: qgResult.passed,
+                      retries: qgResult.retries,
+                      visualPolish: qgResult.finalScores.visualPolish.total,
+                      persistence: qgResult.finalScores.persistence.total,
+                      domainFitness: qgResult.finalScores.domainFitness.total,
+                      evaluatedAt: new Date().toISOString(),
+                    },
+                  } as any).catch(() => { /* meta is best-effort */ });
+                } catch (qgErr) {
+                  console.warn(`[quality-gate][${projectId}] runner error: ${(qgErr as Error).message}`);
+                  narrate('quality-error', `Quality gate runner threw: ${(qgErr as Error).message}`);
+                }
               } catch (error) {
                 narrate('error', `Generation threw: ${(error as Error).message}`, {
                   error: (error as Error).message,

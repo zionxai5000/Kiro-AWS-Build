@@ -603,7 +603,44 @@ export const Mask = NoOp;
 export const Image = NoOp;
 export const Text = NoOp;
 export const SkPaint = NoOp;
-export const Skia = { Path: { Make: () => ({ moveTo: () => {}, lineTo: () => {}, close: () => {} }) } };
+export const Skia = {
+  Path: {
+    Make: () => {
+      const path = {
+        moveTo: () => path,
+        lineTo: () => path,
+        close: () => path,
+        addCircle: () => path,
+        addArc: () => path,
+        addRect: () => path,
+        addOval: () => path,
+        addRRect: () => path,
+        addPath: () => path,
+        cubicTo: () => path,
+        quadTo: () => path,
+        rMoveTo: () => path,
+        rLineTo: () => path,
+        rCubicTo: () => path,
+        rQuadTo: () => path,
+        arcToOval: () => path,
+        arcToRotated: () => path,
+        arcToTangent: () => path,
+        offset: () => path,
+        transform: () => path,
+        reset: () => path,
+        rewind: () => path,
+        toSVGString: () => '',
+        getBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+      };
+      return path;
+    },
+    MakeFromSVGString: () => null,
+  },
+  Color: (c) => c,
+  RRectXY: (rect, rx, ry) => ({ rect, rx, ry }),
+  XYWHRect: (x, y, w, h) => ({ x, y, width: w, height: h }),
+  rrectXY: (rect, rx, ry) => ({ rect, rx, ry }),
+};
 export const vec = (x, y) => ({ x, y });
 export const rect = (x, y, w, h) => ({ x, y, width: w, height: h });
 export const useFont = () => null;

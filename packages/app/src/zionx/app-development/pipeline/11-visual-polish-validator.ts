@@ -94,25 +94,27 @@ const CHECKS: Array<{ id: string; label: string; weight: number; hardFail: boole
   },
   {
     id: 'no-banned-hex',
-    label: 'No banned hex codes (#FF8C00, #FFFFFF body, #10B981, etc.)',
+    label: 'No banned hex codes (#FF8C00, white body, #10B981 emerald, etc.)',
     weight: 15,
     hardFail: true,
     fn: (s) => {
-      const bannedColors = [
+      // Banned ANYWHERE (these colors are AI-cliché regardless of position)
+      const bannedAnywhere = [
         '#FF8C00', '#F97316', '#FFA500', '#FF6B35', '#FF7700',
         '#10B981', '#3B82F6', '#EF4444', '#6366F1', '#FF4889',
-        '#00D4FF', '#FFD166', '#10b981', '#FF8C00',
+        '#00D4FF', '#FFD166',
       ];
-      const offenders = bannedColors.filter((c) => new RegExp(c, 'i').test(s));
-      // Also flag plain white/black backgroundColor
-      const hasWhiteBg = /backgroundColor\s*:\s*['"]#?(FFF(FFF)?|fff(fff)?|white)['"]/i.test(s);
-      const hasBlackBg = /backgroundColor\s*:\s*['"]#?(000(000)?|black)['"]/i.test(s);
-      const passed = offenders.length === 0 && !hasWhiteBg && !hasBlackBg;
+      const offenders = bannedAnywhere.filter((c) => new RegExp(c, 'i').test(s));
+      // White / black are only banned as backgroundColor on the body (not as
+      // text/icon/border colors — those are fine and common).
+      const hasWhiteBody = /backgroundColor\s*:\s*['"]#?(FFF(FFF)?|fff(fff)?|white)['"]/i.test(s);
+      const hasBlackBody = /backgroundColor\s*:\s*['"]#?(000(000)?|black)['"]/i.test(s);
+      const passed = offenders.length === 0 && !hasWhiteBody && !hasBlackBody;
       return {
         passed,
         evidence: passed
           ? undefined
-          : `Banned colors detected: ${[...offenders, hasWhiteBg ? 'white body' : '', hasBlackBg ? 'black body' : ''].filter(Boolean).join(', ')}. Use the Midnight Aurora palette only.`,
+          : `Banned colors detected: ${[...offenders, hasWhiteBody ? 'white body' : '', hasBlackBody ? 'black body' : ''].filter(Boolean).join(', ')}. Use the Midnight Aurora palette only.`,
       };
     },
   },

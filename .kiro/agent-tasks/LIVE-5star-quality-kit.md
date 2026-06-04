@@ -160,3 +160,76 @@ gradient backgrounds on every screen, MotiView entry on the main tab, etc.
 4. Next move: trigger another generation. With the stricter prompt + per-screen gate, the agent should converge to a higher score after retries. If it doesn't converge in 2 retries, the gate ships with the badge — which is the safety net.
 
 The system is now honest about what's good vs. not. That's the real win — the gate catches what King's eye catches.
+
+
+---
+
+# 🛡 PHASE Q8 — Sequential blocking gate + frame-diff (King's hardening pass)
+
+**Why this exists**: my previous capture pipeline showed 4 identical frames as
+"PASS PASS PASS PASS" because brightness + variance are PER-FRAME stats. A stuck
+screen produces the same numbers every capture. King caught it; this is the fix.
+
+## Two structural changes shipped
+
+| ✅/⬜ | # | Task | Commit |
+|---|---|---|---|
+| ✅ | Q8.1 | Replace `.kiro/scripts/verify-app.sh` with sequential, blocking version. Gates run in priority order, STOP at first failure (no aggregation), with mode auto-detection (host vs app) | this commit |
+| ✅ | Q8.2 | Add `.kiro/scripts/frame-diff.ts` with `frameDiff`, `assertChangedAfterAction`, `findStuckFrames`. Uses pngjs for pixel comparison. | this commit |
+| ✅ | Q8.3 | Install pngjs as dev dep (152 deps added) | this commit |
+| ✅ | Q8.4 | Verify-app.sh runs clean on host monorepo: gates 1+2 pass, app-specific gates skipped with reason | confirmed |
+
+## CRITICAL insight (from King) — what frame-diff CAN'T fix on its own
+
+The Snack web preview at `snack.expo.dev/embedded/<slug>?platform=web` runs
+the app through `_zionx_main.js` adapter that **bypasses expo-router**. That
+means:
+- A "tap Add Habit" click can register on the button
+- But the router doesn't navigate to a new screen
+- Because the router itself isn't running
+
+**Result**: frame-diff against Snack web preview will correctly report "stuck"
+on every multi-screen action. That's accurate but unfixable from there. The
+visual capture pipeline must run against a **router-preserving runtime**:
+- `npx expo start` + a connected device or simulator
+- Or a custom Expo dev client app
+
+## What this changes about the screenshots delivered today
+
+The 4 identical screenshots at `scripts/all-screens-output/` are NOT proof of
+"all screens captured". They're proof that the Snack web preview can render
+the empty state and the router-bypass means we can't see anything beyond it.
+The frame-diff module would correctly call this out.
+
+Going forward:
+- Snack stays as the **bundle-compile verifier** (does it build?)
+- A new path is needed for visual capture: real Expo runtime + frame-diff
+- That work is a future session
+
+## Status of the kit overall
+
+Everything below the visual capture is solid:
+
+| Layer | State |
+|---|---|
+| 5 steering files (always-loaded into Kiro) | ✅ live |
+| 2 Kiro IDE hooks (Prompt Submit, Agent Stop) | ✅ live |
+| Sequential blocking verify-app.sh | ✅ live (Q8.1) |
+| Frame-diff utility | ✅ live (Q8.2) |
+| 4 pipeline hooks 11–14 (visual / persist / domain / spec) | ✅ live in production |
+| Hook 15 onboarding auditor | ✅ live in production |
+| Per-screen visual scoring (worst-of-N) | ✅ live in production |
+| Golden starter template | ✅ at templates/golden-starter/ |
+| 137/137 unit tests | ✅ green |
+| Visual capture against router-preserving runtime | ❌ **FUTURE WORK** |
+
+## What remains for King to be fully unblocked
+
+1. Set up an Expo dev environment locally (`npx expo start`) or a simulator
+2. Plumb the visual capture script to point at that local runtime instead of Snack
+3. Apply `frame-diff.ts` against post-action captures
+4. Then — and only then — King gets honest multi-screen screenshots
+
+I cannot do this in the current session because it requires a local Expo
+runtime running on King's machine (not the headless Linux runtime Snack uses).
+King's Mac/iPhone or a configured simulator would let us run the real test.

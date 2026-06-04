@@ -392,6 +392,33 @@ async function main() {
   // content with our `transform: scale(1.6)` applied. Without this
   // extra wait the screenshot captures a pre-paint dark state.
   await page.waitForTimeout(25_000);
+  // Diagnostic: log the iframe's bounding rect + transform state + parents
+  const iframeState = await page.evaluate(() => {
+    const el = document.querySelector('.studio-device-screen iframe') as HTMLIFrameElement | null;
+    if (!el) return { found: false };
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const screen = document.querySelector('.studio-device-screen');
+    const frame = document.querySelector('.studio-device-frame');
+    const previewDevice = document.querySelector('.studio-preview__device');
+    const previewAside = document.querySelector('.studio-preview');
+    return {
+      found: true,
+      src: el.src.slice(0, 100),
+      rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+      transform: cs.transform,
+      computed: { width: cs.width, height: cs.height, top: cs.top, left: cs.left },
+      parents: {
+        screen: screen ? (screen.getBoundingClientRect() as DOMRect | undefined) : undefined,
+        frame: frame ? (frame.getBoundingClientRect() as DOMRect | undefined) : undefined,
+        previewDevice: previewDevice ? (previewDevice.getBoundingClientRect() as DOMRect | undefined) : undefined,
+        previewAside: previewAside ? (previewAside.getBoundingClientRect() as DOMRect | undefined) : undefined,
+      },
+      scrollY: window.scrollY,
+      docHeight: document.documentElement.scrollHeight,
+    };
+  });
+  console.log('  step5 iframe state:', JSON.stringify(iframeState));
   await pass(page, 5, 'Preview shows running Tic-Tac-Toe game', 'preview-game');
 
   // STEP 6 — tap center square (index 5 in row-major); X appears

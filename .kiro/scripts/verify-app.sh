@@ -18,8 +18,20 @@ fail() { echo "$FAIL $1"; FAILED=1; }
 pass() { echo "$PASS $1"; }
 warn() { echo "$WARN $1"; }
 
+# Detect if we're running on the host monorepo (Kiro-AWS-Build itself) rather
+# than a generated app. If so, skip the app-specific gates because the host
+# is a multi-package workspace with dashboard + backend + scripts — it does
+# not itself have onboarding or a single src/data/ layer.
+IS_HOST_MONOREPO=0
+if [ -d "packages" ] && [ -f "packages/app/package.json" ] && [ -d ".kiro/agent-tasks" ]; then
+  IS_HOST_MONOREPO=1
+fi
+
 echo ""
 echo "=== Quality gate: $(basename "$ROOT") ==="
+if [ "$IS_HOST_MONOREPO" -eq 1 ]; then
+  echo "  (host monorepo detected — app-specific gates [onboarding/data/build] skipped)"
+fi
 echo ""
 
 # 1. TypeScript typecheck (if a tsconfig exists)
@@ -53,8 +65,10 @@ else
   fail "no-static-data - hardcoded data found (see above)"
 fi
 
-# 4. Onboarding present (hard gate)
-if find src -type f -iname "OnboardingFlow.*" 2>/dev/null | grep -q . ; then
+# 4. Onboarding present (hard gate, but skipped on host monorepo)
+if [ "$IS_HOST_MONOREPO" -eq 1 ]; then
+  warn "onboarding skipped (host monorepo, not a generated app)"
+elif find src -type f -iname "OnboardingFlow.*" 2>/dev/null | grep -q . ; then
   pass "onboarding component present"
 elif find app -type d -iname "onboarding" 2>/dev/null | grep -q . ; then
   pass "onboarding directory present (app/onboarding/)"
@@ -62,15 +76,19 @@ else
   fail "onboarding - src/onboarding/OnboardingFlow.* or app/onboarding/ not found (see steering 30-onboarding.md)"
 fi
 
-# 5. Persistence layer present (hard gate)
-if find . -type d \( -name node_modules -prune \) -o -type d \( -name data -o -name stores \) -print 2>/dev/null | grep -qE "(^|/)(src/)?(data|stores)$"; then
+# 5. Persistence layer present (hard gate, skipped on host monorepo)
+if [ "$IS_HOST_MONOREPO" -eq 1 ]; then
+  warn "data layer skipped (host monorepo)"
+elif find . -type d \( -name node_modules -prune \) -o -type d \( -name data -o -name stores \) -print 2>/dev/null | grep -qE "(^|/)(src/)?(data|stores)$"; then
   pass "data layer present (src/data/ or stores/)"
 else
   fail "persistence - no src/data/ or stores/ data-access layer found (see steering 20-persistence.md)"
 fi
 
 # 6. Build (if a build script exists). Non-fatal if absent for RN/Expo dev.
-if [ -f package.json ] && grep -q '"build"' package.json; then
+if [ "$IS_HOST_MONOREPO" -eq 1 ]; then
+  warn "build skipped (host monorepo — CI handles dashboard build)"
+elif [ -f package.json ] && grep -q '"build"' package.json; then
   if npm run build >/tmp/qg_build.log 2>&1; then
     pass "build"
   else

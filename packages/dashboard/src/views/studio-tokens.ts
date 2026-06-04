@@ -322,6 +322,60 @@ export function renderStudioStylesheet(): string {
       height: 100%;
       padding: ${t.space.base};
     }
+    /* Empty-state hero with example prompts (VibeCode parity) */
+    .studio-empty-hero {
+      padding: 32px 8px 12px;
+      text-align: center;
+    }
+    .studio-empty-hero__icon {
+      font-size: 48px;
+      margin-bottom: 6px;
+    }
+    .studio-empty-hero__title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0 0 4px;
+      color: ${t.text.primary};
+    }
+    .studio-empty-hero__sub {
+      font-size: 12px;
+      color: ${t.text.secondary};
+      margin: 0 0 16px;
+      line-height: 1.4;
+    }
+    .studio-empty-hero__grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .studio-empty-example {
+      background: ${t.bg.surfaceRaised};
+      border: 1px solid ${t.bg.border};
+      border-radius: 12px;
+      padding: 12px 10px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: ${t.text.primary};
+      transition: transform 140ms ease-out, border-color 140ms ease-out;
+    }
+    .studio-empty-example:hover {
+      transform: translateY(-2px);
+      border-color: ${t.accent.primary};
+    }
+    .studio-empty-example:active {
+      transform: scale(0.97);
+    }
+    .studio-empty-example__emoji {
+      font-size: 24px;
+    }
+    .studio-empty-example__name {
+      font-size: 12px;
+      font-weight: 600;
+    }
     .studio-messages {
       flex: 1;
       overflow-y: auto;

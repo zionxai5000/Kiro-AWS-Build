@@ -855,7 +855,7 @@ export class StudioView {
         const action = (el as HTMLElement).dataset.previewAction;
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
-        else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
+        else if (action === 'build-preview' || action === 'retry' || action === 'refresh') void this.buildLivePreview();
         else if (action === 'open-on-phone') this.openOnPhone();
         else if (action === 'open-fullscreen') this.openPreviewInNewTab();
       });
@@ -869,7 +869,7 @@ export class StudioView {
         <aside class="studio-sidebar">
           <div class="studio-sidebar__header">
             <h3>Projects</h3>
-            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-new-project" title="Start fresh">+ New</button>
+            <button class="studio-btn studio-btn--ghost studio-btn--sm" id="studio-new-project" title="Start a new project (fresh chat context, builds a new app)">+ New</button>
           </div>
           <div class="studio-sidebar__list">
             ${this.renderProjectList()}
@@ -1181,6 +1181,9 @@ export class StudioView {
     if (this.state.previewStatus !== 'ready' || !this.state.previewSnackId) return '';
     return `
       <div class="studio-preview__actions">
+        <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="refresh" title="Reload the preview iframe">
+          ↻ Refresh
+        </button>
         <button class="studio-btn studio-btn--ghost studio-btn--sm" data-preview-action="open-on-phone">
           🔗 Open on phone
         </button>
@@ -1363,6 +1366,29 @@ export class StudioView {
   }
 
   private renderChatContent(): string {
+    // Empty-state hero with example prompts (VibeCode parity)
+    const showEmptyState = this.messages.length === 0 && !this.state.projectId;
+    const examplePrompts = [
+      { emoji: '🔥', name: 'Habit Tracker', prompt: 'Build a habit tracker where I can add habits, mark them complete each day, see my streaks, and view a calendar heatmap. 5-star App Store quality.' },
+      { emoji: '✓', name: 'Todo List', prompt: 'Build a todo list with sections for Today / Tomorrow / Later, swipe to complete, swipe to delete, and a satisfying animated checkbox.' },
+      { emoji: '🍳', name: 'Recipe Manager', prompt: 'Build a recipe manager where I can save recipes with photos, search by ingredient, and view ingredients + steps on a parallax detail screen.' },
+      { emoji: '💪', name: 'Workout Log', prompt: 'Build a workout log where I can track exercises, sets, reps, and see a sparkline chart of my progress over time.' },
+    ];
+    const exampleHtml = showEmptyState ? `
+      <div class="studio-empty-hero">
+        <div class="studio-empty-hero__icon">⚡</div>
+        <h2 class="studio-empty-hero__title">Build something today</h2>
+        <p class="studio-empty-hero__sub">Describe an app and ZionX builds it. Tap an example to start, or write your own.</p>
+        <div class="studio-empty-hero__grid">
+          ${examplePrompts.map((p) => `
+            <button class="studio-empty-example" data-example-prompt="${escapeHtml(p.prompt)}">
+              <span class="studio-empty-example__emoji">${p.emoji}</span>
+              <span class="studio-empty-example__name">${escapeHtml(p.name)}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
     const msgs = this.messages.map((m) => {
       const cls = m.role === 'user' ? 'studio-msg--user' : m.role === 'assistant' ? 'studio-msg--assistant' : 'studio-msg--system';
       if (m.kind === 'plan') {
@@ -1387,7 +1413,7 @@ export class StudioView {
     }).join('');
     return `
       <div class="studio-chat">
-        <div class="studio-messages" id="studio-messages">${msgs}</div>
+        <div class="studio-messages" id="studio-messages">${exampleHtml}${msgs}</div>
         <div class="studio-input-row">
           <textarea class="studio-input" id="studio-input" placeholder="${this.state.projectId ? 'Iterate on this app, or describe a new feature...' : 'Describe the app you want to build...'}" rows="3" ${this.state.generating ? 'disabled' : ''}></textarea>
           <button class="studio-btn studio-btn--primary" id="studio-send" ${this.state.generating ? 'disabled' : ''}>${this.state.generating ? 'Generating…' : 'Send →'}</button>
@@ -1567,7 +1593,7 @@ export class StudioView {
         const action = (el as HTMLElement).dataset.previewAction;
         if (action === 'build-ios') void this.startBuildFor('ios');
         else if (action === 'build-android') void this.startBuildFor('android');
-        else if (action === 'build-preview' || action === 'retry') void this.buildLivePreview();
+        else if (action === 'build-preview' || action === 'retry' || action === 'refresh') void this.buildLivePreview();
         else if (action === 'open-on-phone') this.openOnPhone();
         else if (action === 'open-fullscreen') this.openPreviewInNewTab();
       });
@@ -1656,6 +1682,17 @@ export class StudioView {
         const style = BRANDING_STYLES.find((s) => s.id === styleId);
         if (!style) return;
         const prompt = `Apply the ${style.name} branding style. ${style.description} Inspired by ${style.inspiration}.`;
+        void this.sendPrompt(prompt);
+      });
+    });
+    // VibeCode-parity: clicking an example prompt fills the input + sends.
+    this.container.querySelectorAll('[data-example-prompt]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const prompt = (el as HTMLElement).dataset.examplePrompt;
+        if (!prompt) return;
+        const input = this.container.querySelector<HTMLTextAreaElement>('#studio-input');
+        if (input) input.value = prompt;
+        captureUserAction('studio.exampleClick', { prompt: prompt.slice(0, 60) });
         void this.sendPrompt(prompt);
       });
     });

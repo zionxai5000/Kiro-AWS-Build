@@ -77,11 +77,11 @@
 
 | ✅/⬜ | # | Task | Commit |
 |---|---|---|---|
-| ⬜ | H6.1 | Empty state: 4 example-prompt buttons that fill the input ("Habit tracker", "Todo list", "Recipe manager", "Workout log") | |
-| ⬜ | H6.2 | Explicit "Refresh preview" button in preview toolbar | |
+| ✅ | H6.1 | Empty state: 4 example-prompt buttons that fill the input ("Habit tracker", "Todo list", "Recipe manager", "Workout log") | shipped |
+| ✅ | H6.2 | Explicit "Refresh preview" button in preview toolbar | added ↻ Refresh |
 | ⬜ | H6.3 | Failure messages with remediation links (5 doc-cited failure modes) | |
-| ⬜ | H6.4 | Pre-flight check banner ("App Store ready in N steps") if user clicks Deploy | |
-| ⬜ | H6.5 | "+ New chat" clarification (already exists, but tooltip explains it starts fresh context) | |
+| ⬜ | H6.4 | Pre-flight check banner ("App Store ready in N steps") if user clicks Deploy | (Phase 8 work, deferred) |
+| ✅ | H6.5 | "+ New chat" clarification (already exists, but tooltip explains it starts fresh context) | tooltip updated |
 
 ## PHASE H7 — Ship
 

@@ -1,0 +1,6 @@
+{
+  "version": 0,
+  "ranAt": "1970-01-01T00:00:00Z",
+  "_note": "Empty baseline. Populated by the first successful CI run via `pnpm test:evals --update-baseline`. Until then, every run is informational.",
+  "tasks": {}
+}

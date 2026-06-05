@@ -588,6 +588,8 @@ export function renderStudioStylesheet(): string {
       flex: 1;
       min-height: 0;
       display: flex;
+      align-items: center;          /* center the placeholder phone vertically — */
+      justify-content: center;      /* don't let the wrapper stretch the device frame */
       overflow: hidden;
     }
     .studio-device-frame {
@@ -596,7 +598,12 @@ export function renderStudioStylesheet(): string {
       border-radius: 36px;
       padding: ${t.space.sm};
       aspect-ratio: 9 / 19;
-      max-width: 300px;
+      /* Cap to fit the available pane height: ~640px max. Whichever is
+         smaller wins — width-driven OR height-driven — so the placeholder
+         phone shape scales DOWN on small viewports without giant empty
+         space around it. */
+      max-width: min(280px, calc((100vh - 200px) * 9 / 19));
+      max-height: calc(100vh - 200px);
       margin: 0 auto;
       width: 100%;
       box-shadow: ${t.shadow.level3};
@@ -609,6 +616,7 @@ export function renderStudioStylesheet(): string {
        static content (loading spinners, etc.) keeps the phone shape. */
     .studio-device-frame:has(iframe) {
       max-width: none;
+      max-height: none;
       aspect-ratio: auto;
       height: 100%;
       width: 100%;

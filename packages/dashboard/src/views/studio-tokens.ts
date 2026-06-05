@@ -123,8 +123,18 @@ export function renderStudioStylesheet(): string {
       overflow: hidden !important;
     }
     .dashboard-main:has(.studio) {
+      height: 100vh !important;
       max-height: 100vh !important;
       overflow: hidden !important;
+    }
+    /* Final scroll-prevention belt-and-suspenders: when the studio is
+       mounted, the document itself must not scroll. King's screenshot
+       had a horizontal scrollbar at the bottom — that's the body
+       scrolling. Lock it. */
+    html:has(.studio), body:has(.studio) {
+      overflow: hidden !important;
+      height: 100vh !important;
+      max-height: 100vh !important;
     }
 
     /* ============================================================== */
@@ -630,19 +640,39 @@ export function renderStudioStylesheet(): string {
     .studio-device-frame:has(iframe) .studio-device-screen iframe {
       border-radius: 0 !important;
       position: absolute !important;
-      /* Fixed iframe size so Snack's internal layout is deterministic.
-         1200×800 → editor pane is 915px wide (offscreen left), device
-         pane is 285px wide × 716px tall starting at y=48. */
+      /* Fixed iframe size — Snack's device pane is at (915, 48) sized 285×716. */
       width: 1200px !important;
       height: 800px !important;
       left: -915px !important;
       top: -48px !important;
       border: 0 !important;
-      /* Origin at device-pane top-left corner in iframe coords.
-         Scale 1.2× upscales 285×716 → ~342×859 visible. Pane budget
-         is ~880px tall so 859 fits with ~21px breathing room. */
       transform-origin: 915px 48px !important;
-      transform: scale(1.2) !important;
+      /* Scale formula explained:
+         The device pane is 716px native. The preview pane height is
+         (100vh - 80nav - 32padding) = 100vh - 112. We need the scaled
+         device pane to fit: scale * 716 <= 100vh - 112.
+         => scale <= (100vh - 112) / 716
+         At viewport 800: scale ≤ (688/716) = 0.96  (default rule below)
+         At viewport 900: scale ≤ (788/716) = 1.10
+         At viewport 1100: scale ≤ (988/716) = 1.38 (cap at 1.25)
+         The default below covers small viewports without cutoff. */
+      transform: scale(0.95) !important;
+    }
+    /* Scale up only when there is room. */
+    @media (min-height: 850px) {
+      .studio-device-frame:has(iframe) .studio-device-screen iframe {
+        transform: scale(1.0) !important;
+      }
+    }
+    @media (min-height: 950px) {
+      .studio-device-frame:has(iframe) .studio-device-screen iframe {
+        transform: scale(1.15) !important;
+      }
+    }
+    @media (min-height: 1100px) {
+      .studio-device-frame:has(iframe) .studio-device-screen iframe {
+        transform: scale(1.25) !important;
+      }
     }
     .studio-device-screen {
       background: ${t.bg.canvas};

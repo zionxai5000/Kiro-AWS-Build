@@ -588,25 +588,26 @@ export function renderStudioStylesheet(): string {
       flex: 1;
       min-height: 0;
       display: flex;
-      align-items: center;          /* center the placeholder phone vertically — */
-      justify-content: center;      /* don't let the wrapper stretch the device frame */
       overflow: hidden;
     }
+    /* Device frame ALWAYS fills the preview pane — no phone-shape collapse,
+       no empty space when content is short. The container = the application
+       canvas. King's directive: "the container should be the same size as
+       the overall application." */
     .studio-device-frame {
       background: ${t.bg.surface};
       border: 1px solid ${t.bg.border};
-      border-radius: 36px;
-      padding: ${t.space.sm};
-      aspect-ratio: 9 / 19;
-      /* Cap to fit the available pane height: ~640px max. Whichever is
-         smaller wins — width-driven OR height-driven — so the placeholder
-         phone shape scales DOWN on small viewports without giant empty
-         space around it. */
-      max-width: min(280px, calc((100vh - 200px) * 9 / 19));
-      max-height: calc(100vh - 200px);
-      margin: 0 auto;
+      border-radius: 14px;
+      padding: 0;
       width: 100%;
+      height: 100%;
+      flex: 1;
+      min-height: 0;
       box-shadow: ${t.shadow.level3};
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
+      overflow: hidden;
     }
     /* When the device frame is rendering a real Snack iframe, drop the
        phone-shaped 300px constraint — Snack's web player needs >=700px

@@ -246,12 +246,30 @@ export class Workspace {
   /**
    * Persist project-level metadata (name, original prompt) under .meta/project.json.
    * Used by the createProject API and the dashboard project list.
+   *
+   * Accepts arbitrary fields for forward-compatibility — `ownerId` (Phase 5)
+   * and `qualityGate` (Phase 5) are written through this path.
    */
-  async writeProjectMeta(projectId: string, meta: { name: string; prompt?: string; description?: string }): Promise<void> {
+  async writeProjectMeta(
+    projectId: string,
+    meta: { name: string; prompt?: string; description?: string; ownerId?: string } & Record<string, unknown>,
+  ): Promise<void> {
     await this.writeFile(projectId, '.meta/project.json', JSON.stringify({
       ...meta,
       updatedAt: new Date().toISOString(),
     }, null, 2));
+  }
+
+  /**
+   * Read the raw project meta JSON. Returns null if missing/unreadable.
+   * Used by the project-ownership check and the studio sidebar.
+   */
+  async readProjectMeta(projectId: string): Promise<Record<string, unknown> | null> {
+    try {
+      return JSON.parse(await this.readFile(projectId, '.meta/project.json')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   }
 
   /**

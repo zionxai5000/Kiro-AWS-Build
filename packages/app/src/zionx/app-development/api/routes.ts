@@ -37,6 +37,26 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
     },
     {
       method: 'POST',
+      path: '/app-dev/projects/:id/agent-message',
+      handler: h.agentMessage,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/projects/:id/sandbox',
+      handler: h.getSandboxStatus,
+    },
+    {
+      method: 'POST',
+      path: '/app-dev/projects/:id/sandbox/wake',
+      handler: h.wakeSandbox,
+    },
+    {
+      method: 'POST',
+      path: '/app-dev/projects/:id/sandbox/hibernate',
+      handler: h.hibernateSandbox,
+    },
+    {
+      method: 'POST',
       path: '/app-dev/projects/:id/build',
       requireHumanOrigin: true,
       handler: h.buildProject,

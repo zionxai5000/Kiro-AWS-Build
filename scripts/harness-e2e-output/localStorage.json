@@ -1,0 +1,4 @@
+{
+  "habits-last-date": "Fri Jun 05 2026",
+  "habits-v1": "[{\"id\":\"water\",\"name\":\"Drink water\",\"emoji\":\"💧\",\"streak\":4,\"doneToday\":true},{\"id\":\"walk\",\"name\":\"Walk 10k steps\",\"emoji\":\"👟\",\"streak\":7,\"doneToday\":false},{\"id\":\"read\",\"name\":\"Read 20 minutes\",\"emoji\":\"📚\",\"streak\":2,\"doneToday\":false}]"
+}

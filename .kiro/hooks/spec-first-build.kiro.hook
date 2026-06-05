@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Spec the build to the quality bar",
+  "description": "When the user asks to build/create/generate an app or feature, force the agent to resolve credentials from Secrets Manager, write a spec under .kiro/specs/, scaffold the design tokens + src/data/ + onboarding shell, before any feature code.",
+  "version": "1",
+  "when": {
+    "type": "promptSubmit"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "If the user's prompt is a request to build, create, generate, or scaffold an app or a new feature, do this BEFORE writing any feature code: 1. Resolve credentials first. If anything needs a key or backend, read it from AWS Secrets Manager using the pattern seraphim/<service> before reporting any missing-credential or missing-data blocker. 2. Write a spec under .kiro/specs/<app-name>/ (requirements.md, design.md, tasks.md). The spec MUST explicitly include: the persistence schema (no static data), the onboarding/walkthrough flow, and a statement that .kiro/steering/10-design-system.md tokens are the only styling source. 3. Scaffold from templates/golden-starter/ if it exists; otherwise create the three foundations first: the design-system token module, the src/data/ data layer, and src/onboarding/OnboardingFlow.tsx. 4. Only then build features into that skeleton. Follow .kiro/steering/00-quality-bar.md and its referenced files exactly. Do not declare the work done until .kiro/scripts/verify-app.sh would pass."
+  }
+}

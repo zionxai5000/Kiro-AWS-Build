@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ZionX Studio (harness)</title>
+<style>
+  :root {
+    --bg-base: #0E1424;
+    --bg-elevated: #161E33;
+    --bg-elevated-2: #1E2740;
+    --bg-grad-top: #1B2138;
+    --text-primary: #EDF0FA;
+    --text-secondary: #A7AECB;
+    --text-tertiary: #6C7494;
+    --border-subtle: #26304D;
+    --border-hairline: rgba(167, 174, 203, 0.12);
+    --accent: #7C83FF;
+    --accent-soft: rgba(124, 131, 255, 0.16);
+    --accent-hover: #9097FF;
+    --teal: #5FB6A6;
+    --warm: #E8B58A;
+    --success: #5FB682;
+    --danger: #E2807C;
+    --success-soft: rgba(95, 182, 130, 0.14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    font-size: 15px;
+    color: var(--text-primary);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(124,131,255,0.08), transparent 60%),
+      linear-gradient(180deg, var(--bg-base) 0%, var(--bg-grad-top) 100%);
+    letter-spacing: -0.005em;
+  }
+  .studio { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+  /* Top nav */
+  .nav {
+    display: flex; align-items: center; gap: 24px; padding: 0 24px;
+    border-bottom: 1px solid var(--border-hairline);
+    background: rgba(14, 20, 36, 0.7);
+    backdrop-filter: blur(24px) saturate(160%);
+  }
+  .logo { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 17px; letter-spacing: 0.04em; }
+  .logo-mark { width: 22px; height: 22px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--teal)); box-shadow: 0 0 24px var(--accent-soft); }
+  .tabs { display: flex; gap: 4px; margin-left: 24px; }
+  .tab { padding: 8px 12px; font-size: 13px; color: var(--text-secondary); border: 0; background: transparent; border-radius: 10px; cursor: pointer; }
+  .tab[aria-current="page"] { color: var(--text-primary); background: var(--accent-soft); }
+  .spacer { flex: 1; }
+  .cta {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: white; font-size: 13px; font-weight: 600;
+    border: 0; border-radius: 999px; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(124,131,255,0.3);
+  }
+  .icon-btn { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border-hairline); border-radius: 10px; color: var(--text-secondary); cursor: pointer; }
+
+  /* 3-column body */
+  .body { display: grid; grid-template-columns: 220px 400px 1fr; min-height: 0; }
+
+  /* Sidebar */
+  .sidebar {
+    display: flex; flex-direction: column; padding: 16px; gap: 12px;
+    border-right: 1px solid var(--border-hairline);
+    background: rgba(22, 30, 51, 0.4);
+    backdrop-filter: blur(20px) saturate(140%);
+    overflow-y: auto;
+  }
+  .sb-new {
+    width: 100%; padding: 12px 16px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 13px; font-weight: 600;
+    border: 1px dashed var(--accent); border-radius: 10px; cursor: pointer;
+  }
+  .sb-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); padding: 8px 8px 0; }
+  .project-row {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    text-align: left; cursor: pointer;
+  }
+  .project-row[data-active="true"] { background: var(--bg-elevated-2); border-color: var(--accent); }
+  .project-row__name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .project-row__meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-tertiary); }
+  .pill { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .pill--ok { background: var(--success-soft); color: var(--success); }
+  .pill--saved { background: var(--bg-elevated-2); color: var(--text-secondary); }
+
+  .sb-util { margin-top: auto; padding-top: 24px; border-top: 1px solid var(--border-hairline); display: flex; flex-direction: column; gap: 4px; }
+  .sb-util button { padding: 8px 12px; background: transparent; color: var(--text-secondary); font-size: 13px; border: 0; border-radius: 10px; text-align: left; cursor: pointer; }
+  .sb-status { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 11px; color: var(--text-tertiary); }
+  .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--success); box-shadow: 0 0 8px var(--success); }
+
+  /* Chat */
+  .chat { display: grid; grid-template-rows: auto 1fr auto; border-right: 1px solid var(--border-hairline); min-height: 0; background: rgba(14, 20, 36, 0.5); }
+  .plan {
+    margin: 16px; padding: 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.32);
+  }
+  .plan-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); }
+  .plan-keys { display: grid; gap: 4px; margin-top: 12px; font-size: 13px; }
+  .plan-key { display: grid; grid-template-columns: 80px 1fr; gap: 8px; }
+  .plan-key b { color: var(--accent); font-weight: 600; }
+  .plan-body { margin-top: 12px; line-height: 1.55; color: var(--text-primary); }
+
+  .stream { overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; align-items: flex-start; gap: 8px; }
+  .icon { width: 22px; flex: 0 0 22px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
+  .text { flex: 1; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+  .text--user { color: var(--text-primary); font-weight: 500; }
+  .text--agent { color: var(--text-primary); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 999px; font-size: 11px; color: var(--text-secondary); }
+  .chip--write   { color: var(--warm); border-color: rgba(232,181,138,0.3); }
+  .chip--edit    { color: var(--accent); border-color: rgba(124,131,255,0.3); }
+  .chip--read    { color: var(--teal); border-color: rgba(95,182,166,0.3); }
+  .chip--run     { color: var(--success); border-color: rgba(95,182,130,0.3); }
+  .chip--review  { color: var(--accent); border-color: rgba(124,131,255,0.3); }
+  .quality-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--success-soft); color: var(--success); border: 1px solid rgba(95,182,130,0.4); border-radius: 999px; font-size: 11px; }
+
+  .input-bar { padding: 16px; border-top: 1px solid var(--border-hairline); background: rgba(22,30,51,0.5); }
+  .input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+  .input { min-height: 52px; width: 100%; padding: 12px 16px; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 10px; font-family: inherit; font-size: 15px; resize: none; }
+  .input-buttons { display: flex; gap: 4px; }
+  .input-btn { width: 44px; height: 44px; border-radius: 10px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); color: var(--text-secondary); cursor: pointer; font-size: 18px; }
+  .input-btn--send { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: white; border-color: transparent; box-shadow: 0 4px 12px rgba(124,131,255,0.3); }
+
+  /* Preview */
+  .preview { display: grid; grid-template-rows: 44px 1fr 28px; min-height: 0; background: var(--bg-base); }
+  .preview-toolbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--border-hairline); background: rgba(14,20,36,0.6); backdrop-filter: blur(20px); }
+  .platform-tabs { display: inline-flex; gap: 0; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 2px; }
+  .platform-tabs button { padding: 4px 12px; background: transparent; color: var(--text-tertiary); font-size: 13px; border: 0; border-radius: 8px; cursor: pointer; }
+  .platform-tabs button[aria-pressed="true"] { background: var(--accent); color: white; }
+  .preview-action { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border-hairline); border-radius: 10px; color: var(--text-secondary); font-size: 14px; cursor: pointer; }
+  .preview-viewport {
+    position: relative;
+    background: linear-gradient(135deg, #0E1424 0%, #1B2138 100%);
+    overflow: hidden;
+    padding: 32px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .preview-statusbar { display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--border-hairline); font-size: 11px; color: var(--text-tertiary); background: rgba(14,20,36,0.6); }
+
+  /* Mock app inside preview */
+  .mock-app { width: 360px; max-width: 100%; }
+  .mock-h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; text-align: center; margin: 0 0 6px; }
+  .mock-p { color: rgba(255,255,255,0.45); font-size: 13px; text-align: center; margin: 0 0 24px; }
+  .mock-list { display: flex; flex-direction: column; gap: 14px; }
+  .mock-card { display: flex; align-items: center; gap: 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 16px; }
+  .mock-emoji { font-size: 28px; }
+  .mock-card-text { flex: 1; }
+  .mock-card-name { font-size: 16px; font-weight: 600; }
+  .mock-card-streak { font-size: 13px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+  .mock-card.done { border-color: rgba(95,182,130,0.6); background: rgba(95,182,130,0.12); }
+  .mock-check { width: 28px; height: 28px; border-radius: 999px; background: var(--success); color: white; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .mock-add { margin-top: 18px; width: 100%; padding: 14px; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); border: 0; border-radius: 999px; color: white; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(124,131,255,0.3); }
+</style>
+</head>
+<body>
+<div class="studio">
+  <nav class="nav">
+    <span class="logo"><span class="logo-mark"></span> ZIONX</span>
+    <div class="tabs">
+      <button class="tab" aria-current="page">Studio</button>
+      <button class="tab">Projects</button>
+      <button class="tab">Design</button>
+    </div>
+    <span class="spacer"></span>
+    <button class="cta">+ New App</button>
+    <button class="icon-btn">◐</button>
+    <button class="icon-btn">👤</button>
+  </nav>
+  <div class="body">
+
+    <aside class="sidebar">
+      <button class="sb-new">+ New App</button>
+      <div class="sb-section-title">Projects</div>
+      <button class="project-row" data-active="true">
+        <span class="project-row__name">Habit Tracker</span>
+        <span class="project-row__meta"><span class="pill pill--ok">95/100</span><span class="pill pill--saved">💾 saved</span></span>
+      </button>
+      <button class="project-row">
+        <span class="project-row__name">Recipe Manager</span>
+        <span class="project-row__meta"><span class="pill pill--ok">85/100</span><span class="pill pill--saved">💾 saved</span></span>
+      </button>
+      <button class="project-row">
+        <span class="project-row__name">Tic Tac Toe</span>
+        <span class="project-row__meta"><span class="pill pill--ok">90/100</span><span class="pill pill--saved">💾 saved</span></span>
+      </button>
+      <div class="sb-util">
+        <button>Preview</button>
+        <button>Logs</button>
+        <button>Files</button>
+        <div class="sb-status"><span class="dot"></span> Sandbox awake</div>
+      </div>
+    </aside>
+
+    <section class="chat">
+      <div></div>
+      <div class="stream">
+        <div class="plan">
+          <div class="plan-header"><span>📋 Build plan ✓ accepted</span><button style="background:transparent;border:0;color:var(--text-tertiary);font-size:11px;cursor:pointer;">▾ collapse</button></div>
+          <div class="plan-body"></div>
+          <div class="plan-keys">
+            <div class="plan-key"><b>Domain</b><span>Daily habit tracker</span></div>
+            <div class="plan-key"><b>Goal</b><span>Tap a habit to mark it done; see streak rise</span></div>
+            <div class="plan-key"><b>Screens</b><span>Today · History · Settings</span></div>
+            <div class="plan-key"><b>State</b><span>Habit { id, name, emoji, completions[] } in zustand persist</span></div>
+            <div class="plan-key"><b>Visual</b><span>Periwinkle accent #7C83FF, soft dark gradient, flame motif</span></div>
+          </div>
+        </div>
+
+        <div class="row"><div class="icon">›</div><div class="text text--user">Build me a habit tracker with streaks. 5-star quality.</div></div>
+        <div class="row"><div class="icon">⚙</div><div class="text"><span class="chip chip--read">load_skill frontend-app-design</span></div></div>
+        <div class="row"><div class="icon">⚙</div><div class="text"><span class="chip chip--read">load_skill zustand-persistence</span></div></div>
+        <div class="row"><div class="icon">⚙</div><div class="text"><span class="chip chip--read">read_file app/(tabs)/index.tsx</span></div></div>
+        <div class="row"><div class="icon">✎</div><div class="text"><span class="chip chip--write">write_file stores/habit-store.ts</span></div></div>
+        <div class="row"><div class="icon">✎</div><div class="text"><span class="chip chip--edit">edit_file app/(tabs)/index.tsx</span></div></div>
+        <div class="row"><div class="icon">✎</div><div class="text"><span class="chip chip--write">write_file app/onboarding.tsx</span></div></div>
+        <div class="row"><div class="icon">⚡</div><div class="text"><span class="chip chip--run">run_command npx tsc --noEmit</span></div></div>
+        <div class="row"><div class="icon">✦</div><div class="text"><span class="chip chip--review">spawn_subagent visual-polish-reviewer</span></div></div>
+        <div class="row"><div class="icon">✦</div><div class="text"><span class="chip chip--review">spawn_subagent persistence-reviewer</span></div></div>
+        <div class="row"><div class="icon">✓</div><div class="text"><span class="quality-pill">Quality 95/100/95/100 ✓ all reviewers passed</span></div></div>
+        <div class="row"><div class="icon">✦</div><div class="text text--agent">Done. Built a 3-tab habit tracker with persisted streaks. Tap a row to mark today complete; the flame count animates up. Add habits via the inline sheet.</div></div>
+      </div>
+      <div class="input-bar">
+        <div class="input-row">
+          <textarea class="input" rows="1" placeholder="Tell me what to change…"></textarea>
+          <div class="input-buttons">
+            <button class="input-btn">📎</button>
+            <button class="input-btn input-btn--send">↑</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="preview">
+      <div class="preview-toolbar">
+        <div class="platform-tabs">
+          <button aria-pressed="true">🌐 Web</button>
+          <button>📱 iOS</button>
+          <button>🤖 Android</button>
+        </div>
+        <span class="spacer"></span>
+        <button class="preview-action">↻</button>
+        <button class="preview-action">⛶</button>
+        <button class="preview-action">📲</button>
+      </div>
+      <div class="preview-viewport">
+        <div class="mock-app">
+          <h1 class="mock-h1">Today</h1>
+          <p class="mock-p">Friday, June 5</p>
+          <div class="mock-list">
+            <div class="mock-card done">
+              <span class="mock-emoji">💧</span>
+              <div class="mock-card-text"><div class="mock-card-name">Drink water</div><div class="mock-card-streak">🔥 4 day streak</div></div>
+              <div class="mock-check">✓</div>
+            </div>
+            <div class="mock-card">
+              <span class="mock-emoji">👟</span>
+              <div class="mock-card-text"><div class="mock-card-name">Walk 10k steps</div><div class="mock-card-streak">🔥 7 day streak</div></div>
+            </div>
+            <div class="mock-card">
+              <span class="mock-emoji">📚</span>
+              <div class="mock-card-text"><div class="mock-card-name">Read 20 minutes</div><div class="mock-card-streak">🔥 2 day streak</div></div>
+            </div>
+          </div>
+          <button class="mock-add">+ Add habit</button>
+        </div>
+      </div>
+      <div class="preview-statusbar"><span class="dot"></span><span>● Live · sandbox iww5fepc · last reload 1.2s</span><span class="spacer"></span><span style="flex:1;"></span></div>
+    </section>
+
+  </div>
+</div>
+</body>
+</html>

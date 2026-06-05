@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Quality gate before done",
+  "description": "When the agent finishes, run bash .kiro/scripts/verify-app.sh; if it fails, fix only the failing items and re-run up to 3 times; once it passes, agent reviews the key screens against the design system (must score 4.5/5+) and verifies data survives a reload.",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Run the quality gate and do not consider the work finished until it passes. 1. Run the verification script: bash .kiro/scripts/verify-app.sh 2. If it exits non-zero, read the [FAIL] lines, fix ONLY the failing slice (do not rewrite working code), and run it again. Repeat up to 3 times. 3. When the script passes, do the two manual reviews it cannot automate: a. Visual review: open the key screens (or screenshots) and grade them 1-5 on hierarchy, spacing, typography, motion, and polish against .kiro/steering/10-design-system.md. Anything below 4.5 is a fail - fix the specific screens and re-check. b. Persistence round-trip: create a record, reload or cold-start the app, and confirm it is still there. If not, fix the data layer. 4. Report a short pass/fail summary of all five gates from .kiro/steering/00-quality-bar.md."
+  }
+}

@@ -42,9 +42,11 @@ class MemoryWorkspace implements WorkspaceLike {
 const SECRET = 'test-preview-proxy-secret';
 
 function makeReq(overrides: Partial<APIRequest> = {}): APIRequest {
+  // The production router strips `/api` before dispatching, so handlers see
+  // `/preview/...`. Tests reproduce that.
   return {
     method: 'GET',
-    path: '/api/preview/p1',
+    path: '/preview/p1',
     params: { projectId: 'p1' },
     query: {},
     body: null,
@@ -83,7 +85,7 @@ describe('preview-proxy', () => {
       resolveSandboxUrl: async () => null,
       signingSecret: SECRET,
     });
-    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/api/preview/:projectId/*')!;
+    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/preview/:projectId/*')!;
     const res = await proxy.handler(makeReq());
     expect(res.statusCode).toBe(401);
   });
@@ -96,7 +98,7 @@ describe('preview-proxy', () => {
       resolveSandboxUrl: async () => null,
       signingSecret: SECRET,
     });
-    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/api/preview/:projectId/*')!;
+    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/preview/:projectId/*')!;
     const res = await proxy.handler(makeReq({ userId: 'u2' }));
     expect(res.statusCode).toBe(403);
   });
@@ -109,7 +111,7 @@ describe('preview-proxy', () => {
       resolveSandboxUrl: async () => null,
       signingSecret: SECRET,
     });
-    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/api/preview/:projectId/*')!;
+    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/preview/:projectId/*')!;
     const res = await proxy.handler(makeReq({ userId: 'u1' }));
     expect(res.statusCode).toBe(503);
     expect(res.streamHandler).toBeTypeOf('function');
@@ -123,7 +125,7 @@ describe('preview-proxy', () => {
       resolveSandboxUrl: async () => null,
       signingSecret: SECRET,
     });
-    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/api/preview/:projectId/*')!;
+    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/preview/:projectId/*')!;
     const token = __test__.signToken(
       { projectId: 'p1', userId: 'u1', exp: Date.now() + 60_000 },
       SECRET,
@@ -140,7 +142,7 @@ describe('preview-proxy', () => {
       resolveSandboxUrl: async () => null,
       signingSecret: SECRET,
     });
-    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/api/preview/:projectId/*')!;
+    const proxy = routes.find((r) => r.method === 'GET' && r.path === '/preview/:projectId/*')!;
     const tokenForOtherProject = __test__.signToken(
       { projectId: 'OTHER', userId: 'u1', exp: Date.now() + 60_000 },
       SECRET,

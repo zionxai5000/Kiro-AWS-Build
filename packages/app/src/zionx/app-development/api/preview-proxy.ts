@@ -29,22 +29,28 @@ export interface PreviewProxyDeps {
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-/** Build the route descriptors for the preview proxy. */
+/** Build the route descriptors for the preview proxy.
+ *
+ * Note: paths are registered WITHOUT the `/api` prefix because the
+ * production router (production-server.ts:529) strips `/api` from the
+ * incoming path before route matching. The public URLs are still
+ * `/api/preview/:projectId/*`.
+ */
 export function createPreviewRoutes(deps: PreviewProxyDeps): RouteHandler[] {
   return [
     {
       method: 'GET',
-      path: '/api/preview/:projectId',
+      path: '/preview/:projectId',
       handler: createProxyHandler(deps),
     },
     {
       method: 'GET',
-      path: '/api/preview/:projectId/*',
+      path: '/preview/:projectId/*',
       handler: createProxyHandler(deps),
     },
     {
       method: 'POST',
-      path: '/api/preview/:projectId/token',
+      path: '/preview/:projectId/token',
       handler: createTokenIssuer(deps),
     },
   ];
@@ -165,9 +171,11 @@ function createProxyHandler(deps: PreviewProxyDeps): (req: APIRequest) => Promis
       };
     }
 
-    // Forward to the upstream sandbox URL. We strip the `/api/preview/:id`
-    // prefix so the upstream sees a normal path.
-    const tail = stripPrefix(req.path, `/api/preview/${projectId}`);
+    // Forward to the upstream sandbox URL. The production router strips the
+    // `/api` prefix before route matching, so `req.path` here looks like
+    // `/preview/:id/...`. Strip that to get the upstream tail.
+    const tail = stripPrefix(req.path, `/preview/${projectId}`)
+      || stripPrefix(req.path, `/api/preview/${projectId}`); // local-server path
     const target = `${sandboxUrl}${tail || '/'}`;
     const headers: Record<string, string> = { ...req.headers };
     delete headers['authorization'];

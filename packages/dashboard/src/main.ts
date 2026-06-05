@@ -32,6 +32,17 @@ if (!root) {
 // Ensure user is authenticated before initializing the dashboard
 async function bootstrap(): Promise<void> {
   await ensureAuthenticated();
+
+  // Phase 10 — `?harness=1` opts into the new 3-column harness studio,
+  // alongside the legacy dashboard. Once Phase 12 decommissions legacy,
+  // this branch becomes the default path.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('harness') === '1') {
+    const { mountHarnessStudio } = await import('./pages/harness-studio.js');
+    mountHarnessStudio({ container: root! });
+    return;
+  }
+
   const app = new App(root!);
   void app.init();
 

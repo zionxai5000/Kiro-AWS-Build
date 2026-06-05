@@ -1,4 +1,19 @@
 /**
+ * @deprecated Phase 12 — Use the agent harness preview path instead.
+ *
+ * This module is the legacy preview path: workspace files → Expo Snack save
+ * → iframe. The harness path (Phase 4+) provisions a real E2B sandbox per
+ * project and serves the running app via the auth proxy at
+ * `/api/preview/:projectId/*`. The harness path supports multi-screen
+ * navigation, real Metro hot reload, on-phone preview via Expo Go, and the
+ * full agent tool loop.
+ *
+ * Decommission plan: docs/zionx-agent-harness/DECOMMISSION-LEGACY.md.
+ * Until that lands, the legacy `generateCode` handler still calls in here
+ * for backward compatibility.
+ *
+ * --- ORIGINAL HEADER ---
+ *
  * Expo Snack client — bundles a workspace into a Snack save and returns
  * an embed URL the dashboard renders in an iframe. This is what gives the
  * Studio its live preview (matches the VibeCode/Rork "see your app render"

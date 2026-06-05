@@ -199,3 +199,69 @@ packages/app/src/zionx/app-development/
 | Test suite | 2026-05-19 | 408 tests passing, 4 skipped (gated) |
 | tsc | 2026-05-19 | 1 known baseline error (autonomous-engine.ts:248) |
 | Commits on main | 2026-05-19 | 40+ commits, all pushed to origin |
+
+
+---
+
+## Amendment v2 — Phase 4 (E2B sandbox) live (2026-06-05)
+
+This amendment supplements the as-built section above. The architectural
+changes from "Snack-only preview" to "agent harness + E2B sandbox + auth
+proxy" are summarized here.
+
+### What changed at the runtime level
+
+| Layer | Before (v1) | After (v2) |
+|---|---|---|
+| **Generation** | One-shot `streamGeneration`: Claude emits files between `--- FILE: path ---` markers, server parses and writes | Tool-using agent loop: Claude calls `read_file`/`write_file`/`edit_file`/`run_command`/`spawn_subagent` discrete tools through the Anthropic Tool-Use API |
+| **Iteration** | Each prompt regenerates from scratch | Agent reads existing workspace + edits in place |
+| **Preview** | Snack `/embedded/<id>` iframe with editor chrome clipped via CSS | Real E2B Linux sandbox running Expo dev server, served through `/api/preview/:projectId/*` auth proxy |
+| **Multi-screen** | Snack web bypassed expo-router → multi-screen apps dead-ended | Real sandbox runs the full router → multi-screen navigation works |
+| **On-phone** | Generic Snack QR | Auth-proxied URL with HMAC-signed 1-hour token; Expo Go connects to the sandbox's real Metro |
+| **Quality gates** | Hooks 11–15 ran post-generation as a separate retry loop in `quality-gate-runner.ts` | Same hooks wrapped as `Subagent` instances; agent loop auto-spawns them when the model goes silent and feeds failures back as the next user prompt |
+| **Auth** | `requireHumanOrigin` flag on individual routes | Cognito JWT (existing) + per-project ownership middleware (`requireProjectOwner`) on every `/app-dev/projects/:id/*` route |
+| **Sandbox provisioning** | None | `E2BSandboxClient` with per-project cache, lazy provisioning, auto-mkdir of workdir, 5-min idle pause, resume on demand |
+
+### Files map
+
+```
+packages/app/src/zionx/app-development/
+├── agent/                          NEW (Phase 3)
+│   ├── agent-loop.ts               while-not-done loop, prompt caching, reviewer auto-spawn
+│   ├── tools/                      10 tool implementations
+│   ├── skills/                     8 lazy-loaded markdown playbooks
+│   ├── subagents/                  Reviewer wrappers around Hooks 11–15
+│   ├── context/                    Workspace summary, compaction, memory, message-builder
+│   ├── guardrails/                 command-allowlist, budget caps, secret-scrubber
+│   └── evals/                      18 fixed eval tasks + CLI + scorers
+├── api/
+│   ├── handlers.ts                 Added agentMessage, sandbox status/wake/hibernate
+│   ├── routes.ts                   Added /agent-message, /sandbox/*
+│   ├── project-ownership.ts        NEW (Phase 5)
+│   └── preview-proxy.ts            NEW (Phase 6) — auth-checked stream proxy + signed tokens
+├── services/
+│   ├── sandbox-client.ts           NEW (Phase 4) — E2BSandboxClient
+│   └── snack-client.ts             Deprecated, kept for legacy /generate
+└── pipeline/                       Hooks 11–15 unchanged; called via subagent wrappers
+
+packages/dashboard/src/views/
+├── harness-studio*.ts              NEW (Phase 10) — 3-column locked-viewport UI
+└── studio.ts                       Legacy, still default; ?harness=1 opts in
+
+packages/services/src/shaar/
+└── production-server.ts            Loads seraphim/e2b → E2B_API_KEY → E2BSandboxClient → globalThis.__zionxSandboxClient
+```
+
+### Fully verified end-to-end (Session 9, 2026-06-05)
+
+`scripts/harness-sandbox-probe.mjs` ran the full chain:
+- Resolved `seraphim/anthropic` + `seraphim/e2b` from AWS Secrets Manager
+- Provisioned a real E2B sandbox in 444ms
+- Agent loop fired `run_command` against the sandbox twice
+- Real stdout came back: `4` (from `node -e "console.log(2+2)"`) and `v20.9.0`
+- 7.6 seconds end-to-end, ~$0.005 LLM + ~$0.0001 sandbox compute
+
+### What's still v1-style
+
+- `/generate` endpoint (legacy `streamGeneration`) remains for one release for backward compatibility
+- Custom `zionx-expo-base` E2B template (Dockerfile + Expo preinstall + iptables egress allowlist) is deferred — `base` template suffices for current verification

@@ -70,7 +70,8 @@ export class LLMService {
   constructor(config: LLMServiceConfig) {
     this.credentialManager = config.credentialManager;
     this.recentWrites = config.recentWrites;
-    this.model = config.model ?? 'claude-sonnet-4-20250514';
+    // Sonnet 4.6 alias auto-rolls to current line; Sonnet 4 EOL 2026-06-15.
+    this.model = config.model ?? 'claude-sonnet-4-6';
     this.maxTokens = config.maxTokens ?? LIMITS.codeGenerationMaxTokens;
     this.timeoutMs = config.timeoutMs ?? LIMITS.codeGenerationTimeoutMs;
   }

@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "ZionX App",
+    "slug": "zionx-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "zionxapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.zionx.app"
+    },
+    "android": {
+      "package": "com.zionx.app",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0E1F"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-haptics",
+      ["expo-splash-screen", { "backgroundColor": "#0A0E1F", "imageWidth": 240 }]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

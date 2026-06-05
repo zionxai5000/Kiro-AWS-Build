@@ -63,6 +63,10 @@ const ENV_MAPPINGS: Record<string, Record<string, string>> = {
   expo: {
     'access-token': 'EXPO_TOKEN',
   },
+  e2b: {
+    'api-key': 'E2B_API_KEY',
+    'apiKey': 'E2B_API_KEY',
+  },
   /**
    * Sentry credentials for the spec compliance cron.
    * - `auth-token`: bearer token used to call Sentry's REST API

@@ -17,7 +17,7 @@
 import 'dotenv/config';
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 
 // In-memory repositories (fallback when Aurora is not yet migrated)
@@ -1289,6 +1289,22 @@ async function main() {
       }
     } catch (e) { console.warn(`   ⚠️ Could not load seraphim/expo: ${(e as Error).message}`); }
 
+    // Load E2B sandbox API key — required for Phase 4 (live agent sandbox).
+    try {
+      const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/e2b' }));
+      if (resp.SecretString) {
+        try {
+          const parsed = JSON.parse(resp.SecretString);
+          const key = parsed.apiKey ?? parsed['api-key'] ?? parsed.E2B_API_KEY;
+          if (key && typeof key === 'string' && !key.startsWith('REPLACE_ME')) {
+            process.env.E2B_API_KEY = key;
+          } else {
+            console.warn('   ⚠️ seraphim/e2b still has placeholder apiKey — sandbox layer disabled');
+          }
+        } catch { /* non-JSON secret */ }
+      }
+    } catch (e) { console.warn(`   ⚠️ Could not load seraphim/e2b: ${(e as Error).message}`); }
+
     // Load App Store Connect credentials for iOS builds
     try {
       const resp = await secretsClient.send(new GetSecretValueCommand({ SecretId: 'seraphim/appstoreconnect' }));
@@ -1505,6 +1521,46 @@ async function main() {
 
     router.registerRouteGroup(appDevRoutes);
     console.log(`✅ [app-dev] Route group registered (${appDevRoutes.length} endpoints)`);
+
+    // Provision the E2B sandbox client (Phase 4) — it's optional. Without
+    // a real key the agent's run_command/screenshot tools degrade to soft
+    // no-ops (Phase 3 behavior); with one, they execute inside a real Linux box.
+    let sandboxClient: import('@seraphim/app/zionx/app-development/services/sandbox-client.js').E2BSandboxClient | null = null;
+    try {
+      const e2bKey = process.env.E2B_API_KEY;
+      if (e2bKey && e2bKey.startsWith('e2b_')) {
+        const { E2BSandboxClient } = await import('@seraphim/app/zionx/app-development/services/sandbox-client.js');
+        sandboxClient = new E2BSandboxClient({ getApiKey: async () => e2bKey });
+        console.log('✅ [app-dev] E2B sandbox client provisioned');
+      } else {
+        console.warn('⚠️  [app-dev] No E2B API key — run_command/screenshot will soft-skip');
+      }
+    } catch (e) {
+      console.warn(`[app-dev] E2B sandbox client init failed (non-fatal): ${(e as Error).message}`);
+    }
+    // Expose the client to the rest of the bootstrap (preview proxy reads it).
+    (globalThis as unknown as { __zionxSandboxClient?: typeof sandboxClient }).__zionxSandboxClient = sandboxClient;
+
+    // Register the preview auth proxy (Phase 6).
+    // resolveSandboxUrl returns the live E2B URL when a sandbox exists for the project,
+    // otherwise null → proxy serves the designed "not yet provisioned" placeholder.
+    try {
+      const { createPreviewRoutes } = await import('@seraphim/app/zionx/app-development/api/preview-proxy.js');
+      const previewSigningSecret = process.env.PREVIEW_SIGNING_SECRET || randomBytes(32).toString('base64url');
+      const previewRoutes = createPreviewRoutes({
+        workspace: appDevWorkspace,
+        resolveSandboxUrl: async (projectId) => {
+          if (!sandboxClient) return null;
+          try { return await sandboxClient.getPublicUrl(projectId); }
+          catch { return null; }
+        },
+        signingSecret: previewSigningSecret,
+      });
+      router.registerRouteGroup(previewRoutes);
+      console.log(`✅ [app-dev] Preview proxy registered (${previewRoutes.length} endpoints)`);
+    } catch (proxyErr) {
+      console.warn('[app-dev] Preview proxy registration failed (non-fatal):', (proxyErr as Error).message);
+    }
 
     // Register hook subscribers (hooks 3, 4, 7 react to file change events)
     try {

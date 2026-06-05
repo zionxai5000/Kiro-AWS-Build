@@ -56,6 +56,14 @@ export interface AppDevHandlerDeps {
 export interface AppDevHandlers {
   createProject: (req: APIRequest) => Promise<APIResponse>;
   generateCode: (req: APIRequest) => Promise<APIResponse>;
+  /** POST /app-dev/projects/:id/agent-message — tool-loop agent (replaces generateCode). */
+  agentMessage: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/projects/:id/sandbox — sandbox provision status. */
+  getSandboxStatus: (req: APIRequest) => Promise<APIResponse>;
+  /** POST /app-dev/projects/:id/sandbox/wake — provision a sandbox eagerly. */
+  wakeSandbox: (req: APIRequest) => Promise<APIResponse>;
+  /** POST /app-dev/projects/:id/sandbox/hibernate — pause/dispose a sandbox to save compute. */
+  hibernateSandbox: (req: APIRequest) => Promise<APIResponse>;
   buildProject: (req: APIRequest) => Promise<APIResponse>;
   generateStoreListing: (req: APIRequest) => Promise<APIResponse>;
   prepareSubmission: (req: APIRequest) => Promise<APIResponse>;
@@ -144,11 +152,13 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       await workspace.ensureProjectDir(projectId);
 
       // Persist project metadata so the dashboard project list can show
-      // friendly names and original prompts on revisit.
+      // friendly names and original prompts on revisit. Phase 5: also stamp
+      // ownerId so the project-ownership middleware can enforce access.
       await workspace.writeProjectMeta(projectId, {
         name: body.name,
         description: body.description,
         prompt: body.description,
+        ownerId: req.userId || 'anonymous',
       }).catch(() => {
         /* meta is best-effort; never block creation */
       });
@@ -171,6 +181,251 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           createdAt: new Date().toISOString(),
         },
       };
+    },
+
+    // -----------------------------------------------------------------------
+    // POST /app-dev/projects/:id/agent-message — Agent loop (Phase 9 wiring).
+    //
+    // Tool-using Claude loop with reviewer subagents. Replaces the one-shot
+    // streamGeneration call. SSE events:
+    //   { type: 'agent', event: AgentEvent }      — text + tool calls + reviewer scores
+    //   { type: 'phase', phase, message, ... }    — narration breadcrumbs
+    //   { type: 'done', passed, reviewers, ... }  — final summary
+    //
+    // Until E2B (Phase 4) is wired, run_command/screenshot tools error
+    // gracefully — the loop still works for read/write/edit/search/skill.
+    // -----------------------------------------------------------------------
+    async agentMessage(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) {
+        return { statusCode: 400, body: { error: 'project id is required' } };
+      }
+      const body = req.body as { prompt?: string; history?: unknown[] } | null;
+      if (!body?.prompt) {
+        return { statusCode: 400, body: { error: 'prompt is required' } };
+      }
+
+      // Phase 5: enforce project ownership before any work happens.
+      const { requireProjectOwnerFromParams } = await import('./project-ownership.js');
+      const ownership = await requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const prompt = body.prompt;
+
+      return {
+        statusCode: 200,
+        body: null,
+        streamHandler: (res: ServerResponse) => {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Generation-Id': randomUUID(),
+          });
+          const sendEvent = (data: Record<string, unknown>) => {
+            if (res.writableEnded || res.destroyed) return;
+            try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+          };
+          const narrate = (phase: string, message: string, extra: Record<string, unknown> = {}) => {
+            console.log(`[agent][${projectId}] ${phase}: ${message}`);
+            sendEvent({ type: 'phase', phase, message, timestamp: new Date().toISOString(), projectId, ...extra });
+          };
+
+          if (!credentialManager) {
+            narrate('error', 'Credential manager not configured — cannot reach Anthropic');
+            sendEvent({ type: 'error', message: 'Credential manager not configured' });
+            res.end();
+            return;
+          }
+
+          (async () => {
+            narrate('start', `Agent loop started for project ${projectId} (prompt ${prompt.length} chars)`);
+
+            // Resolve Anthropic key (Secrets Manager via the credential manager).
+            let anthropicKey: string | null = null;
+            try {
+              anthropicKey = await credentialManager.getCredential('anthropic', 'api-key');
+            } catch (err) {
+              narrate('error', `Failed to resolve seraphim/anthropic: ${(err as Error).message}`);
+              sendEvent({ type: 'error', message: 'Anthropic credentials unavailable' });
+              res.end();
+              return;
+            }
+            if (!anthropicKey) {
+              narrate('error', 'No Anthropic API key in credential manager');
+              sendEvent({ type: 'error', message: 'Anthropic API key missing' });
+              res.end();
+              return;
+            }
+
+            // Lazy-load the agent harness (large module, only loaded when used).
+            const { agentLoop } = await import('../agent/index.js');
+
+            // Sandbox client is provisioned at server boot — see production-server.ts.
+            // Read it via the global so the handler factory doesn't need a constructor change.
+            const sandboxClient = (globalThis as unknown as {
+              __zionxSandboxClient?: import('../services/sandbox-client.js').E2BSandboxClient | null;
+            }).__zionxSandboxClient ?? null;
+
+            const ac = new AbortController();
+            res.on('close', () => ac.abort());
+
+            try {
+              const result = await agentLoop(
+                {
+                  prompt,
+                  projectId,
+                  userId: req.tenantId ?? 'anonymous',
+                  signal: ac.signal,
+                },
+                {
+                  workspace,
+                  sandbox: sandboxClient ?? undefined,
+                  emit: (event) => sendEvent({ type: 'agent', event }),
+                  log: (...a) => console.log(`[agent][${projectId}]`, ...a),
+                },
+                {
+                  config: { apiKey: anthropicKey },
+                  reviewers: true,
+                  maxReviewerRetries: 2,
+                  history: Array.isArray(body.history) ? body.history as never : undefined,
+                },
+              );
+
+              narrate('done',
+                result.passed ? 'Agent run completed and reviewers passed.' : 'Agent run finished with reviewer failures.',
+                {
+                  passed: result.passed,
+                  iterations: result.iterations,
+                  filesWritten: result.filesWritten.length,
+                  filesEdited: result.filesEdited.length,
+                  reviewers: result.reviewers,
+                  tokens: result.tokens,
+                  reason: result.reason,
+                });
+              sendEvent({ type: 'done', ...result });
+
+              await eventBus.publish(createAppDevEvent(
+                APPDEV_EVENTS.HOOK_COMPLETED,
+                {
+                  projectId,
+                  hookId: 'agent-loop',
+                  executionId: randomUUID(),
+                  success: result.passed,
+                  dryRun: false,
+                  durationMs: 0,
+                  files: [...result.filesWritten, ...result.filesEdited],
+                  tokensUsed: result.tokens,
+                },
+                req.tenantId,
+              ));
+            } catch (err) {
+              const msg = (err as Error).message;
+              narrate('error', `Agent loop threw: ${msg}`, { error: msg });
+              sendEvent({ type: 'error', message: msg });
+            } finally {
+              if (!res.writableEnded) res.end();
+            }
+          })().catch((err) => {
+            console.error(`[agent][${projectId}] unhandled:`, err);
+            try { sendEvent({ type: 'error', message: (err as Error).message }); } catch { /* ignore */ }
+            if (!res.writableEnded) res.end();
+          });
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/sandbox — current sandbox status.
+    // POST /app-dev/projects/:id/sandbox/wake — provision a sandbox eagerly.
+    // POST /app-dev/projects/:id/sandbox/hibernate — pause to save compute.
+    //
+    // The actual E2BSandboxClient is held by production-server at boot and
+    // exposed via globalThis.__zionxSandboxClient. These handlers read that.
+    // -----------------------------------------------------------------------
+    async getSandboxStatus(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) return { statusCode: 400, body: { error: 'project id is required' } };
+
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const client = (globalThis as unknown as {
+        __zionxSandboxClient?: { getPublicUrl(id: string): Promise<string> } | null;
+      }).__zionxSandboxClient ?? null;
+
+      if (!client) {
+        return {
+          statusCode: 200,
+          body: { projectId, status: 'unavailable', reason: 'E2B sandbox client not provisioned (seraphim/e2b not loaded at boot)' },
+        };
+      }
+
+      // Best-effort: try to read the public URL. If the call succeeds the
+      // sandbox is live; if it fails the sandbox is paused or absent.
+      try {
+        const url = await client.getPublicUrl(projectId);
+        return {
+          statusCode: 200,
+          body: { projectId, status: 'live', publicUrl: url },
+        };
+      } catch (err) {
+        return {
+          statusCode: 200,
+          body: { projectId, status: 'idle', error: (err as Error).message },
+        };
+      }
+    },
+
+    async wakeSandbox(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) return { statusCode: 400, body: { error: 'project id is required' } };
+
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const client = (globalThis as unknown as {
+        __zionxSandboxClient?: {
+          getPublicUrl(id: string): Promise<string>;
+          runCommand(id: string, cmd: string, opts?: { timeoutMs?: number }): Promise<{ stdout: string; exitCode: number }>;
+        } | null;
+      }).__zionxSandboxClient ?? null;
+
+      if (!client) {
+        return { statusCode: 503, body: { error: 'sandbox client not provisioned' } };
+      }
+      try {
+        const url = await client.getPublicUrl(projectId);
+        // Touch the sandbox with a no-op so it boots if it wasn't already.
+        await client.runCommand(projectId, 'true', { timeoutMs: 5_000 }).catch(() => {});
+        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: url } };
+      } catch (err) {
+        return { statusCode: 502, body: { error: 'failed to wake sandbox', message: (err as Error).message } };
+      }
+    },
+
+    async hibernateSandbox(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) return { statusCode: 400, body: { error: 'project id is required' } };
+
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const client = (globalThis as unknown as {
+        __zionxSandboxClient?: { dispose?(id: string): Promise<void> } | null;
+      }).__zionxSandboxClient ?? null;
+      if (!client || typeof client.dispose !== 'function') {
+        return { statusCode: 503, body: { error: 'sandbox client not provisioned' } };
+      }
+      try {
+        await client.dispose(projectId);
+        return { statusCode: 200, body: { projectId, status: 'idle' } };
+      } catch (err) {
+        return { statusCode: 502, body: { error: 'failed to hibernate', message: (err as Error).message } };
+      }
     },
 
     // -----------------------------------------------------------------------

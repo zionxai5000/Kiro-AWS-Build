@@ -22,12 +22,16 @@
     "@seraphim/core": "*",
     "@seraphim/drivers": "*",
     "@seraphim/services": "*",
+    "e2b": "^2.27.1",
     "node-forge": "^1.4.0",
     "sharp": "^0.34.5"
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && node ../../scripts/copy-agent-assets.mjs",
     "test": "vitest run --config ../../vitest.config.ts --project app",
+    "test:evals": "npm run build && node dist/zionx/app-development/agent/evals/cli.js",
+    "test:evals:check": "npm run build && node dist/zionx/app-development/agent/evals/cli.js --baseline-check",
+    "test:evals:update": "npm run build && node dist/zionx/app-development/agent/evals/cli.js --update-baseline",
     "lint": "eslint 'src/**/*.ts'",
     "clean": "tsc --build --clean && rm -rf dist"
   },

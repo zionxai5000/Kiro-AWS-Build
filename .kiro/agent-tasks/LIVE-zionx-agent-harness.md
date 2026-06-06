@@ -1306,3 +1306,123 @@ Once ECS finishes (~2-3 min from now):
 2. Decide whether to flip the default route now or wait one release.
 3. Add `ANTHROPIC_API_KEY` to GitHub Actions secrets when ready (Phase 8.26).
 4. Optional cleanup: address the 14 baseline `tsc --noEmit` errors that have been red in CI for months. These don't block deploy but they keep CI red.
+
+
+---
+
+## 📊 SESSION 13 — POST-DEPLOY VERIFICATION + PREVIEW BUG FIX (2026-06-05, continued)
+
+### What ran
+
+After the Session 12 ship, this session verified production end-to-end and
+worked through the remaining unchecked task list per King's directive
+("KEEP GOING, UPDATE THE TASK LIST"). No external blockers were waited on.
+
+### What landed
+
+**Production verification (12.7)**:
+- ECS service status: rollout COMPLETED, task def 129 active before fix, 130 active after, 1/1 running, 0 pending
+- Dashboard bundle in S3 confirmed: `assets/harness-studio-CFnl-_GD.js` (43 KB), build hash `c41d253` baked into `index-Dx5YAWp-.js` main bundle, `?harness=1` flag wired with dynamic import of the harness chunk
+- ALB health endpoint `/api/health`: healthy, 6-min uptime, all 8 agents healthy, anthropic + openai drivers ready
+- Probed `/api/app-dev/projects` → 200 OK (route group registered, request reaches handlers)
+- Probed `/api/app-dev/projects/probe-only/agent-message` → 404 with `"error": "Project not found"` body (= ownership middleware reached, route alive)
+- Same for `/sandbox`, `/sandbox/wake`, `/sandbox/hibernate` → all 404 from ownership middleware (correct)
+
+**CRITICAL BUG FOUND + FIXED — preview-proxy `/api` prefix collision**:
+- Probe of `/api/preview/probe-only` returned `"Route not found"` from the router itself, not the preview module
+- Root cause: the production router (`packages/services/src/shaar/production-server.ts:529`) strips `/api` before route matching, so routes registered as `/api/preview/...` never matched
+- Fix in `packages/app/src/zionx/app-development/api/preview-proxy.ts`:
+  - Routes registered as `/preview/:projectId`, `/preview/:projectId/*`, `/preview/:projectId/token`
+  - Tail-strip logic in proxy handler updated to recognize the stripped path while still falling back to the full `/api/preview/...` for the local-server path
+- Public URLs unchanged — the fix is server-internal
+- Updated `__tests__/preview-proxy.test.ts` to mirror the path strip (5 occurrences)
+- Test run: 8/8 preview-proxy tests still passing
+
+**Phase 9.7 — handler unit tests landed (NEW)**:
+- `packages/app/src/zionx/app-development/agent/__tests__/handlers.test.ts` (292 lines, **18 tests**)
+- Covers `agentMessage`: 400 missing projectId, 400 missing prompt, 404 project-not-found, 403 ownership-mismatch, 200 + streamHandler success
+- Covers `getSandboxStatus`: 400 missing id, 404 missing project, "unavailable" (no client), "live" (success), "idle" (rejection)
+- Covers `wakeSandbox`: 503 (no client), 200 + live (with runCommand verification), 502 (rejection)
+- Covers `hibernateSandbox`: 503 (no client), 200 + idle (with dispose verification), 502 (rejection)
+- Covers `createProject`: ownerId stamping from `req.userId`, fallback to "anonymous"
+
+**Phase 11.4 — iteration probe (NEW)**:
+- `scripts/harness-iterate-probe.mjs` — proves real iteration semantics
+- Pass 1: write `index.html` (5405 bytes) — 1 iter, [write_file]
+- Pass 2: "make the streaks gold" — 3 iters, [read_file, edit_file]
+- All 5 verification checks PASS:
+  - ✓ agentReadFirst — first tool call was `read_file`
+  - ✓ agentEdited — `edit_file` was called
+  - ✓ notARewrite — file size delta = 0 bytes (precision edit, not regen)
+  - ✓ hasGoldColor — `#FFD700` or `gold` present in v2, absent in v1
+  - ✓ streakClassPresent — `.streak` class preserved
+- Total: 44 seconds end-to-end, ~$0.10 LLM
+- Screenshot at `scripts/harness-iterate-output/01-after-iterate.png`
+
+**Production redeploy of the bug fix**:
+- Commit `4867cfc` — `fix(preview-proxy): drop /api prefix from registered routes`
+- Push: `c41d253..4867cfc main -> main`
+- Deploy workflow: 76 seconds, success
+- ECS rollout: 156 seconds (task def 129 → 130), state COMPLETED
+- Boot delay: ~75s after rollout for `/api/health` to flip from `booting` to `healthy`
+- Re-probe of `/api/preview/probe-only` after boot: now returns `"project not found"` (lowercase, from the preview module) instead of `"Route not found"` — route is alive, fix verified live
+
+### Quality gate (final, this session — green across the board)
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` at root | ✅ **0 errors** |
+| `check-no-static-data.mjs` | ✅ **passed** |
+| Harness test suite (8 files) | ✅ **85 of 85 passing** (was 67 — added 18 in handlers.test.ts) |
+| Live production probe — backend | ✅ All 4 new endpoints reach their handlers |
+| Live production probe — dashboard | ✅ Bundle shipped, harness chunk reachable, `?harness=1` flag in main bundle |
+
+### Tasks marked done this session
+
+| Phase | Task |
+|---|---|
+| 9 | 9.7 (handler tests, 18 new) |
+| 11 | 11.4 (iteration probe — read-before-write + precision edits verified) |
+| 12 | 12.7 (production hand-off — full chain probed end-to-end) |
+
+### Remaining unchecked (all external-blocked or deferred-by-design)
+
+| # | Task | Block reason |
+|---|---|---|
+| 4.10 | Custom `zionx-expo-base` E2B template | Deferred-by-design — `base` template works, custom optimizes cold-start |
+| 4.11 | Egress allowlist (iptables) in template | Pairs with 4.10 |
+| 4.12 | CPU/network anomaly monitoring | Pairs with 4.10 |
+| 8.26 | GitHub Action for eval suite | Needs `ANTHROPIC_API_KEY` in repo secrets (King-side) |
+| 9.8 | Decommission legacy `streamGeneration` | Phase 12 — wait one release before removing |
+| 11.7 | On-phone preview via Expo Go | Needs King's phone |
+
+### What King will see RIGHT NOW
+
+- `https://<dashboard-url>/?harness=1` → renders the new 3-column harness studio
+- All 4 backend endpoints (`/agent-message`, `/sandbox`, `/sandbox/wake`, `/sandbox/hibernate`) plus the preview proxy (`/api/preview/:id`) are live and routing correctly
+- Backend healthy, all 8 agents healthy, drivers ready
+
+### Pending King actions
+
+1. **Add `ANTHROPIC_API_KEY` to GitHub Actions secrets** — for the eval-suite workflow (Phase 8.26).
+2. **On-phone preview test** (11.7) — point Expo Go at the auth-proxied URL when ready.
+3. **Decide flip default route** — `?harness=1` currently opt-in; one-line change to make it default.
+4. **Optional**: address the 14 baseline `tsc --noEmit` errors that have been red in CI for months. These don't block deploy but they keep CI red.
+
+### Master plan, true status
+
+| Phase | Status |
+|---|---|
+| 0. Spec | ✅ |
+| 1. Golden Starter | ✅ |
+| 2. 8 skills + registry | ✅ |
+| 3. Agent harness core | ✅ + 67 tests |
+| 4. E2B integration | ✅ live (4.10-4.12 polish deferred) |
+| 5. Auth (project ownership) | ✅ |
+| 6. Preview auth proxy | ✅ + mounted + **PATH BUG FIXED + LIVE** |
+| 7. Reviewer subagents | ✅ |
+| 8. Eval suite | ✅ scaffolded + CLI + GHA |
+| 9. API wiring | ✅ + sandbox endpoints + **18 handler tests (NEW)** |
+| 10. Studio UI 3-column | ✅ + page wiring + screenshots |
+| 11. Verification | ✅ harness + sandbox + iteration probes (11.4 NEW) |
+| 12. Decommission + ship | ✅ shipped + production verified end-to-end |

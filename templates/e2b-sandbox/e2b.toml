@@ -1,0 +1,31 @@
+# zionx-expo-base — E2B template descriptor.
+#
+# Build: `e2b template build` (run from this directory; the CLI infers
+# Dockerfile + e2b.toml at the cwd).
+#
+# After build:
+#   1. The CLI prints a `template_id` (UUID) on success.
+#   2. Update `services/sandbox-client.ts:DEFAULT_TEMPLATE` from `'base'` to
+#      `'zionx-expo-base'` (the human-readable name; E2B resolves it to the
+#      UUID under the team's account).
+#   3. Redeploy the backend.
+
+[template]
+# Human-readable template name (resolved against the team's namespace).
+template_name = "zionx-expo-base"
+
+# Path to the Dockerfile, relative to this descriptor.
+dockerfile = "Dockerfile"
+
+# Sandbox CPU + memory. Defaults are conservative; bump if real Expo/EAS
+# builds run inside (we currently exec EAS on the host, not in-sandbox).
+cpu_count = 2
+memory_mb = 4096
+
+# Sandbox idle timeout matches the client default in sandbox-client.ts (5 min).
+# Lower this to drive cost down once the harness is heavily used; higher to
+# improve resume latency for return visits.
+idle_timeout_seconds = 300
+
+# Where to start when the sandbox boots. Keep in sync with the Dockerfile WORKDIR.
+start_dir = "/home/user/project"

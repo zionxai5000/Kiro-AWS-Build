@@ -436,6 +436,21 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
     // and discard duplicate output. Last-Event-ID resumption not supported in v1.
     // -----------------------------------------------------------------------
     async generateCode(req: APIRequest): Promise<APIResponse> {
+      // -----------------------------------------------------------------------
+      // DEPRECATED — Phase 12 sunset path.
+      //
+      // The one-shot streamGeneration is replaced by the agent harness at
+      // POST /app-dev/projects/:id/agent-message (which uses tool-use,
+      // reviewer subagents, and the E2B sandbox).
+      //
+      // This handler is kept alive for one release window so the legacy
+      // dashboard `studio.ts` keeps working. Decommission plan:
+      // docs/zionx-agent-harness/DECOMMISSION-LEGACY.md.
+      //
+      // We surface the deprecation via standard HTTP signaling (Sunset +
+      // Deprecation + Link headers per RFC 8594 / draft-dalal-deprecation).
+      // Clients that care can route to the new endpoint; the rest keep working.
+      // -----------------------------------------------------------------------
       const projectId = req.params.id;
       if (!projectId) {
         return { statusCode: 400, body: { error: 'project id is required' } };
@@ -454,12 +469,16 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         statusCode: 200,
         body: null,
         streamHandler: (res: ServerResponse) => {
-          // Set SSE headers
+          // Set SSE headers + deprecation signaling.
+          // Sunset target: 2026-09-01 (~3 months out, well past the harness rollout).
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
             'X-Generation-Id': randomUUID(),
+            'Deprecation': 'true',
+            'Sunset': 'Wed, 01 Sep 2026 00:00:00 GMT',
+            'Link': '</api/app-dev/projects/' + projectId + '/agent-message>; rel="successor-version"',
           });
 
           const sendEvent = (data: Record<string, unknown>) => {

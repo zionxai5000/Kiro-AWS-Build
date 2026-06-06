@@ -33,6 +33,8 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
     {
       method: 'POST',
       path: '/app-dev/projects/:id/generate',
+      // DEPRECATED — sunset 2026-09-01. Use /agent-message instead.
+      // See docs/zionx-agent-harness/DECOMMISSION-LEGACY.md.
       handler: h.generateCode,
     },
     {

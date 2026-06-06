@@ -77,6 +77,15 @@ export class LLMService {
   }
 
   /**
+   * @deprecated Phase 12 — replaced by the agent harness in
+   *   `packages/app/src/zionx/app-development/agent/agent-loop.ts`.
+   *   The new path uses tool-use (read_file/write_file/edit_file/run_command),
+   *   reviewer subagents, and the E2B sandbox.
+   *
+   * Sunset target: 2026-09-01. This method is still called by the legacy
+   * `/app-dev/projects/:id/generate` endpoint for the legacy `studio.ts` UI.
+   * Decommission plan: `docs/zionx-agent-harness/DECOMMISSION-LEGACY.md`.
+   *
    * Stream code generation from Claude.
    *
    * Parses the token stream for --- FILE: path --- / --- END FILE --- markers,

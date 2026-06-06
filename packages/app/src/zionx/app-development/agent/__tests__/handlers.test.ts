@@ -290,3 +290,49 @@ describe('handlers — createProject ownership stamping (Phase 5 regression)', (
     expect(ws.meta.get(id)?.ownerId).toBe('anonymous');
   });
 });
+
+describe('handlers — generateCode deprecation (Phase 12 sunset)', () => {
+  let ws: FakeWorkspace;
+
+  beforeEach(() => {
+    ws = new FakeWorkspace();
+  });
+
+  it('writes Sunset + Deprecation + Link headers on the SSE response', async () => {
+    const h = makeHandlers(ws);
+    const res = await h.generateCode(makeReq({
+      method: 'POST',
+      params: { id: 'p1' },
+      body: { prompt: 'build me a thing' },
+    }));
+    expect(res.statusCode).toBe(200);
+    expect(typeof res.streamHandler).toBe('function');
+
+    // Capture the headers the streamHandler writes.
+    const captured: { status?: number; headers?: Record<string, string> } = {};
+    const fakeRes = {
+      writableEnded: false,
+      destroyed: false,
+      writeHead(status: number, headers: Record<string, string>) {
+        captured.status = status;
+        captured.headers = headers;
+        // Force-end the response so the async generation work does not run.
+        this.writableEnded = true;
+        return this;
+      },
+      write() { return true; },
+      end() { this.writableEnded = true; },
+      on() { /* noop */ },
+    };
+    // streamHandler kicks off async work; we only care about the synchronous
+    // header write at the top.
+    res.streamHandler!(fakeRes as never);
+
+    expect(captured.status).toBe(200);
+    expect(captured.headers?.['Content-Type']).toBe('text/event-stream');
+    expect(captured.headers?.['Deprecation']).toBe('true');
+    expect(captured.headers?.['Sunset']).toMatch(/2026/);
+    expect(captured.headers?.['Link']).toContain('/agent-message');
+    expect(captured.headers?.['Link']).toContain('rel="successor-version"');
+  });
+});

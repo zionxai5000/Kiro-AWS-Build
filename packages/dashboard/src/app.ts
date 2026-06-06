@@ -25,6 +25,7 @@ import { ReferencesView } from './views/references.js';
 import { QualityGateView } from './views/quality-gate.js';
 import { BaselinesView } from './views/baselines.js';
 import { StudioView } from './views/studio.js';
+import { HarnessAppDevView } from './views/harness-app-dev-view.js';
 import { ProjectsView } from './views/projects.js';
 import { VideoStudioView } from './views/video-studio.js';
 import { OV1View } from './views/seraphim-core/ov1-view.js';
@@ -332,7 +333,13 @@ export class App {
       case 'zionx-pipeline':
         return new ZionXPipelineView(this.viewContainer);
       case 'zionx-app-development':
-        return new StudioView(this.viewContainer);
+        // Phase 12.7 — App Development tab now mounts the new agent-harness
+        // studio inside the dashboard chrome. The legacy `StudioView` is
+        // kept available behind `?legacy=1` for one release.
+        if (new URLSearchParams(window.location.search).get('legacy') === '1') {
+          return new StudioView(this.viewContainer);
+        }
+        return new HarnessAppDevView(this.viewContainer);
       case 'zionx-app-projects':
         return new ProjectsView(this.viewContainer);
       case 'zionx-app-store':

@@ -65,9 +65,18 @@ export class HarnessStudioController {
 
   /** Mount: load project list, render shell. Idempotent. */
   async mount(): Promise<void> {
+    // While the backend may still be booting, show a non-error breadcrumb
+    // instead of a blank list — the fetchProjects retry handles 503s
+    // automatically.
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: 'Loading projects…' });
     try {
       const projects = await this.fetchProjects();
       this.view.setState({ projects });
+      // Replace the loading breadcrumb with a confirmation only if there's
+      // something to confirm; an empty workspace is its own friendly state.
+      if (projects.length === 0) {
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: 'No projects yet — start by typing a prompt below.' });
+      }
     } catch (err) {
       this.view.setState({
         projects: [],
@@ -265,15 +274,28 @@ export class HarnessStudioController {
   }
 
   private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
-    const res = await fetch(`${this.apiBase}${path}`, {
-      ...init,
-      headers: this.headers(init.headers as Record<string, string> ?? { 'content-type': 'application/json' }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
+    // Retry on 503 boot responses. The backend ECS task may be restarting
+    // when the user lands on the page; the agent loop endpoints return
+    // {"error":"Service starting","status":"booting"} with 503 until the
+    // task is ready (~75-90s). Without this retry the harness shows a
+    // permanent "Failed to load projects" the moment it mounts.
+    const maxAttempts = 6; // 6 * (1+2+3+4+5+5)s ≈ 20s of patient retries
+    let lastBody = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const res = await fetch(`${this.apiBase}${path}`, {
+        ...init,
+        headers: this.headers(init.headers as Record<string, string> ?? { 'content-type': 'application/json' }),
+      });
+      if (res.ok) return res.json() as Promise<T>;
+      lastBody = await res.text().catch(() => '');
+      const isBoot = res.status === 503 && /booting|starting/i.test(lastBody);
+      if (!isBoot || attempt === maxAttempts) {
+        throw new Error(`HTTP ${res.status}${lastBody ? `: ${lastBody.slice(0, 200)}` : ''}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, attempt * 1_000)));
     }
-    return res.json() as Promise<T>;
+    // Unreachable.
+    throw new Error(`HTTP 503 after ${maxAttempts} attempts: ${lastBody.slice(0, 200)}`);
   }
 
   private headers(extra: Record<string, string>): Record<string, string> {

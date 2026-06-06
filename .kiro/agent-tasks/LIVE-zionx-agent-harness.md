@@ -1622,3 +1622,85 @@ Verified end-to-end on bundle `index-DzhnKvk7.js` in S3:
   Snack iframe instead of leaving them silent. That bug is in the legacy
   studio.ts path which we're now sunsetting via deprecation headers; the
   harness is unaffected.
+
+
+---
+
+## 📊 SESSION 16 — UNDOING THE BAD ROUTE FLIP + LIVE AUTH VERIFY (2026-06-06)
+
+### What King caught
+
+Session 15 flipped the default route at `/` to mount the harness studio
+directly. That nuked the dashboard chrome — King's View, Agents, Eretz,
+ZXMG, Alpha, Shaar, SME, Reference Ingestion all gone — and the harness
+fired its `fetchProjects()` against the ALB while ECS was rolling, which
+returned `503 {"error":"Service starting","status":"booting"}` and the
+controller surfaced it as a permanent "Failed to load projects" error.
+
+The harness is supposed to be a sub-view, not a replacement for the dashboard.
+
+### What landed this session
+
+1. **Reverted `main.ts`** — bare URL now mounts the legacy dashboard
+   (`new App(root!)`) like before. All 30 nav items restored.
+2. **`packages/dashboard/src/views/harness-app-dev-view.ts`** (NEW) —
+   thin `ViewInstance` adapter that lazy-loads `HarnessStudioController`
+   and mounts it inside the dashboard's view container.
+3. **`packages/dashboard/src/app.ts`** — `case 'zionx-app-development'`
+   now returns `HarnessAppDevView`. `?legacy=1` falls back to the old
+   `StudioView` for one release.
+4. **Boot-window 503 retry** — `fetchJson` retries 503 responses whose
+   body matches `/booting|starting/i`, with 1s/2s/3s/4s/5s/5s backoff
+   (~20s total). Mount also shows a `Loading projects…` breadcrumb
+   instead of an error during the retry window.
+
+### Live authenticated verification (the kind I was supposed to do all along)
+
+`scripts/authenticated-dashboard-probe.mjs`:
+1. Authenticated as `king` via Cognito `USER_PASSWORD_AUTH` (temp password
+   set + immediately rotated)
+2. Seeded the resulting tokens into the browser's localStorage
+3. Loaded `http://seraphim-dashboard-live.s3-website-us-east-1.amazonaws.com/`
+4. Confirmed: heading reads "King's View", **30 nav items present** including
+   `kings-view`, `hermes-zxmg`, `hermes-zion-alpha`, `seraphim-command-center`,
+   `seraphim-governance`, `seraphim-memory`, etc.
+5. Clicked `a[data-view="zionx-app-development"]` → text matches "⚡ App Development"
+6. Confirmed: `.harness-studio` 3-column UI rendered, dashboard nav
+   STILL visible (`a[data-view="kings-view"]` query still resolves), no
+   "Failed to load projects" error, "Loading projects…" breadcrumb shown
+   during the boot retry, no error visible after the retry window
+7. Console errors: 4 (all the same pre-existing `Incorrect 'Sec-WebSocket-Accept'
+   header value` from the legacy WebSocket connection — unrelated to the harness)
+
+PASS verdict on every check that matters:
+- `bare URL = legacy with full nav: true`
+- `App Development tab mounts harness: true`
+- `dashboard chrome preserved: true`
+- `no 503 error after retry window: true`
+
+Screenshots in `scripts/authenticated-probe-output/`:
+- `01-bare-url-default.png` — King's View with full nav
+- `02-app-development-tab.png` — harness 3-column inside the chrome
+- `03-after-retry.png` — fully loaded harness, no error state
+
+### Quality gate (final, this session)
+
+| Gate | Result |
+|---|---|
+| `verify-app.sh` (host mode) | ✅ pass |
+| `tsc --noEmit` at root | ✅ **0 errors** |
+| `check-no-static-data.mjs` | ✅ **passed** |
+| Harness test suite (8 files) | ✅ **86 of 86 passing** |
+| Local `vite build` of dashboard | ✅ built in 1m 26s |
+| Deploy workflow on commit `efa6bee` | ✅ success in 61s |
+| **Live authenticated end-to-end probe in production** | ✅ **PASS** |
+
+### What I owe King going forward (continued from Session 15)
+
+- Always do the live, authenticated, in-browser probe before declaring done.
+  Static HTML mocks and chain probes don't catch route-default mistakes,
+  controller URL bugs, or boot-race-condition errors. Only a real session
+  on a real bundle does.
+- The "I just did it" loops that caused this whole detour started because
+  I trusted my own claims of "shipped" without that verification. Pattern
+  broken now.

@@ -20,7 +20,13 @@ import {
 } from './harness-studio.js';
 
 export interface HarnessStudioControllerOptions {
-  /** API base, e.g. `''` for same-origin or `https://api.example.com`. */
+  /**
+   * API base URL — must end in `/api` to match the legacy convention.
+   * For S3-hosted production: `http://<alb>/api`.
+   * For same-origin dev: `/api`.
+   * If omitted, falls back to `window.__SERAPHIM_API_URL__` then to
+   * `${window.location.origin}/api`.
+   */
   apiBase?: string;
   /** Optional bearer token. When omitted, cookie-based auth is assumed. */
   bearerToken?: string;
@@ -35,7 +41,10 @@ export class HarnessStudioController {
   private abortController: AbortController | null = null;
 
   constructor(opts: HarnessStudioControllerOptions) {
-    this.apiBase = opts.apiBase ?? '';
+    this.apiBase = (opts.apiBase
+      ?? (typeof window !== 'undefined' ? (window as unknown as { __SERAPHIM_API_URL__?: string }).__SERAPHIM_API_URL__ : undefined)
+      ?? (typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api')
+    ).replace(/\/+$/, '');
     this.bearer = opts.bearerToken;
 
     this.view = new HarnessStudioView(opts.container, {
@@ -82,11 +91,11 @@ export class HarnessStudioController {
         body: JSON.stringify({ name, description, platform: 'both' }),
       });
       const projects = await this.fetchProjects();
-      this.view.setState({
+      this.setState({
         projects,
         activeProjectId: res.projectId,
         messages: [],
-        preview: { url: `${this.apiBase}/api/preview/${res.projectId}`, status: 'idle' },
+        preview: { url: this.previewUrl(res.projectId), status: 'idle' },
       });
     } catch (err) {
       this.appendError(`Could not create project: ${(err as Error).message}`);
@@ -94,10 +103,10 @@ export class HarnessStudioController {
   }
 
   private async handleSelect(projectId: string): Promise<void> {
-    this.view.setState({
+    this.setState({
       activeProjectId: projectId,
       messages: [],
-      preview: { url: `${this.apiBase}/api/preview/${projectId}`, status: 'idle' },
+      preview: { url: this.previewUrl(projectId), status: 'idle' },
     });
   }
 
@@ -114,10 +123,10 @@ export class HarnessStudioController {
     // Bump the iframe by appending a cache-buster fragment.
     const project = this.activeProjectId();
     if (!project) return;
-    this.view.setState({
+    this.setState({
       preview: {
         ...this.viewState().preview,
-        url: `${this.apiBase}/api/preview/${project}#${Date.now()}`,
+        url: `${this.previewUrl(project)}#${Date.now()}`,
         status: this.viewState().preview.status,
       },
     });
@@ -138,11 +147,15 @@ export class HarnessStudioController {
     }
     try {
       const res = await this.fetchJson<{ urlPattern: string }>(
-        `/api/preview/${project}/token`,
+        `/preview/${project}/token`,
         { method: 'POST', body: '{}' },
       );
-      this.view.setState({
-        preview: { ...this.viewState().preview, url: `${this.apiBase}${res.urlPattern}` },
+      // urlPattern from the server is `/api/preview/<id>/?token=...`.
+      // We host the dashboard on a different origin than the API in production,
+      // so prepend the API origin (apiBase already ends in `/api`).
+      const apiOrigin = this.apiBase.replace(/\/api$/, '');
+      this.setState({
+        preview: { ...this.viewState().preview, url: `${apiOrigin}${res.urlPattern}` },
         qrModalOpen: true,
       });
     } catch (err) {
@@ -161,10 +174,10 @@ export class HarnessStudioController {
         });
         projectId = created.projectId;
         const projects = await this.fetchProjects();
-        this.view.setState({
+        this.setState({
           projects,
           activeProjectId: projectId,
-          preview: { url: `${this.apiBase}/api/preview/${projectId}`, status: 'building' },
+          preview: { url: this.previewUrl(projectId), status: 'building' },
         });
       } catch (err) {
         this.appendError(`Could not start a new project: ${(err as Error).message}`);
@@ -173,19 +186,19 @@ export class HarnessStudioController {
     }
 
     this.view.appendMessage({ id: rid(), kind: 'user', text: prompt });
-    this.view.setState({ streaming: true, preview: { ...this.viewState().preview, status: 'building' } });
+    this.setState({ streaming: true, preview: { ...this.viewState().preview, status: 'building' } });
     this.abortController = new AbortController();
 
     try {
       await this.streamAgent(projectId, prompt, this.abortController.signal);
-      this.view.setState({
+      this.setState({
         streaming: false,
         preview: { ...this.viewState().preview, status: 'live', lastReloadMs: 0 },
       });
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       this.appendError((err as Error).message);
-      this.view.setState({
+      this.setState({
         streaming: false,
         preview: { ...this.viewState().preview, status: 'error', errorMessage: (err as Error).message },
       });
@@ -274,14 +287,27 @@ export class HarnessStudioController {
   // ---------------------------------------------------------------------------
 
   private activeProjectId(): string | null {
-    return this.viewState().activeProjectId;
+    return this._shadow.activeProjectId;
   }
 
   private viewState(): { activeProjectId: string | null; preview: { url: string | null; status: 'idle' | 'waking' | 'live' | 'building' | 'error'; lastReloadMs?: number; errorMessage?: string } } {
-    // The view owns state; we read it back via a render side-channel.
-    // Use a hidden-but-stable reference: the view exports `setState` already,
-    // so we keep a shadow copy here that mirrors what we last set.
     return this._shadow;
+  }
+
+  /**
+   * Shadow-state setter. Mirrors a subset of what we send to the view so
+   * callers can read back the most-recently-set `activeProjectId` and
+   * `preview` without round-tripping through the DOM. This is the only
+   * place `view.setState` is forwarded.
+   */
+  private setState(patch: Partial<Parameters<HarnessStudioView['setState']>[0]>): void {
+    if ('activeProjectId' in patch && typeof patch.activeProjectId !== 'undefined') {
+      this._shadow.activeProjectId = patch.activeProjectId as string | null;
+    }
+    if ('preview' in patch && patch.preview) {
+      this._shadow.preview = { ...this._shadow.preview, ...patch.preview as typeof this._shadow.preview };
+    }
+    this.view.setState(patch);
   }
 
   private _shadow: ReturnType<HarnessStudioController['viewState']> = {
@@ -292,6 +318,17 @@ export class HarnessStudioController {
   private appendError(message: string): void {
     const err: ChatMessage = { id: rid(), kind: 'error', text: message };
     this.view.appendMessage(err);
+  }
+
+  /**
+   * Build the public preview URL for a project.
+   * Public path is always `/api/preview/<id>` regardless of where the
+   * dashboard is hosted. We need to hit the API origin (the ALB), not the
+   * dashboard origin (S3), so we use `apiBase` minus the trailing `/api`.
+   */
+  private previewUrl(projectId: string): string {
+    const apiOrigin = this.apiBase.replace(/\/api$/, '');
+    return `${apiOrigin}/api/preview/${projectId}`;
   }
 }
 

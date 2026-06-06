@@ -33,13 +33,20 @@ if (!root) {
 async function bootstrap(): Promise<void> {
   await ensureAuthenticated();
 
-  // Phase 10 — `?harness=1` opts into the new 3-column harness studio,
-  // alongside the legacy dashboard. Once Phase 12 decommissions legacy,
-  // this branch becomes the default path.
+  // Phase 12.7 — harness studio is now the default; `?legacy=1` opts INTO
+  // the old dashboard for one release while we soak the new one.
+  // Pre-flip behavior was the inverse — kept here as a soft-fallback signal.
   const params = new URLSearchParams(window.location.search);
-  if (params.get('harness') === '1') {
+  const wantLegacy = params.get('legacy') === '1';
+  const wantHarness = params.get('harness') !== '0' && !wantLegacy;
+
+  if (wantHarness) {
     const { mountHarnessStudio } = await import('./pages/harness-studio.js');
-    mountHarnessStudio({ container: root! });
+    // The dashboard is hosted on S3, the API on the ALB. We pass the API
+    // URL through so the controller knows where to fetch from. Without this,
+    // every fetch resolves against the S3 origin and 404s.
+    const apiBase = (window as unknown as { __SERAPHIM_API_URL__?: string }).__SERAPHIM_API_URL__ ?? `${window.location.origin}/api`;
+    mountHarnessStudio({ container: root!, apiBase });
     return;
   }
 

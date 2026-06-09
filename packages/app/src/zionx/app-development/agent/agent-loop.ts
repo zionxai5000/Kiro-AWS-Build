@@ -40,6 +40,7 @@ import {
   visualPolishReviewer,
   persistenceReviewer,
   onboardingReviewer,
+  dependencyValidatorReviewer,
   createDomainFitnessReviewer,
   createSpecCardReviewer,
 } from './subagents/index.js';
@@ -273,6 +274,7 @@ async function runReviewers(
     visualPolishReviewer,
     persistenceReviewer,
     onboardingReviewer,
+    dependencyValidatorReviewer,
     createDomainFitnessReviewer(input.prompt),
     createSpecCardReviewer(firstAssistantText),
   ];

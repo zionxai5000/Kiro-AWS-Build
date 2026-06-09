@@ -9,6 +9,43 @@ Every generated app uses Expo Router (file-based routing) on Expo SDK 54. The
 default layout is **tabs at the root**, with **screen-local stacks** inside
 each tab. Modal/sheet flows are **state-driven**, never separate routes.
 
+## Valid dependency versions (pin these — others will fail npm install)
+
+The dependency-validator reviewer will reject any version that doesn't
+resolve on npm. Stick to these proven combinations for Expo SDK 54:
+
+```jsonc
+{
+  "dependencies": {
+    "expo": "^54.0.0",
+    "expo-router": "^4.0.0",
+    "expo-linear-gradient": "^14.0.0",
+    "expo-blur": "^14.0.0",
+    "expo-haptics": "^14.0.0",
+    "expo-status-bar": "^2.0.0",
+    "react": "18.3.1",            // NOT 18.3.2 — that version doesn't exist
+    "react-native": "0.76.5",     // pair with Expo SDK 54
+    "react-native-reanimated": "~3.16.1",
+    "react-native-gesture-handler": "~2.20.0",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.4.0",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "zustand": "^5.0.0",
+    "moti": "^0.30.0",
+    "lucide-react-native": "^0.460.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/react": "~18.3.12"
+  }
+}
+```
+
+When unsure of an exact version, use a **caret** range like `^18.3.0` so npm
+picks the latest matching real release. Never guess a specific patch version
+that you haven't seen confirmed (e.g. there is no `react@18.3.2`; the line
+goes `18.3.0` → `18.3.1` → `19.0.0`).
+
 ## File tree (canonical)
 
 ```

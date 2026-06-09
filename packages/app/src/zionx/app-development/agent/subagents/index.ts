@@ -12,6 +12,7 @@ import { registerSubagent } from '../tools/spawn-subagent.js';
 import { visualPolishReviewer } from './visual-polish.js';
 import { persistenceReviewer } from './persistence.js';
 import { onboardingReviewer } from './onboarding.js';
+import { dependencyValidatorReviewer } from './dependency-validator.js';
 import { createDomainFitnessReviewer } from './domain-fitness.js';
 import { createSpecCardReviewer } from './spec-card.js';
 
@@ -20,6 +21,7 @@ export function registerStaticReviewers(): void {
   registerSubagent(visualPolishReviewer);
   registerSubagent(persistenceReviewer);
   registerSubagent(onboardingReviewer);
+  registerSubagent(dependencyValidatorReviewer);
 }
 
 /**
@@ -39,6 +41,7 @@ export {
   visualPolishReviewer,
   persistenceReviewer,
   onboardingReviewer,
+  dependencyValidatorReviewer,
   createDomainFitnessReviewer,
   createSpecCardReviewer,
 };
@@ -49,4 +52,5 @@ export const REVIEWER_NAMES = [
   'domain-fitness-reviewer',
   'onboarding-reviewer',
   'spec-card-reviewer',
+  'dependency-validator-reviewer',
 ] as const;

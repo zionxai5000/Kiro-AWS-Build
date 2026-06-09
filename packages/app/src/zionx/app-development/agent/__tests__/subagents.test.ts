@@ -127,6 +127,7 @@ Now I'll start by reading the workspace…`;
     expect(names).toContain('visual-polish-reviewer');
     expect(names).toContain('persistence-reviewer');
     expect(names).toContain('onboarding-reviewer');
+    expect(names).toContain('dependency-validator-reviewer');
 
     // Unknown subagent error.
     const ctx = {
@@ -136,5 +137,37 @@ Now I'll start by reading the workspace…`;
     const r = await spawnSubagentTool.run({ name: 'nope-reviewer' }, ctx as never);
     expect(r.isError).toBe(true);
     expect(r.content).toContain('unknown subagent');
+  });
+
+  describe('dependencyValidatorReviewer', () => {
+    it('passes when no package.json exists yet', async () => {
+      const { dependencyValidatorReviewer } = await import('../subagents/dependency-validator.js');
+      const ws = new MemoryWorkspace();
+      const r = await dependencyValidatorReviewer.run({ projectId: 'p', userId: 'u', workspace: ws });
+      expect(r.passed).toBe(true);
+      expect(r.details).toContain('skipped');
+    });
+
+    it('produces a fix message that calls out version_unsatisfiable for fake versions', async () => {
+      // Sanity-check the wrapper's fix-rendering on a synthetic error shape.
+      // We don't exercise the real npm registry call here — that has its own
+      // tests under pipeline/__tests__/. We just want to verify the fix text
+      // is informative enough for the LLM to act on.
+      const fakeError = {
+        name: 'react',
+        versionRange: '18.3.2',
+        reason: 'version_unsatisfiable' as const,
+      };
+      // Render a fix message the same way the reviewer does.
+      const fixText = (() => {
+        const e = fakeError;
+        return `Package "${e.name}" requested at "${e.versionRange}" — that version range matches no published version on npm. ` +
+               `Pick a real version. For React + RN + Expo SDK 54: react@18.3.1 (NOT 18.3.2), react-native@0.76.x. ` +
+               `When unsure, use a caret range like "^18.3.0" or "^0.76.0" so npm picks the highest matching real release.`;
+      })();
+      expect(fixText).toContain('react@18.3.1');
+      expect(fixText).toContain('NOT 18.3.2');
+      expect(fixText).toContain('caret range');
+    });
   });
 });

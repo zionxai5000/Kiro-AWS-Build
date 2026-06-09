@@ -284,6 +284,40 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
             const ac = new AbortController();
             res.on('close', () => ac.abort());
 
+            // Pre-sync the workspace into the sandbox so `run_command`
+            // sees the seeded golden-starter files. Without this the agent
+            // shell-instinct (`npx create-expo-app`) fights against the
+            // workspace tools (`write_file`) — they live on different
+            // filesystems and the npm install path fails on E2B's
+            // constrained network. Idempotent: only syncs if the sandbox
+            // workdir is empty.
+            if (sandboxClient) {
+              try {
+                const probe = await sandboxClient.runCommand(projectId,
+                  'test -f /home/user/project/package.json && echo present || echo empty',
+                  { timeoutMs: 10_000 });
+                const alreadyPresent = probe.stdout.trim().endsWith('present');
+                if (!alreadyPresent) {
+                  narrate('preboot', 'Syncing seeded golden-starter into sandbox…');
+                  const allFiles = await workspace.listFiles(projectId);
+                  let synced = 0;
+                  for (const path of allFiles) {
+                    if (path.startsWith('node_modules/') || path.startsWith('.expo/') || path.startsWith('.meta/')) continue;
+                    try {
+                      const content = await workspace.readFile(projectId, path);
+                      await sandboxClient.writeFile(projectId, path, content);
+                      synced++;
+                    } catch (e) {
+                      console.warn(`[agent][${projectId}] preboot sync ${path}: ${(e as Error).message}`);
+                    }
+                  }
+                  narrate('preboot-done', `Synced ${synced} files into sandbox`, { synced });
+                }
+              } catch (e) {
+                console.warn(`[agent][${projectId}] preboot sync failed: ${(e as Error).message}`);
+              }
+            }
+
             try {
               const result = await agentLoop(
                 {

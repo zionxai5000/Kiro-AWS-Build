@@ -363,51 +363,25 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
               if (sandboxClient) {
                 (async () => {
                   try {
-                    narrate('preview', 'Provisioning preview sandbox…');
-                    // Touch the sandbox to provision it.
-                    await sandboxClient.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
-                    // Sync written files into the sandbox so the preview can serve them.
-                    const filesToSync = [...new Set([...result.filesWritten, ...result.filesEdited])];
-                    let syncedCount = 0;
-                    for (const path of filesToSync) {
-                      try {
-                        const content = await workspace.readFile(projectId, path);
-                        await sandboxClient.writeFile(projectId, path, content);
-                        syncedCount++;
-                      } catch (e) {
-                        console.warn(`[agent][${projectId}] sync ${path} failed: ${(e as Error).message}`);
-                      }
-                    }
-                    const url = await sandboxClient.getPublicUrl(projectId);
-                    narrate('preview-ready', `Preview sandbox ready (${syncedCount}/${filesToSync.length} files synced)`, { publicUrl: url, syncedCount });
-
-                    // Start Expo Metro on port 8081 (web mode) so the
-                    // preview iframe renders the app instead of 502'ing
-                    // when the idle timer kills the empty sandbox. Metro
-                    // staying alive keeps the sandbox active.
-                    if (syncedCount > 0) {
-                      narrate('metro-start', 'Starting Metro web server…');
-                      const pkgCheck = await sandboxClient.runCommand(projectId,
-                        'test -f /home/user/project/package.json && (test -d /home/user/project/node_modules && echo deps_ok || echo deps_missing) || echo no_pkg',
-                        { timeoutMs: 15_000 }).catch(() => ({ stdout: 'probe_failed', exitCode: 1 }));
-                      const probeOut = pkgCheck.stdout.trim();
-                      if (probeOut.endsWith('deps_missing')) {
-                        narrate('metro-deps', 'Installing dependencies (npm install)…');
-                        await sandboxClient.runCommand(projectId,
-                          'cd /home/user/project && npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -3',
-                          { timeoutMs: 300_000 }).catch((e) => {
-                            narrate('metro-deps-warn', `npm install partial: ${(e as Error).message.slice(0, 80)}`);
-                          });
-                      }
-                      // Launch Metro in background. The shell `&` + `disown`
-                      // detach it from the run_command process so it stays
-                      // alive in the sandbox.
-                      await sandboxClient.runCommand(projectId,
-                        'cd /home/user/project && nohup npx expo start --web --port 8081 --non-interactive > /tmp/metro.log 2>&1 & echo metro_pid=$!',
-                        { timeoutMs: 30_000 }).catch((e) => {
-                          narrate('metro-warn', `Metro launch warn: ${(e as Error).message.slice(0, 80)}`);
-                        });
-                      narrate('metro-running', 'Metro launched (port 8081). Preview should render in ~30s.');
+                    narrate('preview', 'Bundling app on the server…');
+                    // Server-side bundling — no npm install in sandbox = no
+                    // sandbox idle-timeout death. The ECS task has node + npm
+                    // and produces a static dist/ via `expo export`, then
+                    // pushes it into the sandbox to be served.
+                    const { bundleAndServe } = await import('../services/server-bundler.js');
+                    const bundleResult = await bundleAndServe({
+                      projectId,
+                      workspace,
+                      sandbox: sandboxClient,
+                      onProgress: (phase, detail) => narrate(`bundle-${phase}`, detail ?? phase),
+                    });
+                    if (bundleResult.success) {
+                      narrate('preview-ready', `Bundle deployed (${bundleResult.filesUploaded} static files, ${Math.round(bundleResult.durationMs / 1000)}s)`, {
+                        publicUrl: bundleResult.publicUrl,
+                        filesUploaded: bundleResult.filesUploaded,
+                      });
+                    } else {
+                      narrate('preview-error', `Bundle failed: ${bundleResult.error}`);
                     }
                   } catch (err) {
                     narrate('preview-error', `Preview provisioning failed: ${(err as Error).message}`);
@@ -499,7 +473,7 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       const client = (globalThis as unknown as {
         __zionxSandboxClient?: {
           getPublicUrl(id: string): Promise<string>;
-          runCommand(id: string, cmd: string, opts?: { timeoutMs?: number; background?: boolean }): Promise<{ stdout: string; exitCode: number }>;
+          runCommand(id: string, cmd: string, opts?: { timeoutMs?: number; background?: boolean }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
           writeFile(id: string, path: string, content: string): Promise<void>;
         } | null;
       }).__zionxSandboxClient ?? null;
@@ -508,49 +482,24 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 503, body: { error: 'sandbox client not provisioned' } };
       }
       try {
-        // Touch the sandbox with a no-op so it boots if it wasn't already.
+        // Touch the sandbox so it boots.
         await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
 
-        // Sync workspace files into the freshly provisioned sandbox.
-        // This handles the "saved project, sandbox died" case so a user
-        // selecting an old project gets the SAME files Metro saw last time.
-        let syncedCount = 0;
-        try {
-          const allFiles = await workspace.listFiles(projectId);
-          for (const path of allFiles) {
-            if (path.startsWith('node_modules/') || path.startsWith('.expo/') || path.startsWith('.meta/')) continue;
-            try {
-              const content = await workspace.readFile(projectId, path);
-              await client.writeFile(projectId, path, content);
-              syncedCount++;
-            } catch { /* per-file failures are non-fatal */ }
-          }
-        } catch (e) {
-          console.warn(`[wakeSandbox][${projectId}] file sync failed: ${(e as Error).message}`);
+        // Server-side bundle into the freshly provisioned sandbox.
+        // Saved projects with cached node_modules on the server take ~30s;
+        // first-time bundles take ~3-4 min for the install + export.
+        const { bundleAndServe } = await import('../services/server-bundler.js');
+        const bundleResult = await bundleAndServe({
+          projectId,
+          workspace,
+          sandbox: client,
+        });
+
+        if (!bundleResult.success) {
+          return { statusCode: 502, body: { error: 'failed to bundle on wake', message: bundleResult.error } };
         }
 
-        // If a package.json exists, run npm install (if needed) + start Metro.
-        // We do this BEFORE returning so by the time the dashboard polls
-        // sandbox status, Metro is already binding port 8081.
-        if (syncedCount > 0) {
-          const pkgCheck = await client.runCommand(projectId,
-            'test -f /home/user/project/package.json && (test -d /home/user/project/node_modules && echo deps_ok || echo deps_missing) || echo no_pkg',
-            { timeoutMs: 15_000 }).catch(() => ({ stdout: 'probe_failed', exitCode: 1 }));
-          const probeOut = pkgCheck.stdout.trim();
-          if (probeOut.endsWith('deps_missing')) {
-            await client.runCommand(projectId,
-              'cd /home/user/project && npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -3',
-              { timeoutMs: 300_000 }).catch(() => {});
-          }
-          // Launch Metro in background. nohup + & detaches it from the
-          // run_command process so it persists past the call return.
-          await client.runCommand(projectId,
-            'cd /home/user/project && pgrep -f "expo start" >/dev/null || (nohup npx expo start --web --port 8081 --non-interactive > /tmp/metro.log 2>&1 & echo started_pid=$!)',
-            { timeoutMs: 30_000 }).catch(() => {});
-        }
-
-        const url = await client.getPublicUrl(projectId);
-        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: url, filesSynced: syncedCount } };
+        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: bundleResult.publicUrl, filesUploaded: bundleResult.filesUploaded, durationMs: bundleResult.durationMs } };
       } catch (err) {
         return { statusCode: 502, body: { error: 'failed to wake sandbox', message: (err as Error).message } };
       }

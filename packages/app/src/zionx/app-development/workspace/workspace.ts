@@ -16,7 +16,7 @@
 
 import { resolve, join, relative, isAbsolute, dirname } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { readFile as readFileAsync, writeFile as writeFileAsync, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile as readFileAsync, writeFile as writeFileAsync, mkdir, readdir, stat, cp } from 'node:fs/promises';
 import type { S3WorkspaceStore } from '../services/s3-workspace-store.js';
 
 // ---------------------------------------------------------------------------
@@ -181,6 +181,44 @@ export class Workspace {
     const projectPath = this.getProjectPath(projectId);
     await mkdir(projectPath, { recursive: true });
     return projectPath;
+  }
+
+  /**
+   * Copy `templates/golden-starter/` into the project workspace.
+   *
+   * This is what gives the agent a real working starting point — without
+   * it the project directory is empty and the agent tries to scaffold
+   * from scratch via `npm install`, which fails when E2B network is
+   * constrained. After seed, the project has the canonical Expo SDK 54
+   * shell, tokens, components, store, and onboarding flow already in
+   * place; the agent customizes from there.
+   *
+   * Idempotent — if package.json already exists at the project root we
+   * assume seeding happened and skip. Returns true if files were copied.
+   */
+  async seedFromGoldenStarter(projectId: string): Promise<boolean> {
+    const projectPath = await this.ensureProjectDir(projectId);
+    // Idempotent — skip if already seeded.
+    const pkgPath = join(projectPath, 'package.json');
+    if (existsSync(pkgPath)) return false;
+
+    const starterPath = join(REPO_ROOT, 'templates', 'golden-starter');
+    if (!existsSync(starterPath)) {
+      // Starter not in place — leave empty. The agent will scaffold via
+      // run_command. This is the legacy path.
+      return false;
+    }
+
+    // Copy recursively, but skip node_modules + lockfile (the agent will
+    // resolve those at first build).
+    await cp(starterPath, projectPath, {
+      recursive: true,
+      filter: (src) => {
+        const base = src.split(/[\\/]/).pop() ?? '';
+        return base !== 'node_modules' && base !== '.expo';
+      },
+    });
+    return true;
   }
 
   /**

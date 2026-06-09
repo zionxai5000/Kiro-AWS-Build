@@ -151,6 +151,20 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       // Create workspace directory
       await workspace.ensureProjectDir(projectId);
 
+      // Seed with the golden-starter template so the agent has real files
+      // to read/edit instead of an empty directory. Without this the agent
+      // tries to `npm install` from scratch which often fails on E2B's
+      // constrained network. Seeding is idempotent.
+      try {
+        const seeded = await workspace.seedFromGoldenStarter(projectId);
+        if (seeded) {
+          console.log(`[createProject] Seeded ${projectId} from templates/golden-starter/`);
+        }
+      } catch (e) {
+        console.warn(`[createProject] Seeding failed for ${projectId}: ${(e as Error).message}`);
+        // Non-fatal — project just starts empty.
+      }
+
       // Persist project metadata so the dashboard project list can show
       // friendly names and original prompts on revisit. Phase 5: also stamp
       // ownerId so the project-ownership middleware can enforce access.

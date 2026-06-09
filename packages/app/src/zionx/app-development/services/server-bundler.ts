@@ -128,35 +128,51 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // Export web bundle.
     progress('export', 'Running expo export --platform web…');
     await rm(bundleDir, { recursive: true, force: true });
-    await execFileAsync('npx', ['expo', 'export', '--platform', 'web', '--output-dir', 'dist'], {
-      cwd: stageDir,
-      env: { ...process.env, CI: '1' },
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 5 * 60_000,
-    }).catch((e) => {
-      // expo export can be flaky in CI; check if dist/ was produced.
-      if (existsSync(bundleDir)) return { stdout: '', stderr: '' };
-      throw e;
-    });
+    let exportFailure: string | null = null;
+    try {
+      await execFileAsync('npx', ['expo', 'export', '--platform', 'web', '--output-dir', 'dist'], {
+        cwd: stageDir,
+        env: { ...process.env, CI: '1' },
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 5 * 60_000,
+      });
+    } catch (e) {
+      exportFailure = (e as { stderr?: string; message: string }).stderr ?? (e as Error).message;
+    }
+    // Verify the export actually produced a bundle.
+    const indexPath = join(bundleDir, 'index.html');
+    if (!existsSync(indexPath)) {
+      const detail = exportFailure ? exportFailure.slice(0, 400) : 'no index.html in dist/';
+      return { success: false, bundleDir, filesUploaded: 0, durationMs: Date.now() - start, error: `expo export failed: ${detail}` };
+    }
     progress('exported', 'Bundle ready');
 
     // Push the bundle into the sandbox.
     progress('upload', 'Pushing bundle into sandbox…');
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
+    let skipped = 0;
     for await (const filePath of walk(bundleDir)) {
       const rel = relative(bundleDir, filePath).replace(/\\/g, '/');
       try {
-        const content = await readFileAsync(filePath, 'utf-8');
-        await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, content);
+        // Read as buffer first so we don't lose binary data; only upload
+        // text-y files via the writeFile path. For binaries we'd need
+        // a separate transfer mechanism — for the web bundle most of
+        // what matters is HTML/JS/CSS/JSON which are all text.
+        const buf = await readFileAsync(filePath);
+        // Heuristic: if first 8KB is mostly printable, treat as text.
+        const head = buf.subarray(0, Math.min(8192, buf.length));
+        const printable = head.filter((b) => b === 9 || b === 10 || b === 13 || (b >= 32 && b < 127)).length;
+        const isText = printable / Math.max(1, head.length) > 0.85;
+        if (!isText) { skipped++; continue; }
+        await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, buf.toString('utf-8'));
         uploaded++;
       } catch (e) {
-        // Binary files (fonts, images) can't go through utf-8 writeFile.
-        // Skip them with a warning — the JS bundle itself is text.
+        skipped++;
         console.warn(`[server-bundler] upload ${rel} skipped: ${(e as Error).message}`);
       }
     }
-    progress('uploaded', `${uploaded} static files in sandbox`);
+    progress('uploaded', `${uploaded} text files in sandbox (${skipped} binary skipped)`);
 
     // Start a tiny http server inside the sandbox on port 8081.
     progress('serve', 'Starting static server in sandbox…');

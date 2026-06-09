@@ -102,10 +102,14 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     }
 
     // npm install (idempotent — reuses node_modules if present).
+    // --ignore-scripts skips postinstall hooks (e.g. react-native-screens
+    // runs `bob build && husky install` which needs dev tooling we don't
+    // ship in the ECS container). Published packages already have built
+    // lib/ output, so skipping postinstall is safe for the web bundle.
     const nodeModulesPresent = existsSync(join(stageDir, 'node_modules'));
     if (!nodeModulesPresent) {
       progress('install', 'Running npm install (~2-3 min)…');
-      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund'], {
+      await execFileAsync('npm', ['install', '--legacy-peer-deps', '--no-audit', '--no-fund', '--ignore-scripts'], {
         cwd: stageDir,
         env: { ...process.env, CI: '1' },
         maxBuffer: 50 * 1024 * 1024,

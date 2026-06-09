@@ -160,8 +160,23 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
       'pkill -f "http.server 8081" 2>/dev/null; cd /home/user/project/dist && nohup python3 -m http.server 8081 > /tmp/server.log 2>&1 & echo started_pid=$!',
       { timeoutMs: 15_000 }).catch(() => {});
 
+    // Keep the sandbox alive — E2B's idle timer only resets on tool
+    // calls, not on incoming HTTP traffic. Without periodic touch the
+    // sandbox is GC'd in 5 min and the iframe goes back to "Sandbox
+    // Not Found". This nohup loop touches a file every 60s for an
+    // hour, which keeps the sandbox warm during normal browsing.
+    await opts.sandbox.runCommand(opts.projectId,
+      'pkill -f zionx-keepalive 2>/dev/null; nohup bash -c "for i in $(seq 1 60); do touch /tmp/zionx-keepalive; sleep 60; done" > /dev/null 2>&1 & echo keepalive_pid=$!',
+      { timeoutMs: 10_000 }).catch(() => {});
+
     const url = await opts.sandbox.getPublicUrl(opts.projectId);
     progress('ready', `Preview live at ${url}`);
+
+    // Schedule periodic ECS-side touches to keep the sandbox warm.
+    // E2B's idle timer resets on tool calls (the SDK kind), so we run
+    // a no-op runCommand every 4 minutes for up to 1 hour. After 1 hour
+    // the loop exits and the sandbox is allowed to die naturally.
+    schedulePeriodicKeepalive(opts.projectId, opts.sandbox);
 
     return { success: true, bundleDir, filesUploaded: uploaded, durationMs: Date.now() - start, publicUrl: url };
   } catch (err) {
@@ -176,6 +191,37 @@ function skipPath(p: string): boolean {
     || p.startsWith('.meta/')
     || p.startsWith('dist/')
     || p === 'package-lock.json';
+}
+
+/**
+ * Schedule periodic touch of an E2B sandbox so it doesn't hit the 5-min
+ * idle timer. Touches every 4 minutes for up to 1 hour. Idempotent —
+ * if a keepalive is already running for this project, it's reset.
+ */
+const keepaliveTimers = new Map<string, NodeJS.Timeout>();
+const KEEPALIVE_INTERVAL_MS = 4 * 60_000;
+const KEEPALIVE_MAX_DURATION_MS = 60 * 60_000;
+
+function schedulePeriodicKeepalive(projectId: string, sandbox: SandboxClientLike): void {
+  const existing = keepaliveTimers.get(projectId);
+  if (existing) clearTimeout(existing);
+
+  const start = Date.now();
+  const tick = async (): Promise<void> => {
+    if (Date.now() - start > KEEPALIVE_MAX_DURATION_MS) {
+      keepaliveTimers.delete(projectId);
+      return;
+    }
+    try {
+      await sandbox.runCommand(projectId, 'true', { timeoutMs: 5_000 });
+    } catch {
+      // Sandbox is gone — stop trying.
+      keepaliveTimers.delete(projectId);
+      return;
+    }
+    keepaliveTimers.set(projectId, setTimeout(() => { void tick(); }, KEEPALIVE_INTERVAL_MS));
+  };
+  keepaliveTimers.set(projectId, setTimeout(() => { void tick(); }, KEEPALIVE_INTERVAL_MS));
 }
 
 /** Sanitize a project id for use as a filesystem path. */

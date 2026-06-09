@@ -499,7 +499,8 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       const client = (globalThis as unknown as {
         __zionxSandboxClient?: {
           getPublicUrl(id: string): Promise<string>;
-          runCommand(id: string, cmd: string, opts?: { timeoutMs?: number }): Promise<{ stdout: string; exitCode: number }>;
+          runCommand(id: string, cmd: string, opts?: { timeoutMs?: number; background?: boolean }): Promise<{ stdout: string; exitCode: number }>;
+          writeFile(id: string, path: string, content: string): Promise<void>;
         } | null;
       }).__zionxSandboxClient ?? null;
 
@@ -507,10 +508,49 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 503, body: { error: 'sandbox client not provisioned' } };
       }
       try {
-        const url = await client.getPublicUrl(projectId);
         // Touch the sandbox with a no-op so it boots if it wasn't already.
-        await client.runCommand(projectId, 'true', { timeoutMs: 5_000 }).catch(() => {});
-        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: url } };
+        await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
+
+        // Sync workspace files into the freshly provisioned sandbox.
+        // This handles the "saved project, sandbox died" case so a user
+        // selecting an old project gets the SAME files Metro saw last time.
+        let syncedCount = 0;
+        try {
+          const allFiles = await workspace.listFiles(projectId);
+          for (const path of allFiles) {
+            if (path.startsWith('node_modules/') || path.startsWith('.expo/') || path.startsWith('.meta/')) continue;
+            try {
+              const content = await workspace.readFile(projectId, path);
+              await client.writeFile(projectId, path, content);
+              syncedCount++;
+            } catch { /* per-file failures are non-fatal */ }
+          }
+        } catch (e) {
+          console.warn(`[wakeSandbox][${projectId}] file sync failed: ${(e as Error).message}`);
+        }
+
+        // If a package.json exists, run npm install (if needed) + start Metro.
+        // We do this BEFORE returning so by the time the dashboard polls
+        // sandbox status, Metro is already binding port 8081.
+        if (syncedCount > 0) {
+          const pkgCheck = await client.runCommand(projectId,
+            'test -f /home/user/project/package.json && (test -d /home/user/project/node_modules && echo deps_ok || echo deps_missing) || echo no_pkg',
+            { timeoutMs: 15_000 }).catch(() => ({ stdout: 'probe_failed', exitCode: 1 }));
+          const probeOut = pkgCheck.stdout.trim();
+          if (probeOut.endsWith('deps_missing')) {
+            await client.runCommand(projectId,
+              'cd /home/user/project && npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -3',
+              { timeoutMs: 300_000 }).catch(() => {});
+          }
+          // Launch Metro in background. nohup + & detaches it from the
+          // run_command process so it persists past the call return.
+          await client.runCommand(projectId,
+            'cd /home/user/project && pgrep -f "expo start" >/dev/null || (nohup npx expo start --web --port 8081 --non-interactive > /tmp/metro.log 2>&1 & echo started_pid=$!)',
+            { timeoutMs: 30_000 }).catch(() => {});
+        }
+
+        const url = await client.getPublicUrl(projectId);
+        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: url, filesSynced: syncedCount } };
       } catch (err) {
         return { statusCode: 502, body: { error: 'failed to wake sandbox', message: (err as Error).message } };
       }

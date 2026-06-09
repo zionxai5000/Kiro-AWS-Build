@@ -115,8 +115,25 @@ export class HarnessStudioController {
     this.setState({
       activeProjectId: projectId,
       messages: [],
-      preview: { url: this.previewUrl(projectId), status: 'idle' },
+      preview: { url: this.previewUrl(projectId), status: 'waking' },
     });
+    // Old projects whose sandbox timed out show "Sandbox Not Found" in the
+    // preview proxy. Hit /sandbox/wake to spin up a fresh sandbox + Metro
+    // so selecting a saved project actually loads its app.
+    try {
+      const res = await this.fetchJson<{ status: string; publicUrl?: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox/wake`,
+        { method: 'POST', body: '{}' },
+      );
+      this.setState({
+        preview: { url: this.previewUrl(projectId), status: res.status === 'live' ? 'live' : 'building' },
+      });
+    } catch (err) {
+      this.appendError(`Could not wake sandbox: ${(err as Error).message}`);
+      this.setState({
+        preview: { url: this.previewUrl(projectId), status: 'error', errorMessage: (err as Error).message },
+      });
+    }
   }
 
   private handleStop(): void {

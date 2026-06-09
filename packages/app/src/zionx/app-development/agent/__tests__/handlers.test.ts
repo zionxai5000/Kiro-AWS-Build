@@ -198,6 +198,7 @@ describe('handlers — wakeSandbox', () => {
         runCommandCalled = true;
         return { stdout: '', exitCode: 0 };
       },
+      writeFile: async () => { /* noop */ },
     };
     const h = makeHandlers(ws);
     const res = await h.wakeSandbox(makeReq());
@@ -211,6 +212,7 @@ describe('handlers — wakeSandbox', () => {
     (globalThis as unknown as { __zionxSandboxClient: unknown }).__zionxSandboxClient = {
       getPublicUrl: async () => { throw new Error('boot failed'); },
       runCommand: async () => ({ stdout: '', exitCode: 0 }),
+      writeFile: async () => { /* noop */ },
     };
     const h = makeHandlers(ws);
     const res = await h.wakeSandbox(makeReq());

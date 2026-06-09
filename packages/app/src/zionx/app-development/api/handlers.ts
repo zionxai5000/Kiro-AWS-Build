@@ -305,6 +305,39 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                 });
               sendEvent({ type: 'done', ...result });
 
+              // Provision the preview sandbox in the background so the
+              // dashboard's preview pane lights up. Without this, the agent
+              // produces files in the workspace but no E2B sandbox exists
+              // for the preview-proxy to point at, and the studio shows
+              // "Sandbox error". We do this AFTER the run finishes so the
+              // user sees the agent activity first; failures here are
+              // surfaced as a non-fatal phase event.
+              if (sandboxClient) {
+                (async () => {
+                  try {
+                    narrate('preview', 'Provisioning preview sandbox…');
+                    // Touch the sandbox to provision it.
+                    await sandboxClient.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
+                    // Sync written files into the sandbox so the preview can serve them.
+                    const filesToSync = [...new Set([...result.filesWritten, ...result.filesEdited])];
+                    let syncedCount = 0;
+                    for (const path of filesToSync) {
+                      try {
+                        const content = await workspace.readFile(projectId, path);
+                        await sandboxClient.writeFile(projectId, path, content);
+                        syncedCount++;
+                      } catch (e) {
+                        console.warn(`[agent][${projectId}] sync ${path} failed: ${(e as Error).message}`);
+                      }
+                    }
+                    const url = await sandboxClient.getPublicUrl(projectId);
+                    narrate('preview-ready', `Preview sandbox ready (${syncedCount}/${filesToSync.length} files synced)`, { publicUrl: url, syncedCount });
+                  } catch (err) {
+                    narrate('preview-error', `Preview provisioning failed: ${(err as Error).message}`);
+                  }
+                })().catch((e) => console.error(`[agent][${projectId}] preview-prov:`, e));
+              }
+
               await eventBus.publish(createAppDevEvent(
                 APPDEV_EVENTS.HOOK_COMPLETED,
                 {

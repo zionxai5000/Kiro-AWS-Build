@@ -95,6 +95,35 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     }
     progress('staged', `${staged} files staged`);
 
+    // CRITICAL: overlay the canonical golden-starter package.json + app.json
+    // on top of whatever the agent emitted. The agent's source code is what
+    // we want to ship, but the agent reliably hallucinates dep versions and
+    // app.json plugins that fail at expo export. Using the canonical config
+    // means we get a consistent, working build chain every time.
+    const goldenStarterPath = await findGoldenStarter();
+    if (goldenStarterPath) {
+      const overlay = ['package.json', 'app.json', 'babel.config.js', 'metro.config.js', 'tsconfig.json'];
+      const { writeFile, copyFile } = await import('node:fs/promises');
+      let overlaid = 0;
+      for (const f of overlay) {
+        const src = join(goldenStarterPath, f);
+        if (existsSync(src)) {
+          const dst = join(stageDir, f);
+          try {
+            await copyFile(src, dst);
+            overlaid++;
+          } catch (e) {
+            console.warn(`[server-bundler] overlay ${f}: ${(e as Error).message}`);
+          }
+        }
+      }
+      // Mark this in workspace state by writing a small marker file.
+      try {
+        await writeFile(join(stageDir, '.zionx-bundler.json'), JSON.stringify({ usedGoldenStarterConfig: true, overlaid }), 'utf-8');
+      } catch { /* ignore */ }
+      progress('overlay', `Used canonical golden-starter config (${overlaid} files)`);
+    }
+
     // Confirm package.json is present.
     const pkgPath = join(stageDir, 'package.json');
     if (!existsSync(pkgPath)) {
@@ -244,6 +273,25 @@ function skipPath(p: string): boolean {
     || p.startsWith('.meta/')
     || p.startsWith('dist/')
     || p === 'package-lock.json';
+}
+
+/**
+ * Find templates/golden-starter on disk. The Dockerfile copies templates/
+ * to /app/templates/ in the runtime container; in dev it lives at the
+ * monorepo root. Walks up from this file's directory looking for it.
+ */
+async function findGoldenStarter(): Promise<string | null> {
+  const candidates = [
+    // Dev: monorepo root
+    '/app/templates/golden-starter',
+    join(process.cwd(), 'templates/golden-starter'),
+    join(process.cwd(), '../../templates/golden-starter'),
+    join(process.cwd(), '../../../templates/golden-starter'),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c) && existsSync(join(c, 'package.json'))) return c;
+  }
+  return null;
 }
 
 /**

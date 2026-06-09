@@ -46,6 +46,17 @@ picks the latest matching real release. Never guess a specific patch version
 that you haven't seen confirmed (e.g. there is no `react@18.3.2`; the line
 goes `18.3.0` → `18.3.1` → `19.0.0`).
 
+**Common package-name traps — DO NOT use these names:**
+- `@motify/components` — does not exist. The package is `moti` (no scope, no /components).
+- `@expo/router` — does not exist. The package is `expo-router`.
+- `@react-native/reanimated` — does not exist. The package is `react-native-reanimated`.
+- `@expo/haptics` — does not exist. The package is `expo-haptics`.
+
+If you're unsure whether a package name is real, prefer the caret-versioned
+entry from the canonical block above and don't add any package not listed
+there. If you genuinely need an extra dep, run `npm view <name>` first via
+`run_command` to confirm it exists.
+
 ## File tree (canonical)
 
 ```

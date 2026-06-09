@@ -363,6 +363,15 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
               if (sandboxClient) {
                 (async () => {
                   try {
+                    // Don't bundle a project whose reviewers found
+                    // critical issues like fake package versions.
+                    // npm install will fail anyway; better to surface
+                    // the reviewer feedback now and let the user iterate.
+                    const depFailed = result.reviewers?.find((r) => r.name === 'dependency-validator-reviewer' && !r.passed);
+                    if (depFailed) {
+                      narrate('preview-error', `Cannot bundle: dependency-validator found invalid versions. Tell the agent to fix package.json, then retry.`);
+                      return;
+                    }
                     narrate('preview', 'Bundling app on the server…');
                     // Server-side bundling — no npm install in sandbox = no
                     // sandbox idle-timeout death. The ECS task has node + npm

@@ -380,6 +380,35 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                     }
                     const url = await sandboxClient.getPublicUrl(projectId);
                     narrate('preview-ready', `Preview sandbox ready (${syncedCount}/${filesToSync.length} files synced)`, { publicUrl: url, syncedCount });
+
+                    // Start Expo Metro on port 8081 (web mode) so the
+                    // preview iframe renders the app instead of 502'ing
+                    // when the idle timer kills the empty sandbox. Metro
+                    // staying alive keeps the sandbox active.
+                    if (syncedCount > 0) {
+                      narrate('metro-start', 'Starting Metro web server…');
+                      const pkgCheck = await sandboxClient.runCommand(projectId,
+                        'test -f /home/user/project/package.json && (test -d /home/user/project/node_modules && echo deps_ok || echo deps_missing) || echo no_pkg',
+                        { timeoutMs: 15_000 }).catch(() => ({ stdout: 'probe_failed', exitCode: 1 }));
+                      const probeOut = pkgCheck.stdout.trim();
+                      if (probeOut.endsWith('deps_missing')) {
+                        narrate('metro-deps', 'Installing dependencies (npm install)…');
+                        await sandboxClient.runCommand(projectId,
+                          'cd /home/user/project && npm install --legacy-peer-deps --no-audit --no-fund 2>&1 | tail -3',
+                          { timeoutMs: 300_000 }).catch((e) => {
+                            narrate('metro-deps-warn', `npm install partial: ${(e as Error).message.slice(0, 80)}`);
+                          });
+                      }
+                      // Launch Metro in background. The shell `&` + `disown`
+                      // detach it from the run_command process so it stays
+                      // alive in the sandbox.
+                      await sandboxClient.runCommand(projectId,
+                        'cd /home/user/project && nohup npx expo start --web --port 8081 --non-interactive > /tmp/metro.log 2>&1 & echo metro_pid=$!',
+                        { timeoutMs: 30_000 }).catch((e) => {
+                          narrate('metro-warn', `Metro launch warn: ${(e as Error).message.slice(0, 80)}`);
+                        });
+                      narrate('metro-running', 'Metro launched (port 8081). Preview should render in ~30s.');
+                    }
                   } catch (err) {
                     narrate('preview-error', `Preview provisioning failed: ${(err as Error).message}`);
                   }

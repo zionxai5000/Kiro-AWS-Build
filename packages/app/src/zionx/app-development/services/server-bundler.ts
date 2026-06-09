@@ -101,6 +101,39 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
       return { success: false, bundleDir: '', filesUploaded: 0, durationMs: Date.now() - start, error: 'no package.json in project workspace' };
     }
 
+    // Defensive: strip known non-plugin entries from app.json's expo.plugins
+    // array. The agent occasionally emits packages like expo-haptics in
+    // plugins[], which makes expo export fail with PluginError. Most
+    // expo-* packages are runtime libs, not config plugins.
+    try {
+      const appJsonPath = join(stageDir, 'app.json');
+      if (existsSync(appJsonPath)) {
+        const raw = await readFileAsync(appJsonPath, 'utf-8');
+        const j = JSON.parse(raw) as { expo?: { plugins?: unknown[] } };
+        if (j.expo?.plugins && Array.isArray(j.expo.plugins)) {
+          const NON_PLUGINS = new Set([
+            'expo-haptics', 'expo-blur', 'expo-linear-gradient', 'expo-status-bar',
+            'expo-image', 'react-native-reanimated', 'react-native-gesture-handler',
+            'moti', 'zustand', '@react-native-async-storage/async-storage',
+            'lucide-react-native',
+          ]);
+          const filtered = j.expo.plugins.filter((p: unknown) => {
+            const name = typeof p === 'string' ? p : Array.isArray(p) ? p[0] : null;
+            return typeof name !== 'string' || !NON_PLUGINS.has(name);
+          });
+          if (filtered.length !== j.expo.plugins.length) {
+            const removed = j.expo.plugins.length - filtered.length;
+            j.expo.plugins = filtered;
+            const { writeFile } = await import('node:fs/promises');
+            await writeFile(appJsonPath, JSON.stringify(j, null, 2), 'utf-8');
+            progress('plugin-fix', `Removed ${removed} non-plugin entries from app.json plugins`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[server-bundler] app.json plugin sanitize: ${(e as Error).message}`);
+    }
+
     // npm install (idempotent — reuses node_modules if present).
     // --ignore-scripts skips postinstall hooks (e.g. react-native-screens
     // runs `bob build && husky install` which needs dev tooling we don't

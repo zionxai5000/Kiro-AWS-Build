@@ -57,6 +57,28 @@ entry from the canonical block above and don't add any package not listed
 there. If you genuinely need an extra dep, run `npm view <name>` first via
 `run_command` to confirm it exists.
 
+**`app.json` plugins traps — DO NOT add these to `expo.plugins`:**
+
+The `plugins` array in `app.json` is ONLY for packages that ship a config
+plugin (an `app.plugin.js` file at the package root). Most Expo libs are
+NOT config plugins — they're just runtime libraries you `import` from your
+TS files. Adding non-plugin packages here makes `expo export` fail with
+`PluginError: Unable to resolve a valid config plugin for X`.
+
+Packages that ARE valid plugins (you may include them in `plugins`):
+- `expo-router`
+- `expo-build-properties`
+- `expo-font` (when you list custom fonts)
+- `expo-splash-screen` (when you customize the splash)
+
+Packages that are NOT plugins (NEVER include them in `plugins`):
+- `expo-haptics`, `expo-blur`, `expo-linear-gradient`, `expo-status-bar`,
+  `expo-image`, `react-native-reanimated`, `react-native-gesture-handler`,
+  `moti`, `zustand`, `@react-native-async-storage/async-storage`,
+  `lucide-react-native`. Just `import` them. No app.json entry needed.
+
+A safe minimal `plugins` array for an Expo SDK 54 app: `["expo-router"]`.
+
 ## File tree (canonical)
 
 ```

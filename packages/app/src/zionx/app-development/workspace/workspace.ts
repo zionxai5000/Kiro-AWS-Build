@@ -195,6 +195,11 @@ export class Workspace {
    *
    * Idempotent — if package.json already exists at the project root we
    * assume seeding happened and skip. Returns true if files were copied.
+   *
+   * Multi-task safe: writes go through `writeFile` so they mirror to the
+   * durable S3 store. Without this, only the task that handled
+   * createProject would have the seeded files; other Fargate tasks
+   * processing the same project would see an empty workspace.
    */
   async seedFromGoldenStarter(projectId: string): Promise<boolean> {
     const projectPath = await this.ensureProjectDir(projectId);
@@ -209,15 +214,37 @@ export class Workspace {
       return false;
     }
 
-    // Copy recursively, but skip node_modules + lockfile (the agent will
-    // resolve those at first build).
-    await cp(starterPath, projectPath, {
-      recursive: true,
-      filter: (src) => {
-        const base = src.split(/[\\/]/).pop() ?? '';
-        return base !== 'node_modules' && base !== '.expo';
-      },
-    });
+    // Walk the starter recursively and writeFile each entry through the
+    // workspace API so durable-store mirroring catches it.
+    const skipDirs = new Set(['node_modules', '.expo']);
+    const walk = async (dir: string, rel: string): Promise<void> => {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (skipDirs.has(entry.name)) continue;
+        const fullSrc = join(dir, entry.name);
+        const fullRel = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await walk(fullSrc, fullRel);
+        } else if (entry.isFile()) {
+          try {
+            const buf = await readFileAsync(fullSrc);
+            // Heuristic: if first 8KB is mostly printable, treat as text
+            // and use writeFile (mirrors to S3). Otherwise binary path.
+            const head = buf.subarray(0, Math.min(8192, buf.length));
+            const printable = head.filter((b) => b === 9 || b === 10 || b === 13 || (b >= 32 && b < 127)).length;
+            const isText = printable / Math.max(1, head.length) > 0.85;
+            if (isText) {
+              await this.writeFile(projectId, fullRel, buf.toString('utf-8'));
+            } else {
+              await this.writeBinaryFile(projectId, fullRel, buf);
+            }
+          } catch (e) {
+            console.warn(`[seedFromGoldenStarter] copy ${fullRel}: ${(e as Error).message}`);
+          }
+        }
+      }
+    };
+    await walk(starterPath, '');
     return true;
   }
 

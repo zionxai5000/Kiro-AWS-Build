@@ -73,6 +73,12 @@ COPY --from=builder /app/packages/services/dist packages/services/dist
 COPY --from=builder /app/packages/drivers/dist packages/drivers/dist
 COPY --from=builder /app/packages/app/dist packages/app/dist
 
+# Copy templates/ — the golden-starter template is read at runtime by
+# Workspace.seedFromGoldenStarter() to scaffold every new project. Without
+# this every project workspace is empty and the agent tries to scaffold
+# from scratch via `npx create-expo-app`, which fails on E2B's network.
+COPY templates templates
+
 ENV NODE_ENV=production
 ENV PORT=3000
 

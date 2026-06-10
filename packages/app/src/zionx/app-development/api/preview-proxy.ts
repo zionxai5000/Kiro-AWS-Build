@@ -134,17 +134,30 @@ function createProxyHandler(deps: PreviewProxyDeps): (req: APIRequest) => Promis
     const projectId = req.params.projectId ?? req.params.id;
     if (!projectId) return { statusCode: 400, body: { error: 'projectId required' } };
 
-    // Auth: either an authenticated Cognito session (req.userId) OR a valid
-    // preview token in the query string (Expo Go path).
+    // Auth: any of three sources is sufficient (defense-in-depth):
+    //   1. Cognito session (`req.userId`) — for direct dashboard requests
+    //   2. Signed token in `?token=` — for Expo Go phone preview / iframe load
+    //   3. `zionx_preview_<projectId>` cookie — set after successful #1 or #2
+    //      so subsequent same-origin asset requests inside the iframe carry
+    //      auth automatically (the browser doesn't add Authorization headers
+    //      to img/script/link requests, so we need a cookie).
     const queryToken = req.query['token'];
-    let resolvedUserId: string | null = req.userId || null;
+    const cookieHeader = req.headers['cookie'] ?? '';
+    const cookieToken = parseCookieToken(cookieHeader, projectId);
 
-    if (!resolvedUserId && queryToken) {
-      const payload = verifyToken(queryToken, deps.signingSecret);
-      if (!payload || payload.projectId !== projectId) {
-        return { statusCode: 401, body: { error: 'invalid or expired preview token' } };
+    let resolvedUserId: string | null = req.userId || null;
+    let mintedFromToken = false;
+
+    if (!resolvedUserId) {
+      const candidate = queryToken || cookieToken;
+      if (candidate) {
+        const payload = verifyToken(candidate, deps.signingSecret);
+        if (!payload || payload.projectId !== projectId) {
+          return { statusCode: 401, body: { error: 'invalid or expired preview token' } };
+        }
+        resolvedUserId = payload.userId;
+        mintedFromToken = true;
       }
-      resolvedUserId = payload.userId;
     }
 
     if (!resolvedUserId) {
@@ -192,10 +205,19 @@ function createProxyHandler(deps: PreviewProxyDeps): (req: APIRequest) => Promis
 
     console.log(`[preview-proxy][${projectId.slice(-8)}] ${req.method} ${req.path} → ${target}`);
 
+    // If we authenticated this request via the query token (the iframe's
+    // initial load), we should set a same-origin cookie that subsequent
+    // asset requests can use. The cookie carries the same signed payload
+    // as the URL token; the auth check above accepts both.
+    const setCookie = mintedFromToken && (queryToken || cookieToken)
+      ? buildPreviewCookie(projectId, (queryToken ?? cookieToken)!)
+      : null;
+
     return {
       statusCode: 200,
       body: null,
       streamHandler: (res: ServerResponse) => {
+        if (setCookie) res.setHeader('Set-Cookie', setCookie);
         proxyTo(target, req.method, headers, req.body, res, projectId).catch((err) => {
           if (!res.writableEnded) {
             try {
@@ -234,28 +256,46 @@ async function proxyTo(
   outHeaders['x-zionx-preview-project'] = projectId;
 
   // If the upstream is HTML for this project (i.e., the index page),
-  // inject a <base href> so all relative asset URLs (`_expo/static/...`)
-  // route back through the auth-proxy instead of trying to fetch from
-  // the API origin directly. Without this, the iframe loads index.html
-  // but every script/stylesheet 404s.
+  // rewrite absolute asset paths and inject a <base href> so all asset
+  // URLs route back through the auth-proxy. Without this, the iframe
+  // loads index.html but every script/stylesheet 404s against the API
+  // origin (because `<base href>` only affects relative URLs, NOT
+  // path-absolute ones like `/_expo/static/...`).
   const contentType = upstream.headers.get('content-type') ?? '';
   if (contentType.includes('text/html') && upstream.body) {
     const text = await upstream.text();
-    const baseTag = `<base href="/api/preview/${projectId}/">`;
-    let patched: string;
-    if (text.includes('<head>')) {
-      patched = text.replace('<head>', `<head>${baseTag}`);
-    } else if (text.includes('<head ')) {
-      patched = text.replace(/<head([^>]*)>/, `<head$1>${baseTag}`);
+    const proxyBase = `/api/preview/${projectId}`;
+
+    // 1. Inject <base href> so any genuinely-relative URLs route through
+    //    the proxy too.
+    const baseTag = `<base href="${proxyBase}/">`;
+    let patched = text;
+    if (patched.includes('<head>')) {
+      patched = patched.replace('<head>', `<head>${baseTag}`);
+    } else if (patched.match(/<head[^>]*>/)) {
+      patched = patched.replace(/<head([^>]*)>/, `<head$1>${baseTag}`);
     } else {
-      // No <head> — prepend (rare with Expo export, but safe fallback).
-      patched = baseTag + text;
+      patched = baseTag + patched;
     }
+
+    // 2. Rewrite absolute asset paths so they go through the proxy.
+    //    Expo SDK 54 emits paths like `/_expo/static/js/...` and
+    //    `/assets/...`. Match common quoted-attribute patterns.
+    //    Limit to known prefixes so we don't accidentally rewrite
+    //    something else (e.g., data URIs, http(s) URLs).
+    const ASSET_PREFIXES = ['/_expo/', '/assets/', '/static/', '/fonts/'];
+    for (const prefix of ASSET_PREFIXES) {
+      // src="/_expo/..." → src="/api/preview/<id>/_expo/..."
+      const escaped = prefix.replace(/\//g, '\\/');
+      const re = new RegExp(`(=["'])${escaped}`, 'g');
+      patched = patched.replace(re, `$1${proxyBase}${prefix}`);
+    }
+
     const buf = Buffer.from(patched, 'utf-8');
     outHeaders['content-length'] = String(buf.byteLength);
     res.writeHead(upstream.status, outHeaders);
     res.end(buf);
-    console.log(`[preview-proxy][${projectId.slice(-8)}] HTML rewrite: injected <base href> (${buf.byteLength}b)`);
+    console.log(`[preview-proxy][${projectId.slice(-8)}] HTML rewrite: injected <base href> + rewrote asset paths (${buf.byteLength}b)`);
     return;
   }
 
@@ -274,6 +314,53 @@ async function proxyTo(
 
 function stripPrefix(path: string, prefix: string): string {
   return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
+/**
+ * Per-project cookie name. Scoping the cookie to the project keeps it
+ * narrow — viewing project A doesn't grant access to project B even if
+ * an attacker steals the cookie.
+ */
+function previewCookieName(projectId: string): string {
+  // Cookie names can't contain certain characters; project IDs use
+  // [a-zA-Z0-9-] which is safe. Prepend a marker for grep-ability.
+  return `zionx_preview_${projectId}`;
+}
+
+/**
+ * Build a Set-Cookie header value for the preview token.
+ * 1 hour TTL matches the token lifetime. SameSite=Lax so the cookie
+ * is sent for same-origin asset requests inside the iframe but not for
+ * unrelated cross-site navigations. HttpOnly so JS can't read it.
+ */
+function buildPreviewCookie(projectId: string, token: string): string {
+  const oneHour = 60 * 60;
+  return [
+    `${previewCookieName(projectId)}=${encodeURIComponent(token)}`,
+    `Path=/api/preview/${projectId}`,
+    `Max-Age=${oneHour}`,
+    'HttpOnly',
+    'SameSite=Lax',
+  ].join('; ');
+}
+
+/**
+ * Extract the per-project token from the Cookie header, if present.
+ * Returns null when missing or unparseable.
+ */
+function parseCookieToken(cookieHeader: string, projectId: string): string | null {
+  if (!cookieHeader) return null;
+  const target = previewCookieName(projectId);
+  const parts = cookieHeader.split(/;\s*/);
+  for (const part of parts) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const name = part.slice(0, eq).trim();
+    if (name === target) {
+      try { return decodeURIComponent(part.slice(eq + 1)); } catch { return null; }
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

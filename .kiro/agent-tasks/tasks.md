@@ -22,6 +22,45 @@ underlying requirement. Detailed history per workstream lives in
 
 ---
 
+## 🎯 Active Work Groups
+
+This is what's in flight **right now**, grouped by goal. Items tick off
+in real time. **When the whole group closes, its items are mirrored as
+✅ in the domain sections below**, then the group moves to "Closed work
+groups" at the bottom.
+
+**Protocol:**
+- Every new request opens a new group at the top.
+- Every task gets a checkbox here AND in its matching domain row.
+- Both check off together when the work lands.
+- A group is "closed" when all its rows are ✅ AND the underlying domain
+  rows are also ✅.
+
+### G1 — Fix dashboard preview iframe (sandbox doesn't render in studio)
+
+- **Started:** 2026-06-10
+- **Goal:** King clicks a project in the dashboard → iframe shows the
+  running game (today: blank screen / 404 / closed-port).
+- **Maps to domain rows:** ZionX 2.4.12, 2.4.13, 2.4.14, 2.4.15
+
+| ✅/⬜ | Item | Notes |
+|---|---|---|
+| ✅ | Diagnose 404 from auth proxy | Root cause: `matchPath` does not handle `*` wildcards |
+| ✅ | Fix `matchPath` to handle `*` (single + trailing rest segments) | `services/api-routes.ts` |
+| ✅ | Inject `<base href="/api/preview/<id>/">` into proxied index.html so asset URLs route through the proxy | `api/preview-proxy.ts` |
+| ✅ | Add diagnostic `console.log` of every proxied request | `api/preview-proxy.ts` |
+| ✅ | Commit + push (`66fb825`) and deploy to production (task def 160 stable) | verified |
+| ✅ | Reset probe password (last attempt failed AWS Cognito policy — needs digit) | resolved with `Probe-NNNNNN-Az9!` template |
+| ✅ | Run `probe-hibernate` + `probe-wake-existing` against production | sandbox `proj-1781063000651-58ed63b6` builds + serves on port 8081 |
+| ✅ | First proxy fix verified: HTML loads at 200 with `<base href>` injected | direct curl + Playwright both confirm |
+| 🔄 | Asset URLs absolute — `/_expo/static/...` ignores `<base href>` (only relative URLs use it). Fix: rewrite asset paths through proxy. | shipped in next deploy |
+| 🔄 | Iframe asset requests have no auth header. Fix: set per-project cookie on HTML serve, accept it on subsequent requests. | shipped in next deploy |
+| ⬜ | Re-deploy and verify: Playwright loads auth-proxied URL → React mounts → tic-tac-toe board renders | end-to-end proof |
+| ⬜ | Drive Playwright at the live dashboard, click "5-Star Tic-Tac-Toe", screenshot the running game | dashboard-flow proof |
+| ⬜ | Mirror ZionX 2.4.12–2.4.15 to ✅ in domain section below and close this group | — |
+
+---
+
 ## 1. SERAPHIM
 
 ### 1.1 — Quality bar enforcement (Hooks 11–15)
@@ -264,25 +303,25 @@ underlying requirement. Detailed history per workstream lives in
 
 ---
 
-## Currently in flight (live focus)
+## 📋 Closed work groups
 
-| When | What | Where |
-|---|---|---|
-| **Now** | ZionX 2.4.12 — drive dashboard reload → click 5-Star Tic-Tac-Toe → confirm preview iframe renders running game | `archive/LIVE-tictactoe-preview-status.md` |
-| Today | ZionX 2.4.13 — fix `matchPath` wildcard handling for `/preview/:projectId/*` paths with extra segments | `api/preview-proxy.ts` + `services/api-routes.ts` |
-| Today | ZionX 2.6.8 — triage Sentry violations against live dashboard | `services/spec-runner.ts` |
-| Soon | Seraphim 1.3 — ship Midnight Aurora palette enforcement | `archive/LIVE-48-or-die.md` |
+(Empty — closed groups will land here with their start/finish dates and
+the domain rows they completed.)
 
 ---
 
-## How to add a new task
+## How to add a new task or request
 
-1. Pick the right domain (1 / 2 / 3) and sub-section.
-2. Use the next available number — never reuse or renumber.
-3. Add a row with `⬜` and a one-line description.
-4. Move it to `🔄` when you start, `✅` when verified.
-5. If it depends on an existing requirement, reference the `R<n.n.n>` ID.
-6. If it gets superseded, mark `🔁` and add a row with the replacement.
+1. **Open a new group** at the top under "Active Work Groups". Give it
+   a `G<n>` ID, a one-line goal, and the domain rows it touches.
+2. List every concrete sub-step as a checkbox row inside the group.
+3. As you finish each row, mark it ✅ in the group AND in the matching
+   domain row below.
+4. When all group rows + their domain rows are ✅, move the group block
+   to "Closed work groups" with a finish date.
+5. For raw additions (not part of an active group): pick the right
+   domain (1 / 2 / 3) and sub-section, use the next available number
+   (never reuse or renumber), and add a `⬜` row.
 
 If a task spans more than ~3 days of work, break it into sub-tasks
 and add them under the same sub-section.

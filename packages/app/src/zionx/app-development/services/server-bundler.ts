@@ -214,20 +214,16 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
     let skipped = 0;
+    // File-extension whitelist. expo export produces these as text.
+    const TEXT_EXTS = new Set(['.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.json', '.txt', '.map', '.svg', '.xml', '.webmanifest']);
     for await (const filePath of walk(bundleDir)) {
       const rel = relative(bundleDir, filePath).replace(/\\/g, '/');
+      const dotIdx = rel.lastIndexOf('.');
+      const ext = dotIdx >= 0 ? rel.slice(dotIdx).toLowerCase() : '';
+      if (!TEXT_EXTS.has(ext)) { skipped++; continue; }
       try {
-        // Read as buffer first so we don't lose binary data; only upload
-        // text-y files via the writeFile path. For binaries we'd need
-        // a separate transfer mechanism — for the web bundle most of
-        // what matters is HTML/JS/CSS/JSON which are all text.
-        const buf = await readFileAsync(filePath);
-        // Heuristic: if first 8KB is mostly printable, treat as text.
-        const head = buf.subarray(0, Math.min(8192, buf.length));
-        const printable = head.filter((b) => b === 9 || b === 10 || b === 13 || (b >= 32 && b < 127)).length;
-        const isText = printable / Math.max(1, head.length) > 0.85;
-        if (!isText) { skipped++; continue; }
-        await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, buf.toString('utf-8'));
+        const content = await readFileAsync(filePath, 'utf-8');
+        await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, content);
         uploaded++;
       } catch (e) {
         skipped++;

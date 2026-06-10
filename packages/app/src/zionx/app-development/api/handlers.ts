@@ -99,6 +99,18 @@ export interface AppDevHandlers {
 }
 
 // ---------------------------------------------------------------------------
+// Per-project sandbox wake state (in-memory)
+// ---------------------------------------------------------------------------
+
+interface WakeState {
+  state: 'building' | 'ready' | 'error';
+  startedAt: string;
+  publicUrl: string | null;
+  error: string | null;
+  phase: string;
+}
+
+// ---------------------------------------------------------------------------
 // Per-project build rate limiter (in-memory)
 // ---------------------------------------------------------------------------
 
@@ -444,6 +456,21 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         .requireProjectOwnerFromParams(req, workspace);
       if (ownership.reject) return ownership.reject;
 
+      // First, check the wake-progress map populated by wakeSandbox.
+      const wakeMap = (globalThis as unknown as { __zionxWakeMap?: Map<string, WakeState> }).__zionxWakeMap;
+      const wake = wakeMap?.get(projectId);
+      if (wake) {
+        if (wake.state === 'ready') {
+          return { statusCode: 200, body: { projectId, status: 'live', publicUrl: wake.publicUrl, phase: wake.phase } };
+        }
+        if (wake.state === 'building') {
+          return { statusCode: 200, body: { projectId, status: 'building', phase: wake.phase, startedAt: wake.startedAt } };
+        }
+        if (wake.state === 'error') {
+          return { statusCode: 200, body: { projectId, status: 'error', error: wake.error, phase: wake.phase } };
+        }
+      }
+
       const client = (globalThis as unknown as {
         __zionxSandboxClient?: { getPublicUrl(id: string): Promise<string> } | null;
       }).__zionxSandboxClient ?? null;
@@ -490,28 +517,55 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       if (!client) {
         return { statusCode: 503, body: { error: 'sandbox client not provisioned' } };
       }
-      try {
-        // Touch the sandbox so it boots.
-        await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
 
-        // Server-side bundle into the freshly provisioned sandbox.
-        // Saved projects with cached node_modules on the server take ~30s;
-        // first-time bundles take ~3-4 min for the install + export.
-        const { bundleAndServe } = await import('../services/server-bundler.js');
-        const bundleResult = await bundleAndServe({
-          projectId,
-          workspace,
-          sandbox: client,
-        });
+      // Track wake progress in a module-level map so the dashboard can
+      // poll /sandbox status while the long bundle runs. Without this,
+      // synchronous-await hits the ALB 60s idle timeout and returns 504
+      // even though the bundler is still running.
+      const wakeMap = (globalThis as unknown as { __zionxWakeMap?: Map<string, WakeState> });
+      if (!wakeMap.__zionxWakeMap) wakeMap.__zionxWakeMap = new Map();
+      const map = wakeMap.__zionxWakeMap;
 
-        if (!bundleResult.success) {
-          return { statusCode: 502, body: { error: 'failed to bundle on wake', message: bundleResult.error } };
-        }
-
-        return { statusCode: 200, body: { projectId, status: 'live', publicUrl: bundleResult.publicUrl, filesUploaded: bundleResult.filesUploaded, durationMs: bundleResult.durationMs } };
-      } catch (err) {
-        return { statusCode: 502, body: { error: 'failed to wake sandbox', message: (err as Error).message } };
+      const existing = map.get(projectId);
+      if (existing && existing.state === 'building') {
+        return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
       }
+
+      const state: WakeState = { state: 'building', startedAt: new Date().toISOString(), publicUrl: null, error: null, phase: 'starting' };
+      map.set(projectId, state);
+
+      // Kick off the bundle in the background. Return 202 immediately so
+      // the ALB doesn't time out. Dashboard polls GET /sandbox to learn
+      // when it's done.
+      (async () => {
+        try {
+          await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
+          const { bundleAndServe } = await import('../services/server-bundler.js');
+          state.phase = 'bundling';
+          const bundleResult = await bundleAndServe({
+            projectId,
+            workspace,
+            sandbox: client,
+            onProgress: (phase) => { state.phase = phase; },
+          });
+          if (bundleResult.success) {
+            state.state = 'ready';
+            state.publicUrl = bundleResult.publicUrl ?? null;
+            state.phase = 'ready';
+          } else {
+            state.state = 'error';
+            state.error = bundleResult.error ?? 'bundle failed';
+          }
+        } catch (err) {
+          state.state = 'error';
+          state.error = (err as Error).message;
+        }
+      })().catch((e) => {
+        state.state = 'error';
+        state.error = (e as Error).message;
+      });
+
+      return { statusCode: 202, body: { projectId, status: 'building', startedAt: state.startedAt, message: 'Bundling started — poll GET /sandbox for status' } };
     },
 
     async hibernateSandbox(req: APIRequest): Promise<APIResponse> {

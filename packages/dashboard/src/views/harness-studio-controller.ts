@@ -117,23 +117,54 @@ export class HarnessStudioController {
       messages: [],
       preview: { url: this.previewUrl(projectId), status: 'waking' },
     });
-    // Old projects whose sandbox timed out show "Sandbox Not Found" in the
-    // preview proxy. Hit /sandbox/wake to spin up a fresh sandbox + Metro
-    // so selecting a saved project actually loads its app.
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: 'Waking sandbox — bundling app, ~1-3 min on first wake…' });
+    // wakeSandbox now returns 202 immediately and runs the bundle in the
+    // background. Poll GET /sandbox every 5s until ready or error.
     try {
-      const res = await this.fetchJson<{ status: string; publicUrl?: string }>(
+      await this.fetchJson<{ status: string }>(
         `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox/wake`,
         { method: 'POST', body: '{}' },
       );
-      this.setState({
-        preview: { url: this.previewUrl(projectId), status: res.status === 'live' ? 'live' : 'building' },
-      });
     } catch (err) {
-      this.appendError(`Could not wake sandbox: ${(err as Error).message}`);
-      this.setState({
-        preview: { url: this.previewUrl(projectId), status: 'error', errorMessage: (err as Error).message },
-      });
+      // Some 504s might still happen on cold paths; treat as "build started" optimistically.
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: `Wake start: ${(err as Error).message.slice(0, 100)} — polling anyway…` });
     }
+    // Poll for up to 8 minutes.
+    const start = Date.now();
+    let lastPhase = '';
+    while (Date.now() - start < 8 * 60_000) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const status = await this.fetchJson<{ status: string; publicUrl?: string; phase?: string; error?: string }>(
+          `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox`,
+          { method: 'GET' },
+        );
+        if (status.phase && status.phase !== lastPhase) {
+          this.view.appendMessage({ id: rid(), kind: 'phase', text: `Build phase: ${status.phase}` });
+          lastPhase = status.phase;
+        }
+        if (status.status === 'live' || status.status === 'ready') {
+          this.setState({
+            preview: { url: this.previewUrl(projectId), status: 'live' },
+          });
+          this.view.appendMessage({ id: rid(), kind: 'phase', text: '✦ Preview ready — loading…' });
+          return;
+        }
+        if (status.status === 'error') {
+          this.appendError(`Build failed: ${status.error ?? 'unknown'}`);
+          this.setState({
+            preview: { url: this.previewUrl(projectId), status: 'error', errorMessage: status.error ?? 'unknown' },
+          });
+          return;
+        }
+      } catch (err) {
+        // Polling failures are non-fatal; keep trying.
+      }
+    }
+    this.appendError('Sandbox build timed out after 8 minutes');
+    this.setState({
+      preview: { url: this.previewUrl(projectId), status: 'error', errorMessage: 'Sandbox build timed out' },
+    });
   }
 
   private handleStop(): void {

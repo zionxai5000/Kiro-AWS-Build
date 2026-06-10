@@ -189,24 +189,20 @@ describe('handlers — wakeSandbox', () => {
     expect(res.statusCode).toBe(503);
   });
 
-  // The wake-success path now invokes the server bundler (npm install +
-  // expo export) which spawns real subprocesses. That isn't safe to run
-  // inside unit tests — it's covered by the live production probes
-  // (scripts/v7-harness-acceptance.mjs and scripts/tictactoe-build.mjs).
-  // Here we verify the surface contract: wake fails clearly when the
-  // sandbox is unhealthy.
-  it('502 when the sandbox runCommand rejects (sandbox already dead)', async () => {
+  // After the async refactor, wake always returns 202 immediately and
+  // the bundle runs in the background. The dashboard polls /sandbox to
+  // learn the outcome. Status reads error from the wake-state map.
+  it('returns 202 immediately and tracks state in the wake map', async () => {
     ws.meta.set('p1', { ownerId: 'u1' });
     (globalThis as unknown as { __zionxSandboxClient: unknown }).__zionxSandboxClient = {
-      getPublicUrl: async () => { throw new Error('boot failed'); },
-      runCommand: async () => { throw new Error('sandbox not found'); },
+      getPublicUrl: async () => 'https://example.e2b.app',
+      runCommand: async () => ({ stdout: '', exitCode: 0 }),
       writeFile: async () => { /* noop */ },
     };
     const h = makeHandlers(ws);
     const res = await h.wakeSandbox(makeReq());
-    // Either 502 from the bundler failure OR 502 from getPublicUrl rejection
-    // — both are acceptable signals that wake didn't succeed.
-    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+    expect(res.statusCode).toBe(202);
+    expect((res.body as { status: string }).status).toBe('building');
   });
 });
 

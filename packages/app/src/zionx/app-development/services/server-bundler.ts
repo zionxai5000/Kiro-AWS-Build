@@ -211,6 +211,25 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
       const detail = exportFailure ? exportFailure.slice(0, 400) : 'no index.html in dist/';
       return { success: false, bundleDir, filesUploaded: 0, durationMs: Date.now() - start, error: `expo export failed: ${detail}` };
     }
+    // Patch the entry <script> tag to type="module". Expo SDK 54's web
+    // export bundles use `import.meta` which only works in module mode;
+    // the default emitted index.html uses a classic script and the page
+    // throws "Cannot use 'import.meta' outside a module" at load. We
+    // rewrite once before upload.
+    try {
+      const indexHtml = await readFileAsync(indexPath, 'utf-8');
+      const patched = indexHtml.replace(
+        /<script\s+src="(\/_expo\/static\/[^"]+\.js)"\s+defer><\/script>/,
+        '<script type="module" src="$1"></script>',
+      );
+      if (patched !== indexHtml) {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(indexPath, patched, 'utf-8');
+        progress('patch-index', 'Patched index.html: script → type=module');
+      }
+    } catch (e) {
+      console.warn(`[server-bundler] index.html patch: ${(e as Error).message}`);
+    }
     progress('exported', 'Bundle ready');
 
     // Push the bundle into the sandbox.

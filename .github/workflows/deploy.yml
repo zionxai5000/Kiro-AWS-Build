@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'packages/**'
+      - 'templates/**'
       - 'Dockerfile'
       - '.github/workflows/deploy.yml'
   workflow_dispatch: {}

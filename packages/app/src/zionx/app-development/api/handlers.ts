@@ -456,18 +456,53 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         .requireProjectOwnerFromParams(req, workspace);
       if (ownership.reject) return ownership.reject;
 
-      // First, check the wake-progress map populated by wakeSandbox.
+      // Pull the cross-task wake state from S3 first so any other ECS
+      // task's recent wake is visible to this one. Fall back to local
+      // in-memory state if the S3 read fails.
+      const { getWakeStateStore, isPreviewReachable } = await import('../services/wake-state-store.js');
+      const wakeStore = getWakeStateStore();
       const wakeMap = (globalThis as unknown as { __zionxWakeMap?: Map<string, WakeState> }).__zionxWakeMap;
-      const wake = wakeMap?.get(projectId);
+      let wake: WakeState | null = wakeMap?.get(projectId) ?? null;
+      if (wakeStore) {
+        try {
+          const remote = await wakeStore.read(projectId);
+          if (remote) {
+            // Prefer the freshest record (greater updatedAt timestamp).
+            const remoteTs = new Date(remote.updatedAt ?? remote.startedAt).getTime();
+            const localTs = wake ? new Date(wake.startedAt).getTime() : 0;
+            if (remoteTs >= localTs) {
+              wake = {
+                state: remote.state,
+                startedAt: remote.startedAt,
+                publicUrl: remote.publicUrl,
+                error: remote.error,
+                phase: remote.phase,
+              };
+            }
+          }
+        } catch { /* tolerate s3 errors */ }
+      }
+
       if (wake) {
-        if (wake.state === 'ready') {
-          return { statusCode: 200, body: { projectId, status: 'live', publicUrl: wake.publicUrl, phase: wake.phase } };
-        }
         if (wake.state === 'building') {
           return { statusCode: 200, body: { projectId, status: 'building', phase: wake.phase, startedAt: wake.startedAt } };
         }
         if (wake.state === 'error') {
           return { statusCode: 200, body: { projectId, status: 'error', error: wake.error, phase: wake.phase } };
+        }
+        if (wake.state === 'ready' && wake.publicUrl) {
+          // Verify the cached URL still responds. E2B sandboxes get GC'd
+          // after idle timeouts, leaving the wake-state pointing at a
+          // dead URL. If unreachable, drop the state and fall through to
+          // 'idle' so the dashboard knows to re-wake.
+          const reachable = await isPreviewReachable(wake.publicUrl);
+          if (reachable) {
+            return { statusCode: 200, body: { projectId, status: 'live', publicUrl: wake.publicUrl, phase: wake.phase } };
+          }
+          // Stale — clear and report idle.
+          if (wakeMap) wakeMap.delete(projectId);
+          if (wakeStore) await wakeStore.clear(projectId).catch(() => {});
+          return { statusCode: 200, body: { projectId, status: 'idle', reason: 'cached preview URL is unreachable' } };
         }
       }
 
@@ -482,20 +517,8 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         };
       }
 
-      // Best-effort: try to read the public URL. If the call succeeds the
-      // sandbox is live; if it fails the sandbox is paused or absent.
-      try {
-        const url = await client.getPublicUrl(projectId);
-        return {
-          statusCode: 200,
-          body: { projectId, status: 'live', publicUrl: url },
-        };
-      } catch (err) {
-        return {
-          statusCode: 200,
-          body: { projectId, status: 'idle', error: (err as Error).message },
-        };
-      }
+      // No wake state — report idle. The dashboard will trigger /wake.
+      return { statusCode: 200, body: { projectId, status: 'idle' } };
     },
 
     async wakeSandbox(req: APIRequest): Promise<APIResponse> {
@@ -522,17 +545,58 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       // poll /sandbox status while the long bundle runs. Without this,
       // synchronous-await hits the ALB 60s idle timeout and returns 504
       // even though the bundler is still running.
+      // ALSO mirror to S3 so other ECS tasks see the same view (the
+      // ALB load-balances POST and GET to different tasks).
+      const { getWakeStateStore } = await import('../services/wake-state-store.js');
+      const wakeStore = getWakeStateStore();
+
       const wakeMap = (globalThis as unknown as { __zionxWakeMap?: Map<string, WakeState> });
       if (!wakeMap.__zionxWakeMap) wakeMap.__zionxWakeMap = new Map();
       const map = wakeMap.__zionxWakeMap;
 
-      const existing = map.get(projectId);
+      // Check S3 too so a build kicked off by another task is honored.
+      let existing: WakeState | undefined = map.get(projectId);
+      if (!existing && wakeStore) {
+        try {
+          const remote = await wakeStore.read(projectId);
+          if (remote) {
+            existing = {
+              state: remote.state,
+              startedAt: remote.startedAt,
+              publicUrl: remote.publicUrl,
+              error: remote.error,
+              phase: remote.phase,
+            };
+          }
+        } catch { /* tolerate */ }
+      }
       if (existing && existing.state === 'building') {
-        return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
+        // Don't kick off a duplicate build if one is already in flight
+        // anywhere — but only respect that if it's recent (< 8 minutes).
+        const ageMs = Date.now() - new Date(existing.startedAt).getTime();
+        if (ageMs < 8 * 60_000) {
+          return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
+        }
       }
 
       const state: WakeState = { state: 'building', startedAt: new Date().toISOString(), publicUrl: null, error: null, phase: 'starting' };
       map.set(projectId, state);
+
+      // Persist initial state so the dashboard's first poll (which may
+      // hit the OTHER task) sees 'building' instead of 'idle'.
+      const persist = async (): Promise<void> => {
+        if (!wakeStore) return;
+        await wakeStore.write({
+          projectId,
+          state: state.state,
+          startedAt: state.startedAt,
+          updatedAt: new Date().toISOString(),
+          publicUrl: state.publicUrl,
+          error: state.error,
+          phase: state.phase,
+        }).catch(() => {});
+      };
+      await persist();
 
       // Kick off the bundle in the background. Return 202 immediately so
       // the ALB doesn't time out. Dashboard polls GET /sandbox to learn
@@ -542,11 +606,12 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
           const { bundleAndServe } = await import('../services/server-bundler.js');
           state.phase = 'bundling';
+          await persist();
           const bundleResult = await bundleAndServe({
             projectId,
             workspace,
             sandbox: client,
-            onProgress: (phase) => { state.phase = phase; },
+            onProgress: (phase) => { state.phase = phase; void persist(); },
           });
           if (bundleResult.success) {
             state.state = 'ready';
@@ -559,10 +624,13 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         } catch (err) {
           state.state = 'error';
           state.error = (err as Error).message;
+        } finally {
+          await persist();
         }
-      })().catch((e) => {
+      })().catch(async (e) => {
         state.state = 'error';
         state.error = (e as Error).message;
+        await persist();
       });
 
       return { statusCode: 202, body: { projectId, status: 'building', startedAt: state.startedAt, message: 'Bundling started — poll GET /sandbox for status' } };
@@ -584,6 +652,11 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       }
       try {
         await client.dispose(projectId);
+        // Clear wake state too so subsequent status checks correctly say "idle".
+        const wakeMap = (globalThis as unknown as { __zionxWakeMap?: Map<string, WakeState> }).__zionxWakeMap;
+        wakeMap?.delete(projectId);
+        const { getWakeStateStore } = await import('../services/wake-state-store.js');
+        await getWakeStateStore()?.clear(projectId).catch(() => {});
         return { statusCode: 200, body: { projectId, status: 'idle' } };
       } catch (err) {
         return { statusCode: 502, body: { error: 'failed to hibernate', message: (err as Error).message } };

@@ -1381,6 +1381,7 @@ async function main() {
     const { WatcherSupervisor } = await import('@seraphim/app/zionx/app-development/events/watcher-supervisor.js');
     const { Workspace, WORKSPACE_ROOT } = await import('@seraphim/app/zionx/app-development/workspace/workspace.js');
     const { S3WorkspaceStore } = await import('@seraphim/app/zionx/app-development/services/s3-workspace-store.js');
+    const { WakeStateStore, setWakeStateStore } = await import('@seraphim/app/zionx/app-development/services/wake-state-store.js');
 
     const appDevWorkspace = new Workspace();
 
@@ -1406,6 +1407,16 @@ async function main() {
         );
         appDevWorkspace.setDurableStore(store);
         console.log('✅ [app-dev] Durable workspace mirror wired (writes mirror to S3)');
+
+        // Cross-task wake-state store — same bucket, separate prefix.
+        // Without this, ALB-balanced wake/status calls hit different
+        // tasks with divergent in-memory views.
+        const wakeStore = new WakeStateStore({
+          bucketName: artifactsBucket,
+          region: process.env.AWS_REGION ?? 'us-east-1',
+        });
+        setWakeStateStore(wakeStore);
+        console.log('✅ [app-dev] Wake-state store wired (cross-task coherence)');
       } catch (s3Err) {
         console.warn(
           '[app-dev] Durable workspace store failed to initialize — projects will NOT survive restart:',

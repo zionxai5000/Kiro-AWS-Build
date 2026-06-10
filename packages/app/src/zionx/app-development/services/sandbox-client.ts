@@ -138,6 +138,18 @@ export class E2BSandboxClient implements SandboxClientLike {
     await entry.sandbox.files.write(fullPath, content);
   }
 
+  /**
+   * Write a binary file to the sandbox. The E2B SDK's files.write accepts
+   * Buffer / Uint8Array natively. Used by the server-side bundler to push
+   * Hermes bytecode and font files alongside the text bundle output.
+   */
+  async writeBinaryFile(projectId: string, path: string, content: Buffer | Uint8Array): Promise<void> {
+    const entry = await this.ensureSandbox(projectId);
+    entry.lastUsedAt = Date.now();
+    const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
+    await entry.sandbox.files.write(fullPath, content as never);
+  }
+
   async readFile(projectId: string, path: string): Promise<string> {
     const entry = await this.ensureSandbox(projectId);
     entry.lastUsedAt = Date.now();

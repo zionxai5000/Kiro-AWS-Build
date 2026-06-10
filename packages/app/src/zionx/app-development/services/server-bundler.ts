@@ -37,6 +37,8 @@ const execFileAsync = promisify(execFile);
 export interface SandboxClientLike {
   runCommand(projectId: string, cmd: string, opts?: { timeoutMs?: number; background?: boolean; cwd?: string }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   writeFile(projectId: string, path: string, content: string): Promise<void>;
+  /** Write raw bytes — SDK accepts Buffer/Uint8Array. Optional for backward compat. */
+  writeBinaryFile?(projectId: string, path: string, content: Buffer | Uint8Array): Promise<void>;
   getPublicUrl(projectId: string): Promise<string>;
 }
 
@@ -210,27 +212,31 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     progress('exported', 'Bundle ready');
 
     // Push the bundle into the sandbox.
+    // Upload EVERY file as raw bytes via writeBinaryFile — the E2B SDK
+    // handles strings + Buffers identically. No more text/binary
+    // classification headaches: the JS bundle, sourcemaps, fonts, images,
+    // hermes bytecode all go through unmodified.
     progress('upload', 'Pushing bundle into sandbox…');
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
     let skipped = 0;
-    // File-extension whitelist. expo export produces these as text.
-    const TEXT_EXTS = new Set(['.html', '.htm', '.js', '.mjs', '.cjs', '.css', '.json', '.txt', '.map', '.svg', '.xml', '.webmanifest']);
     for await (const filePath of walk(bundleDir)) {
       const rel = relative(bundleDir, filePath).replace(/\\/g, '/');
-      const dotIdx = rel.lastIndexOf('.');
-      const ext = dotIdx >= 0 ? rel.slice(dotIdx).toLowerCase() : '';
-      if (!TEXT_EXTS.has(ext)) { skipped++; continue; }
       try {
-        const content = await readFileAsync(filePath, 'utf-8');
-        await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, content);
+        const buf = await readFileAsync(filePath);
+        if (opts.sandbox.writeBinaryFile) {
+          await opts.sandbox.writeBinaryFile(opts.projectId, `dist/${rel}`, buf);
+        } else {
+          // Fallback for older sandbox clients without writeBinaryFile.
+          await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, buf.toString('utf-8'));
+        }
         uploaded++;
       } catch (e) {
         skipped++;
         console.warn(`[server-bundler] upload ${rel} skipped: ${(e as Error).message}`);
       }
     }
-    progress('uploaded', `${uploaded} text files in sandbox (${skipped} binary skipped)`);
+    progress('uploaded', `${uploaded} files uploaded (${skipped} skipped)`);
 
     // Start a tiny http server inside the sandbox on port 8081.
     progress('serve', 'Starting static server in sandbox…');

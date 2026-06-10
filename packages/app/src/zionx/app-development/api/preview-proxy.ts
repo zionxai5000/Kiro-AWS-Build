@@ -268,24 +268,38 @@ async function proxyTo(
 
     // 1. Inject <base href> so any genuinely-relative URLs route through
     //    the proxy too.
+    // 2. Inject a tiny URL-rewriter that runs before any other JS. It
+    //    intercepts fetch / XHR / Image.src so that runtime-generated
+    //    absolute asset paths (`/assets/...`, `/static/...`, etc.) — which
+    //    the JS bundle emits at runtime and which static HTML rewrites
+    //    can't catch — get routed through the proxy too.
+    const interceptor = `<script>
+(function(){
+  var PREFIX=${JSON.stringify(proxyBase)};
+  var PATTERNS=[/^\\/assets\\//,/^\\/_expo\\//,/^\\/static\\//,/^\\/fonts\\//];
+  function rewrite(u){if(typeof u!=='string')return u;for(var i=0;i<PATTERNS.length;i++){if(PATTERNS[i].test(u))return PREFIX+u;}return u;}
+  var of=window.fetch;window.fetch=function(input,init){if(typeof input==='string')input=rewrite(input);else if(input&&input.url)input=new Request(rewrite(input.url),input);return of.call(this,input,init);};
+  var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var a=Array.prototype.slice.call(arguments);a[1]=rewrite(u);return oo.apply(this,a);};
+  try{var d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');if(d&&d.set){Object.defineProperty(HTMLImageElement.prototype,'src',{set:function(v){d.set.call(this,rewrite(v));},get:function(){return d.get.call(this);},configurable:true});}}catch(e){}
+})();
+</script>`;
     const baseTag = `<base href="${proxyBase}/">`;
+    const headInjection = baseTag + interceptor;
+
     let patched = text;
     if (patched.includes('<head>')) {
-      patched = patched.replace('<head>', `<head>${baseTag}`);
+      patched = patched.replace('<head>', `<head>${headInjection}`);
     } else if (patched.match(/<head[^>]*>/)) {
-      patched = patched.replace(/<head([^>]*)>/, `<head$1>${baseTag}`);
+      patched = patched.replace(/<head([^>]*)>/, `<head$1>${headInjection}`);
     } else {
-      patched = baseTag + patched;
+      patched = headInjection + patched;
     }
 
-    // 2. Rewrite absolute asset paths so they go through the proxy.
-    //    Expo SDK 54 emits paths like `/_expo/static/js/...` and
-    //    `/assets/...`. Match common quoted-attribute patterns.
-    //    Limit to known prefixes so we don't accidentally rewrite
-    //    something else (e.g., data URIs, http(s) URLs).
+    // 3. Rewrite absolute asset paths in the static HTML (script src,
+    //    link href, etc.). The runtime interceptor above handles JS-emitted
+    //    URLs; this catches the static `<script src="/_expo/...">` cases.
     const ASSET_PREFIXES = ['/_expo/', '/assets/', '/static/', '/fonts/'];
     for (const prefix of ASSET_PREFIXES) {
-      // src="/_expo/..." → src="/api/preview/<id>/_expo/..."
       const escaped = prefix.replace(/\//g, '\\/');
       const re = new RegExp(`(=["'])${escaped}`, 'g');
       patched = patched.replace(re, `$1${proxyBase}${prefix}`);
@@ -295,7 +309,7 @@ async function proxyTo(
     outHeaders['content-length'] = String(buf.byteLength);
     res.writeHead(upstream.status, outHeaders);
     res.end(buf);
-    console.log(`[preview-proxy][${projectId.slice(-8)}] HTML rewrite: injected <base href> + rewrote asset paths (${buf.byteLength}b)`);
+    console.log(`[preview-proxy][${projectId.slice(-8)}] HTML rewrite: <base href> + URL interceptor + asset paths (${buf.byteLength}b)`);
     return;
   }
 

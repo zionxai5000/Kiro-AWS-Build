@@ -220,6 +220,7 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
     let skipped = 0;
+    let firstError: string | null = null;
     for await (const filePath of walk(bundleDir)) {
       const rel = relative(bundleDir, filePath).replace(/\\/g, '/');
       try {
@@ -227,16 +228,21 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
         if (opts.sandbox.writeBinaryFile) {
           await opts.sandbox.writeBinaryFile(opts.projectId, `dist/${rel}`, buf);
         } else {
-          // Fallback for older sandbox clients without writeBinaryFile.
           await opts.sandbox.writeFile(opts.projectId, `dist/${rel}`, buf.toString('utf-8'));
         }
         uploaded++;
       } catch (e) {
         skipped++;
-        console.warn(`[server-bundler] upload ${rel} skipped: ${(e as Error).message}`);
+        const msg = (e as Error).message;
+        if (!firstError) firstError = `${rel}: ${msg.slice(0, 200)}`;
+        console.warn(`[server-bundler] upload ${rel} skipped: ${msg}`);
       }
     }
-    progress('uploaded', `${uploaded} files uploaded (${skipped} skipped)`);
+    if (uploaded === 0 && skipped > 0) {
+      progress('upload-fail', `All ${skipped} files failed. First error: ${firstError ?? 'unknown'}`);
+    } else {
+      progress('uploaded', `${uploaded} files uploaded (${skipped} skipped)`);
+    }
 
     // Start a tiny http server inside the sandbox on port 8081.
     progress('serve', 'Starting static server in sandbox…');

@@ -1561,6 +1561,23 @@ async function main() {
       const previewRoutes = createPreviewRoutes({
         workspace: appDevWorkspace,
         resolveSandboxUrl: async (projectId) => {
+          // Cross-task coherent: read the wake-state store first so we
+          // get the URL the OTHER task may have just provisioned. Only
+          // fall through to the local sandbox client (which may create
+          // a fresh sandbox) when the wake-state record is missing or
+          // points at a dead URL.
+          try {
+            const { getWakeStateStore, isPreviewReachable } = await import('@seraphim/app/zionx/app-development/services/wake-state-store.js');
+            const store = getWakeStateStore();
+            if (store) {
+              const record = await store.read(projectId);
+              if (record?.publicUrl && record.state === 'ready') {
+                if (await isPreviewReachable(record.publicUrl)) {
+                  return record.publicUrl;
+                }
+              }
+            }
+          } catch { /* fall through */ }
           if (!sandboxClient) return null;
           try { return await sandboxClient.getPublicUrl(projectId); }
           catch { return null; }

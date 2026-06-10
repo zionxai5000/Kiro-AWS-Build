@@ -136,6 +136,9 @@ export interface HarnessStudioState {
   qrModalOpen: boolean;
   /** Bottom-tab content swap. */
   paneTab: 'preview' | 'logs' | 'files' | 'code' | 'ship';
+  /** Preview pane render mode — scale-to-fit a 390x844 device frame, or
+   *  scroll the iframe inside the column. */
+  viewMode: 'scale' | 'scroll';
   /** Active file in the Code tab + buffered edit content. */
   codeOpenPath: string | null;
   codeContent: string;
@@ -210,6 +213,7 @@ export class HarnessStudioView {
     preview: { url: null, status: 'idle' },
     qrModalOpen: false,
     paneTab: 'preview',
+    viewMode: 'scale',
     codeOpenPath: null,
     codeContent: '',
     codeSavedAt: null,
@@ -483,7 +487,10 @@ export class HarnessStudioView {
         <button class="harness-input-button harness-input-button--send" data-action="pane-tab" data-pane-tab="logs" type="button" style="width:auto;padding:0 16px;">Open Logs</button>
       </div>`;
     } else {
-      viewportContent = `<iframe src="${escapeHtml(previewSrc)}" title="App preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`;
+      // The iframe loads the auth-proxied preview URL. Wrap it in a
+      // .harness-device-frame so the scale/scroll modes (set on the
+      // viewport via .is-scale / .is-scroll) can size it predictably.
+      viewportContent = `<div class="harness-device-frame"><iframe src="${escapeHtml(previewSrc)}" title="App preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe></div>`;
     }
 
     const reloadLabel = this.state.preview.lastReloadMs
@@ -498,12 +505,16 @@ export class HarnessStudioView {
             <button data-action="platform" data-platform="ios"     aria-pressed="${this.state.platform === 'ios'}">📱 iOS</button>
             <button data-action="platform" data-platform="android" aria-pressed="${this.state.platform === 'android'}">🤖 Android</button>
           </div>
+          <div class="harness-preview__viewmode" role="tablist" aria-label="Preview view mode">
+            <button data-action="view-mode" data-view-mode="scale"  aria-pressed="${this.state.viewMode === 'scale'}"  title="Scale phone to fit">⬛ Fit</button>
+            <button data-action="view-mode" data-view-mode="scroll" aria-pressed="${this.state.viewMode === 'scroll'}" title="Scroll inside pane">↕ Scroll</button>
+          </div>
           <span class="harness-preview__spacer"></span>
           <button class="harness-preview__action" data-action="refresh"    aria-label="Refresh"   type="button">↻</button>
           <button class="harness-preview__action" data-action="fullscreen" aria-label="Fullscreen" type="button">⛶</button>
           <button class="harness-preview__action" data-action="phone"      aria-label="Open on phone" type="button">📲</button>
         </div>
-        <div class="harness-preview__viewport">${viewportContent}</div>
+        <div class="harness-preview__viewport is-${this.state.viewMode}" data-view-mode="${this.state.viewMode}">${viewportContent}</div>
         <div class="harness-preview__statusbar">
           <span class="harness-status-dot" data-state="${this.state.preview.status === 'live' ? 'awake' : this.state.preview.status === 'waking' ? 'waking' : this.state.preview.status === 'error' ? 'error' : ''}"></span>
           <span>${this.formatPreviewStatus()}</span>
@@ -705,6 +716,11 @@ export class HarnessStudioView {
           if (tab) this.callbacks.onPaneTab(tab);
           break;
         }
+        case 'view-mode': {
+          const mode = actionEl.dataset.viewMode as 'scale' | 'scroll';
+          if (mode) this.setState({ viewMode: mode });
+          break;
+        }
         case 'code-open': {
           const path = actionEl.dataset.path;
           if (path && this.callbacks.onCodeFileOpen) this.callbacks.onCodeFileOpen(path);
@@ -799,6 +815,36 @@ export class HarnessStudioView {
           this.callbacks.onCodeContentChange(path, codeTa.value);
         }
       });
+    }
+
+    // Preview pane: scale-to-fit. Compute the scale factor that fits a
+    // 390x844 phone frame inside the column and write it to the CSS var
+    // --harness-scale on the .harness-preview__viewport. Only applies in
+    // 'scale' mode; in 'scroll' mode the iframe is at column width and
+    // we don't transform.
+    const viewport = root.querySelector<HTMLElement>('.harness-preview__viewport');
+    if (viewport && this.state.viewMode === 'scale') {
+      const fit = (): void => {
+        const rect = viewport.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const scale = Math.min(
+          (rect.height - 32) / 844,
+          (rect.width - 32) / 390,
+          1, // never upscale beyond 100%
+        );
+        viewport.style.setProperty('--harness-scale', String(Math.max(scale, 0.2)));
+      };
+      fit();
+      // Tear down any prior observer + attach a new one. Stored on the
+      // element so re-renders don't leak.
+      const prior = (viewport as unknown as { __resizeObs?: ResizeObserver }).__resizeObs;
+      prior?.disconnect();
+      const ro = new ResizeObserver(fit);
+      ro.observe(viewport);
+      (viewport as unknown as { __resizeObs?: ResizeObserver }).__resizeObs = ro;
+      // Also recompute on window resize (covers cases where the panel
+      // grows because the parent did, not the viewport itself).
+      window.addEventListener('resize', fit, { passive: true });
     }
 
     // Auto-scroll the chat to the bottom on each render.

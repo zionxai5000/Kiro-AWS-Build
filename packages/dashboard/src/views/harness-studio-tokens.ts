@@ -487,11 +487,68 @@ export function renderHarnessStylesheet(): string {
     .harness-preview__viewport {
       position: relative;
       overflow: hidden;
+      min-height: 0;
+      background: #0b0e14;
     }
-    .harness-preview__viewport iframe {
-      width: 100%; height: 100%;
-      border: 0;
+
+    /* SCALE-TO-FIT mode (default) — wraps the iframe in a fixed-size
+       device frame and scales it down to fit the column. The CSS variable
+       --harness-scale is set by the controller via ResizeObserver. */
+    .harness-preview__viewport.is-scale {
+      display: grid;
+      place-items: center;
+    }
+    .harness-preview__viewport.is-scale .harness-device-frame {
+      width: 390px; height: 844px;
+      flex: none;
+      transform: scale(var(--harness-scale, 1));
+      transform-origin: center;
+      border-radius: 36px;
+      border: 8px solid #1c2230;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    }
+    .harness-preview__viewport.is-scale .harness-device-frame iframe {
+      width: 100%; height: 100%; border: 0; background: transparent;
+    }
+
+    /* SCROLL mode — iframe at column width, full app height; user
+       scrolls inside the column to see the rest of the app. */
+    .harness-preview__viewport.is-scroll {
+      display: block;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .harness-preview__viewport.is-scroll .harness-device-frame {
+      width: 100%; min-height: 100%;
+      border: 0; border-radius: 0;
       background: transparent;
+    }
+    .harness-preview__viewport.is-scroll .harness-device-frame iframe {
+      width: 100%; height: 100vh; border: 0; background: transparent;
+      display: block;
+    }
+
+    /* Toolbar mode-toggle pill */
+    .harness-preview__viewmode {
+      display: inline-flex; gap: 0;
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: ${px(t.radius.md)};
+      padding: 2px;
+    }
+    .harness-preview__viewmode button {
+      padding: 4px 10px; min-width: 60px;
+      background: transparent; border: 0;
+      color: ${t.text.tertiary};
+      font-size: ${t.type.sizes.xs}px;
+      cursor: pointer; border-radius: ${px(t.radius.sm)};
+      transition: background ${t.motion.fast}, color ${t.motion.fast};
+    }
+    .harness-preview__viewmode button[aria-pressed="true"] {
+      background: ${t.accent.primarySoft};
+      color: ${t.text.primary};
     }
 
     .harness-preview__statusbar {

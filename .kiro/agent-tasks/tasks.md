@@ -36,7 +36,100 @@ groups" at the bottom.
 - A group is "closed" when all its rows are ✅ AND the underlying domain
   rows are also ✅.
 
-### G1 — Full delivery tree (all 15 use cases working end-to-end through the dashboard)
+### G2 — Preview pane scaling + VibeCode-parity platform UX
+
+- **Started:** 2026-06-10
+- **Goal:** Preview never clips; user has Fit + Scroll modes. Then
+  evolve the studio to feel like a true AI platform (Workspace tabs:
+  Code/Files/Image/Audio/Database; Observe: Logs/Request; Deliver:
+  Preview/Share/Deploy; Intelligence: Memory/Model). Two-way linking
+  between chat actions and artifacts.
+- **Spec:** `.kiro/specs/seraphim-platform/requirements.md` (saved
+  verbatim from VibeCode's `SERAPHIM_SPEC_FOR_KIRO.md`)
+- **Maps to delivery tree rows:** UC2 (preview), plus 4 new sub-domains
+  to be added.
+
+#### G2.A — Preview pane scaling (immediate, this push)
+
+| ✅/⬜ | Item |
+|---|---|
+| ✅ | `harness-studio.ts` adds `viewMode: 'scale' \| 'scroll'` state |
+| ✅ | Toolbar gets a Fit/Scroll toggle pill |
+| ✅ | Iframe wrapped in `.harness-device-frame` (390×844 in scale mode) |
+| ✅ | CSS: `.harness-preview__viewport.is-scale` centers + scales; `.is-scroll` lets the column scroll |
+| ✅ | ResizeObserver on the viewport sets `--harness-scale` to fit any column size |
+| ✅ | Window-resize listener for parent-grown cases |
+| ✅ | Existing fullscreen button retained |
+
+#### G2.B — Workspace tabs (Code · Files · Image · Audio · Database)
+
+| ✅/⬜ | Item |
+|---|---|
+| ✅ | Code tab (file list + textarea editor + Save + auto-rebundle) — landed in G1 |
+| ⬜ | Files tab — grid, drag-drop upload, version history, type filter |
+| ⬜ | Image tab — gallery, "generate image" prompt (already have OpenAI Images client), "use as icon", "use in app" |
+| ⬜ | Audio tab — clip list, player, record, TTS prompt, "wire to event" |
+| ⬜ | Database tab — table list, schema view, editable row grid |
+| ⬜ | Each tab shows "AI changed" badges + revert + "← made in chat" backlink |
+
+#### G2.C — Observe (Logs · Request)
+
+| ✅/⬜ | Item |
+|---|---|
+| ⬜ | Logs panel — build + runtime stream, level filter, search, "Ask AI" on any line |
+| ⬜ | Request panel — req/res inspector, replay, timing |
+| ⬜ | `traceId` correlation between Logs ↔ Request ↔ Database |
+| ⬜ | "Ask AI" button opens Chat pre-loaded with the line/request |
+
+#### G2.D — Deliver (Preview · Share · Deploy)
+
+| ✅/⬜ | Item |
+|---|---|
+| ✅ | Preview — done in G1 + G2.A |
+| ✅ | Share — QR + signed-token URL — landed in G1 |
+| 🔄 | Deploy — Build button + EAS streaming + .ipa/.aab artifacts (UI in G1, server in G1, needs progress streaming UI) |
+| ⬜ | Deploy snapshot (Code + Files + DB bundle) + version list + rollback |
+
+#### G2.E — Two-way linking bus (the AI-platform feel)
+
+| ✅/⬜ | Item |
+|---|---|
+| ⬜ | Every chat tool-action records `byMessageId` against the diff/asset/table change |
+| ⬜ | `traceId` propagated from request → log → DB row |
+| ⬜ | Forward link: chat action chip → "see it →" → opens the artifact tab at the exact path/row |
+| ⬜ | Back link: any artifact → "← made by" → scrolls Chat to that message |
+
+#### G2.F — Streaming "thinking" + Agents Live cards + Memory panel
+
+| ✅/⬜ | Item |
+|---|---|
+| ⬜ | Collapsible "Reasoning" / "Planning" strip that streams the agent's plan token-by-token before action |
+| ⬜ | Agent presence cards (Builder · Critic/QA · Marketing) with status dot, current task, mini-log |
+| ⬜ | Memory & context panel — what AI knows about this project (goals, decisions, files) |
+| ⬜ | Model selection + API integration settings under ⚙️ Intelligence |
+
+#### G2 progress signal
+
+**Done in this turn:**
+- G2.A — Preview Fit/Scroll toggle code complete (tokens + view + observer)
+- Spec saved verbatim to `.kiro/specs/seraphim-platform/requirements.md`
+
+**Awaiting deploy verification:**
+- G2.A goes live in production after the next push.
+
+**Estimated remaining:** G2.B = ~3–4 days · G2.C = ~2 days ·
+G2.D snapshot+rollback = ~1.5 days · G2.E = ~2 days · G2.F = ~3 days.
+Total ~10–12 days of focused work to reach VibeCode parity.
+
+---
+
+### G1 — Full delivery tree (closed: 26/26 verified 2026-06-10)
+
+All 15 use cases ✅ verified by `scripts/probe-delivery-tree-e2e.mjs`
+against task def 164 (commit `28b8295`). Detailed per-use-case rows
+preserved below this section for traceability.
+
+---
 
 - **Started:** 2026-06-10
 - **Goal:** King opens the dashboard and can do every one of the 15 things below — from typing a prompt to submitting to the App Store — without hitting a broken state.

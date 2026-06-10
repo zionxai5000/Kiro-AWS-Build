@@ -176,13 +176,11 @@ function createProxyHandler(deps: PreviewProxyDeps): (req: APIRequest) => Promis
     // `/preview/:id/...`. Strip that to get the upstream tail.
     //
     // With the new rest-wildcard matchPath, `req.params['*']` already holds
-    // the tail segments joined with `/`. Use that when present; fall back to
-    // the prefix-strip for the bare `/preview/:projectId` route.
+    // the tail segments joined with `/` (when the route was `/preview/:id/*`).
+    // For the bare `/preview/:id` route there's no '*' param — tail is empty
+    // and we fetch the upstream root.
     const restParam = (req.params['*'] ?? '').replace(/^\/+/, '');
-    const tail = restParam
-      ? `/${restParam}`
-      : (stripPrefix(req.path, `/preview/${projectId}`)
-        || stripPrefix(req.path, `/api/preview/${projectId}`)); // local-server path
+    const tail = restParam ? `/${restParam}` : '';
     const target = `${sandboxUrl}${tail || '/'}`;
     const headers: Record<string, string> = { ...req.headers };
     delete headers['authorization'];

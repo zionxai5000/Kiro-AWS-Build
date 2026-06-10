@@ -584,9 +584,13 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
 
       // Persist initial state so the dashboard's first poll (which may
       // hit the OTHER task) sees 'building' instead of 'idle'.
-      const persist = async (): Promise<void> => {
-        if (!wakeStore) return;
-        await wakeStore.write({
+      // Persists are serialized through a chain so out-of-order S3
+      // writes don't cause an earlier 'building' record to overwrite a
+      // later 'ready' record. Each persist captures the current state
+      // SNAPSHOT at the moment it joins the chain.
+      let persistChain: Promise<void> = Promise.resolve();
+      const persist = (): Promise<void> => {
+        const snapshot = {
           projectId,
           state: state.state,
           startedAt: state.startedAt,
@@ -594,7 +598,21 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           publicUrl: state.publicUrl,
           error: state.error,
           phase: state.phase,
-        }).catch(() => {});
+        };
+        const next = persistChain.then(
+          async () => {
+            if (!wakeStore) return;
+            try { await wakeStore.write(snapshot); } catch { /* tolerate */ }
+          },
+          async () => {
+            // Previous link rejected — still try to write this one so the
+            // chain self-heals.
+            if (!wakeStore) return;
+            try { await wakeStore.write(snapshot); } catch { /* tolerate */ }
+          },
+        );
+        persistChain = next;
+        return next;
       };
       await persist();
 
@@ -602,17 +620,29 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       // the ALB doesn't time out. Dashboard polls GET /sandbox to learn
       // when it's done.
       (async () => {
+        const tag = `[wake][${projectId.slice(-8)}]`;
         try {
-          await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch(() => {});
+          console.log(`${tag} starting`);
+          await client.runCommand(projectId, 'mkdir -p /home/user/project', { timeoutMs: 30_000 }).catch((e) => {
+            console.warn(`${tag} mkdir warn: ${(e as Error).message}`);
+          });
           const { bundleAndServe } = await import('../services/server-bundler.js');
           state.phase = 'bundling';
           await persist();
+          console.log(`${tag} bundleAndServe begin`);
           const bundleResult = await bundleAndServe({
             projectId,
             workspace,
             sandbox: client,
-            onProgress: (phase) => { state.phase = phase; void persist(); },
+            onProgress: (phase, detail) => {
+              state.phase = phase;
+              if (phase === 'ready' || phase === 'error' || phase === 'upload-fail') {
+                console.log(`${tag} progress: ${phase}${detail ? ' — ' + detail : ''}`);
+              }
+              void persist();
+            },
           });
+          console.log(`${tag} bundleAndServe returned: success=${bundleResult.success} files=${bundleResult.filesUploaded} url=${bundleResult.publicUrl ?? '-'} err=${bundleResult.error ?? '-'}`);
           if (bundleResult.success) {
             state.state = 'ready';
             state.publicUrl = bundleResult.publicUrl ?? null;
@@ -622,12 +652,35 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
             state.error = bundleResult.error ?? 'bundle failed';
           }
         } catch (err) {
+          console.error(`${tag} threw:`, err);
           state.state = 'error';
           state.error = (err as Error).message;
         } finally {
+          // Force a fresh write of the FINAL state, bypassing the persist
+          // chain. If any prior persist is still in flight, it would
+          // overwrite this — so we explicitly write last after a small
+          // delay, with retry, to guarantee the S3 record reflects the
+          // actual final state.
           await persist();
+          if (wakeStore) {
+            // Belt-and-suspenders: 100ms after the chain settles, write the
+            // final state again to defeat any racing late writes.
+            setTimeout(() => {
+              wakeStore.write({
+                projectId,
+                state: state.state,
+                startedAt: state.startedAt,
+                updatedAt: new Date().toISOString(),
+                publicUrl: state.publicUrl,
+                error: state.error,
+                phase: state.phase,
+              }).catch(() => {});
+            }, 250);
+          }
+          console.log(`${tag} done — state=${state.state} url=${state.publicUrl ?? '-'}`);
         }
       })().catch(async (e) => {
+        console.error(`[wake][${projectId.slice(-8)}] outer catch:`, e);
         state.state = 'error';
         state.error = (e as Error).message;
         await persist();

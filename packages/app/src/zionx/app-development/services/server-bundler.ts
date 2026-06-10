@@ -287,6 +287,7 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
       { timeoutMs: 10_000 }).catch(() => {});
 
     const url = await opts.sandbox.getPublicUrl(opts.projectId);
+    console.log(`[server-bundler][${opts.projectId.slice(-8)}] getPublicUrl → ${url}`);
     progress('ready', `Preview live at ${url}`);
 
     // Schedule periodic ECS-side touches to keep the sandbox warm.
@@ -294,6 +295,7 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // a no-op runCommand every 4 minutes for up to 1 hour. After 1 hour
     // the loop exits and the sandbox is allowed to die naturally.
     schedulePeriodicKeepalive(opts.projectId, opts.sandbox);
+    console.log(`[server-bundler][${opts.projectId.slice(-8)}] returning success`);
 
     return { success: true, bundleDir, filesUploaded: uploaded, durationMs: Date.now() - start, publicUrl: url };
   } catch (err) {

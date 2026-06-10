@@ -174,13 +174,25 @@ function createProxyHandler(deps: PreviewProxyDeps): (req: APIRequest) => Promis
     // Forward to the upstream sandbox URL. The production router strips the
     // `/api` prefix before route matching, so `req.path` here looks like
     // `/preview/:id/...`. Strip that to get the upstream tail.
-    const tail = stripPrefix(req.path, `/preview/${projectId}`)
-      || stripPrefix(req.path, `/api/preview/${projectId}`); // local-server path
+    //
+    // With the new rest-wildcard matchPath, `req.params['*']` already holds
+    // the tail segments joined with `/`. Use that when present; fall back to
+    // the prefix-strip for the bare `/preview/:projectId` route.
+    const restParam = (req.params['*'] ?? '').replace(/^\/+/, '');
+    const tail = restParam
+      ? `/${restParam}`
+      : (stripPrefix(req.path, `/preview/${projectId}`)
+        || stripPrefix(req.path, `/api/preview/${projectId}`)); // local-server path
     const target = `${sandboxUrl}${tail || '/'}`;
     const headers: Record<string, string> = { ...req.headers };
     delete headers['authorization'];
     delete headers['cookie'];
     delete headers['host'];
+    // Sandbox http.server is happier with no compressed responses (we
+    // need raw HTML so we can inject <base href>).
+    delete headers['accept-encoding'];
+
+    console.log(`[preview-proxy][${projectId.slice(-8)}] ${req.method} ${req.path} → ${target}`);
 
     return {
       statusCode: 200,
@@ -217,11 +229,37 @@ async function proxyTo(
   const outHeaders: Record<string, string> = {};
   upstream.headers.forEach((v, k) => {
     const lk = k.toLowerCase();
-    if (['transfer-encoding', 'connection', 'content-encoding'].includes(lk)) return;
+    if (['transfer-encoding', 'connection', 'content-encoding', 'content-length'].includes(lk)) return;
     outHeaders[k] = v;
   });
   // Marker so debugging is obvious.
   outHeaders['x-zionx-preview-project'] = projectId;
+
+  // If the upstream is HTML for this project (i.e., the index page),
+  // inject a <base href> so all relative asset URLs (`_expo/static/...`)
+  // route back through the auth-proxy instead of trying to fetch from
+  // the API origin directly. Without this, the iframe loads index.html
+  // but every script/stylesheet 404s.
+  const contentType = upstream.headers.get('content-type') ?? '';
+  if (contentType.includes('text/html') && upstream.body) {
+    const text = await upstream.text();
+    const baseTag = `<base href="/api/preview/${projectId}/">`;
+    let patched: string;
+    if (text.includes('<head>')) {
+      patched = text.replace('<head>', `<head>${baseTag}`);
+    } else if (text.includes('<head ')) {
+      patched = text.replace(/<head([^>]*)>/, `<head$1>${baseTag}`);
+    } else {
+      // No <head> — prepend (rare with Expo export, but safe fallback).
+      patched = baseTag + text;
+    }
+    const buf = Buffer.from(patched, 'utf-8');
+    outHeaders['content-length'] = String(buf.byteLength);
+    res.writeHead(upstream.status, outHeaders);
+    res.end(buf);
+    console.log(`[preview-proxy][${projectId.slice(-8)}] HTML rewrite: injected <base href> (${buf.byteLength}b)`);
+    return;
+  }
 
   res.writeHead(upstream.status, outHeaders);
 

@@ -528,6 +528,24 @@ export class ShaarAPIRouter {
   private matchPath(pattern: string, path: string): boolean {
     const patternParts = pattern.split('/');
     const pathParts = path.split('/');
+
+    // Trailing `*` is a "rest" wildcard — matches any number of remaining
+    // segments (including zero). Used for proxy passthrough patterns like
+    // `/preview/:projectId/*` so deep asset URLs (`/preview/abc/_expo/static/js/main.js`)
+    // route through the same handler.
+    const lastPattern = patternParts[patternParts.length - 1];
+    if (lastPattern === '*') {
+      // Length must be at least pattern length minus the trailing `*`.
+      if (pathParts.length < patternParts.length - 1) return false;
+      // Match every literal/param segment up to (but not including) the `*`.
+      for (let i = 0; i < patternParts.length - 1; i++) {
+        const p = patternParts[i]!;
+        if (p.startsWith(':')) continue; // param matches anything
+        if (p !== pathParts[i]) return false;
+      }
+      return true;
+    }
+
     if (patternParts.length !== pathParts.length) return false;
     return patternParts.every((part, i) => part.startsWith(':') || part === pathParts[i]);
   }
@@ -536,11 +554,20 @@ export class ShaarAPIRouter {
     const params: Record<string, string> = {};
     const patternParts = pattern.split('/');
     const pathParts = path.split('/');
-    patternParts.forEach((part, i) => {
+    const lastPattern = patternParts[patternParts.length - 1];
+    const isRestPattern = lastPattern === '*';
+    const limit = isRestPattern ? patternParts.length - 1 : patternParts.length;
+    for (let i = 0; i < limit; i++) {
+      const part = patternParts[i]!;
       if (part.startsWith(':')) {
-        params[part.slice(1)] = pathParts[i]!;
+        params[part.slice(1)] = pathParts[i] ?? '';
       }
-    });
+    }
+    // Surface the rest of the path as `params['*']` so handlers can
+    // reconstruct the upstream tail without re-parsing req.path.
+    if (isRestPattern) {
+      params['*'] = pathParts.slice(patternParts.length - 1).join('/');
+    }
     return params;
   }
 

@@ -272,10 +272,38 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     }
 
     // Start a tiny http server inside the sandbox on port 8081.
+    // Use `setsid` + `disown` so it truly detaches from the shell session
+    // and survives when the E2B runCommand call returns. Plain `nohup ... &`
+    // had the server dying ~10 seconds after the runCommand session
+    // closed. Also write a tiny supervisor in /tmp that re-launches the
+    // server if it ever exits — defends against OOM, transient crash,
+    // and sandbox quirks where the parent process gets reaped.
     progress('serve', 'Starting static server in sandbox…');
-    await opts.sandbox.runCommand(opts.projectId,
-      'pkill -f "http.server 8081" 2>/dev/null; cd /home/user/project/dist && nohup python3 -m http.server 8081 > /tmp/server.log 2>&1 & echo started_pid=$!',
-      { timeoutMs: 15_000 }).catch(() => {});
+    const startServerCmd = [
+      'pkill -f "http.server 8081" 2>/dev/null',
+      'cat > /tmp/serve-supervisor.sh <<\'EOF\'',
+      '#!/bin/bash',
+      'cd /home/user/project/dist',
+      'while true; do',
+      '  /usr/bin/python3 -m http.server 8081 >> /tmp/server.log 2>&1',
+      '  echo "[supervisor $(date)] http.server exited, restarting in 2s" >> /tmp/server.log',
+      '  sleep 2',
+      'done',
+      'EOF',
+      'chmod +x /tmp/serve-supervisor.sh',
+      'setsid bash /tmp/serve-supervisor.sh </dev/null >/tmp/serve-out.log 2>&1 &',
+      'disown',
+      'sleep 1',
+      'echo "supervisor_started=$(pgrep -f serve-supervisor.sh | head -1)"',
+      'echo "http_server_pid=$(pgrep -f \'http.server 8081\' | head -1)"',
+    ].join('; ');
+    await opts.sandbox.runCommand(opts.projectId, startServerCmd, { timeoutMs: 30_000 }).catch(() => {});
+
+    // Verify the server is listening before reporting ready.
+    const verify = await opts.sandbox.runCommand(opts.projectId,
+      'sleep 2; curl -sS -o /dev/null -w "%{http_code}" http://localhost:8081/index.html || echo "down"',
+      { timeoutMs: 10_000 }).catch(() => ({ stdout: 'down', stderr: '', exitCode: 1 }));
+    console.log(`[server-bundler][${opts.projectId.slice(-8)}] localhost:8081 verify → ${verify.stdout?.trim()}`);
 
     // Keep the sandbox alive — E2B's idle timer only resets on tool
     // calls, not on incoming HTTP traffic. Without periodic touch the

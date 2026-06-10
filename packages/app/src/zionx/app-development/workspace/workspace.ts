@@ -250,12 +250,26 @@ export class Workspace {
 
   /**
    * List all known project IDs by reading the workspace root.
-   * Returns an empty array if the workspace root does not exist.
+   * List every project ID. Walks both local disk and the durable store
+   * to handle the multi-task case where this Fargate task hasn't yet
+   * hydrated a project that another task created.
+   * Returns an empty array if neither layer has any projects.
    */
   async listProjects(): Promise<string[]> {
-    if (!existsSync(WORKSPACE_ROOT)) return [];
-    const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    const ids = new Set<string>();
+    if (existsSync(WORKSPACE_ROOT)) {
+      try {
+        const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
+        for (const e of entries) if (e.isDirectory()) ids.add(e.name);
+      } catch { /* ignore */ }
+    }
+    if (this.durableStore) {
+      try {
+        const remote = await this.durableStore.listProjects();
+        for (const id of remote) ids.add(id);
+      } catch { /* ignore */ }
+    }
+    return Array.from(ids);
   }
 
   /**
@@ -339,6 +353,13 @@ export class Workspace {
 
   /**
    * Read a file from a project's workspace.
+   *
+   * Multi-task safe: if the file isn't on local disk, fall back to the
+   * durable S3 store. This handles the "task A wrote it, task B reads it"
+   * race that's been killing project ownership checks across Fargate
+   * tasks. When S3 returns content, we ALSO mirror it to local disk so
+   * subsequent reads on the same task are fast.
+   *
    * @param projectId - The project identifier.
    * @param relativePath - Path relative to the project directory.
    * @returns The file contents as a string.
@@ -346,11 +367,32 @@ export class Workspace {
   async readFile(projectId: string, relativePath: string): Promise<string> {
     validateRelativePath(relativePath);
     const filePath = join(this.getProjectPath(projectId), relativePath);
-    return readFileAsync(filePath, 'utf-8');
+    try {
+      return await readFileAsync(filePath, 'utf-8');
+    } catch (err) {
+      // Local miss — try durable store.
+      if (this.durableStore) {
+        try {
+          const buf = await this.durableStore.readFile(projectId, relativePath);
+          if (buf) {
+            // Hydrate to local disk for next time. Don't await — fire and forget.
+            void (async () => {
+              try {
+                await mkdir(dirname(filePath), { recursive: true });
+                await writeFileAsync(filePath, buf);
+              } catch { /* ignore */ }
+            })();
+            return buf.toString('utf-8');
+          }
+        } catch { /* ignore */ }
+      }
+      throw err;
+    }
   }
 
   /**
    * Read binary content from a project's workspace.
+   * Same multi-task fallback as `readFile`.
    * @param projectId - The project identifier.
    * @param relativePath - Path relative to the project directory.
    * @returns The file contents as a Buffer.
@@ -358,7 +400,25 @@ export class Workspace {
   async readBinaryFile(projectId: string, relativePath: string): Promise<Buffer> {
     validateRelativePath(relativePath);
     const filePath = join(this.getProjectPath(projectId), relativePath);
-    return readFileAsync(filePath);
+    try {
+      return await readFileAsync(filePath);
+    } catch (err) {
+      if (this.durableStore) {
+        try {
+          const buf = await this.durableStore.readFile(projectId, relativePath);
+          if (buf) {
+            void (async () => {
+              try {
+                await mkdir(dirname(filePath), { recursive: true });
+                await writeFileAsync(filePath, buf);
+              } catch { /* ignore */ }
+            })();
+            return buf;
+          }
+        } catch { /* ignore */ }
+      }
+      throw err;
+    }
   }
 
   /**
@@ -405,8 +465,21 @@ export class Workspace {
    */
   async listFiles(projectId: string): Promise<string[]> {
     const projectPath = this.getProjectPath(projectId);
-    if (!existsSync(projectPath)) return [];
-    return this.listFilesRecursive(projectPath, '');
+    const files = new Set<string>();
+    if (existsSync(projectPath)) {
+      try {
+        const local = await this.listFilesRecursive(projectPath, '');
+        for (const f of local) files.add(f);
+      } catch { /* ignore */ }
+    }
+    // Multi-task fallback — also pick up files this task hasn't hydrated.
+    if (this.durableStore) {
+      try {
+        const remote = await this.durableStore.listFilesForProject(projectId);
+        for (const f of remote) files.add(f);
+      } catch { /* ignore */ }
+    }
+    return Array.from(files).sort();
   }
 
   /**

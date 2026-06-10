@@ -39,6 +39,8 @@ export interface SandboxClientLike {
   writeFile(projectId: string, path: string, content: string): Promise<void>;
   /** Write raw bytes — SDK accepts Buffer/Uint8Array. Optional for backward compat. */
   writeBinaryFile?(projectId: string, path: string, content: Buffer | Uint8Array): Promise<void>;
+  /** Extend the sandbox lifetime (resets deadline). Optional. */
+  extendTimeout?(projectId: string, timeoutMs: number): Promise<void>;
   getPublicUrl(projectId: string): Promise<string>;
 }
 
@@ -217,6 +219,12 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // classification headaches: the JS bundle, sourcemaps, fonts, images,
     // hermes bytecode all go through unmodified.
     progress('upload', 'Pushing bundle into sandbox…');
+    // Refresh the sandbox lifetime — the long expo export ate most of
+    // the initial budget. Without this, every upload call hits a
+    // sandbox that E2B has already killed for inactivity.
+    if (opts.sandbox.extendTimeout) {
+      await opts.sandbox.extendTimeout(opts.projectId, 15 * 60_000).catch(() => {});
+    }
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
     let skipped = 0;

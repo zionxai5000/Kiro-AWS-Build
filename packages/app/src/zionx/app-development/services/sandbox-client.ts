@@ -42,7 +42,10 @@ interface SandboxEntry {
 
 const DEFAULT_TEMPLATE = 'base';
 const DEFAULT_WORKDIR = '/home/user/project';
-const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60_000;
+// 20 min — enough for npm install (60s) + expo export (3 min) + uploads
+// + idle browsing time. The bundler also calls setTimeout() right before
+// the upload step to refresh the lifetime mid-bundle.
+const DEFAULT_IDLE_TIMEOUT_MS = 20 * 60_000;
 
 export class E2BSandboxClient implements SandboxClientLike {
   private readonly sandboxes = new Map<string, SandboxEntry>();
@@ -130,6 +133,23 @@ export class E2BSandboxClient implements SandboxClientLike {
   // File-level helpers — the agent's run_command tool covers most needs, but
   // direct file IO inside the sandbox is faster than running `cat`/`tee`.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Extend the sandbox lifetime. Useful when running a long-running
+   * server-side bundle that takes longer than the initial idle timeout.
+   * Calling this resets the deadline to NOW + timeoutMs.
+   */
+  async extendTimeout(projectId: string, timeoutMs: number): Promise<void> {
+    const entry = await this.ensureSandbox(projectId);
+    entry.lastUsedAt = Date.now();
+    if (typeof entry.sandbox.setTimeout === 'function') {
+      try {
+        await entry.sandbox.setTimeout(timeoutMs);
+      } catch (e) {
+        console.warn(`[E2BSandboxClient] extendTimeout(${timeoutMs}) failed: ${(e as Error).message}`);
+      }
+    }
+  }
 
   async writeFile(projectId: string, path: string, content: string): Promise<void> {
     const entry = await this.ensureSandbox(projectId);

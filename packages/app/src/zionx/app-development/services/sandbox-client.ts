@@ -42,10 +42,12 @@ interface SandboxEntry {
 
 const DEFAULT_TEMPLATE = 'base';
 const DEFAULT_WORKDIR = '/home/user/project';
-// 20 min — enough for npm install (60s) + expo export (3 min) + uploads
-// + idle browsing time. The bundler also calls setTimeout() right before
-// the upload step to refresh the lifetime mid-bundle.
-const DEFAULT_IDLE_TIMEOUT_MS = 20 * 60_000;
+// 30 min — accommodates the longest plausible bundle (npm install ~3 min +
+// expo export ~3 min + upload ~1 min) plus a margin for the user to actually
+// look at the preview before E2B reaps the sandbox. The bundler ALSO calls
+// extendTimeout() at the start of bundleAndServe and runs a keepalive loop
+// during long phases.
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60_000;
 
 export class E2BSandboxClient implements SandboxClientLike {
   private readonly sandboxes = new Map<string, SandboxEntry>();
@@ -69,43 +71,41 @@ export class E2BSandboxClient implements SandboxClientLike {
     cmd: string,
     opts: { timeoutMs?: number; cwd?: string; background?: boolean } = {},
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    if (opts.background) {
-      // Background mode: spawn + return immediately. Caller should NOT
-      // wait on stdout/stderr — the handle stays alive until killed.
-      // We don't capture output here (no foreground wait).
-      try {
-        await entry.sandbox.commands.run(cmd, {
-          cwd: opts.cwd ?? this.config.workDir,
-          background: true,
-          timeoutMs: opts.timeoutMs ?? this.config.idleTimeoutMs,
-        } as never);
-        return { stdout: '', stderr: '', exitCode: 0 };
-      } catch (err) {
-        return { stdout: '', stderr: (err as Error).message, exitCode: 1 };
+    return this.withSandbox(projectId, async (entry) => {
+      if (opts.background) {
+        try {
+          await entry.sandbox.commands.run(cmd, {
+            cwd: opts.cwd ?? this.config.workDir,
+            background: true,
+            timeoutMs: opts.timeoutMs ?? this.config.idleTimeoutMs,
+          } as never);
+          return { stdout: '', stderr: '', exitCode: 0 };
+        } catch (err) {
+          return { stdout: '', stderr: (err as Error).message, exitCode: 1 };
+        }
       }
-    }
-    const result = await entry.sandbox.commands.run(cmd, {
-      cwd: opts.cwd ?? this.config.workDir,
-      timeoutMs: opts.timeoutMs ?? 60_000,
+      const result = await entry.sandbox.commands.run(cmd, {
+        cwd: opts.cwd ?? this.config.workDir,
+        timeoutMs: opts.timeoutMs ?? 60_000,
+      });
+      return {
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        exitCode: result.exitCode ?? 0,
+      };
     });
-    return {
-      stdout: result.stdout ?? '',
-      stderr: result.stderr ?? '',
-      exitCode: result.exitCode ?? 0,
-    };
   }
 
   async getPublicUrl(projectId: string): Promise<string> {
-    const entry = await this.ensureSandbox(projectId);
-    if (!entry.expoHost) {
-      // Port 8081 is Expo dev server (per templates/golden-starter/app.json).
-      const host = entry.sandbox.getHost(8081);
-      // E2B returns just the host string; we add the scheme.
-      entry.expoHost = host.startsWith('http') ? host : `https://${host}`;
-    }
-    return entry.expoHost;
+    return this.withSandbox(projectId, async (entry) => {
+      if (!entry.expoHost) {
+        // Port 8081 is Expo dev server (per templates/golden-starter/app.json).
+        const host = entry.sandbox.getHost(8081);
+        // E2B returns just the host string; we add the scheme.
+        entry.expoHost = host.startsWith('http') ? host : `https://${host}`;
+      }
+      return entry.expoHost;
+    });
   }
 
   /**
@@ -114,19 +114,22 @@ export class E2BSandboxClient implements SandboxClientLike {
    * that's baked into the template, returns an empty base64 with a flag.
    */
   async screenshot(projectId: string): Promise<string> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    const url = await this.getPublicUrl(projectId);
-    // Capture script (relies on chromium-headless inside the template).
-    // Falls back to empty base64 if the binary is missing.
-    const capture = await entry.sandbox.commands.run(
-      `if command -v chromium-headless >/dev/null 2>&1; then ` +
-      `chromium-headless --headless --disable-gpu --screenshot=/tmp/snap.png --window-size=1080,1920 "${url}" >/dev/null 2>&1 && ` +
-      `base64 -w0 /tmp/snap.png; else echo "NO_CHROMIUM"; fi`,
-      { timeoutMs: 30_000 },
-    );
-    if (capture.stdout?.trim() === 'NO_CHROMIUM') return '';
-    return capture.stdout?.trim() ?? '';
+    return this.withSandbox(projectId, async (entry) => {
+      const url = entry.expoHost ?? (() => {
+        const host = entry.sandbox.getHost(8081);
+        const u = host.startsWith('http') ? host : `https://${host}`;
+        entry.expoHost = u;
+        return u;
+      })();
+      const capture = await entry.sandbox.commands.run(
+        `if command -v chromium-headless >/dev/null 2>&1; then ` +
+        `chromium-headless --headless --disable-gpu --screenshot=/tmp/snap.png --window-size=1080,1920 "${url}" >/dev/null 2>&1 && ` +
+        `base64 -w0 /tmp/snap.png; else echo "NO_CHROMIUM"; fi`,
+        { timeoutMs: 30_000 },
+      );
+      if (capture.stdout?.trim() === 'NO_CHROMIUM') return '';
+      return capture.stdout?.trim() ?? '';
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -140,22 +143,22 @@ export class E2BSandboxClient implements SandboxClientLike {
    * Calling this resets the deadline to NOW + timeoutMs.
    */
   async extendTimeout(projectId: string, timeoutMs: number): Promise<void> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    if (typeof entry.sandbox.setTimeout === 'function') {
-      try {
-        await entry.sandbox.setTimeout(timeoutMs);
-      } catch (e) {
-        console.warn(`[E2BSandboxClient] extendTimeout(${timeoutMs}) failed: ${(e as Error).message}`);
+    return this.withSandbox(projectId, async (entry) => {
+      if (typeof entry.sandbox.setTimeout === 'function') {
+        try {
+          await entry.sandbox.setTimeout(timeoutMs);
+        } catch (e) {
+          console.warn(`[E2BSandboxClient] extendTimeout(${timeoutMs}) failed: ${(e as Error).message}`);
+        }
       }
-    }
+    });
   }
 
   async writeFile(projectId: string, path: string, content: string): Promise<void> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
-    await entry.sandbox.files.write(fullPath, content);
+    return this.withSandbox(projectId, async (entry) => {
+      const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
+      await entry.sandbox.files.write(fullPath, content);
+    });
   }
 
   /**
@@ -164,18 +167,18 @@ export class E2BSandboxClient implements SandboxClientLike {
    * Hermes bytecode and font files alongside the text bundle output.
    */
   async writeBinaryFile(projectId: string, path: string, content: Buffer | Uint8Array): Promise<void> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
-    await entry.sandbox.files.write(fullPath, content as never);
+    return this.withSandbox(projectId, async (entry) => {
+      const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
+      await entry.sandbox.files.write(fullPath, content as never);
+    });
   }
 
   async readFile(projectId: string, path: string): Promise<string> {
-    const entry = await this.ensureSandbox(projectId);
-    entry.lastUsedAt = Date.now();
-    const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
-    const result = await entry.sandbox.files.read(fullPath);
-    return typeof result === 'string' ? result : (result as Buffer).toString('utf-8');
+    return this.withSandbox(projectId, async (entry) => {
+      const fullPath = path.startsWith('/') ? path : `${this.config.workDir}/${path}`;
+      const result = await entry.sandbox.files.read(fullPath);
+      return typeof result === 'string' ? result : (result as Buffer).toString('utf-8');
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -207,6 +210,47 @@ export class E2BSandboxClient implements SandboxClientLike {
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
+
+  /**
+   * Run an operation against an ensured sandbox. If the operation fails
+   * with a "sandbox not found" / "sandbox not running" error from E2B
+   * (because the sandbox was reaped between calls or the cached handle
+   * went stale), invalidate the cache, recreate the sandbox, and retry
+   * exactly once.
+   *
+   * This is the fundamental fix for the "Build phase: serve → Build
+   * failed: The sandbox was not found" loop the dashboard was hitting:
+   * each individual call would fail and bubble up; now the SDK heals
+   * the connection transparently.
+   */
+  private async withSandbox<T>(
+    projectId: string,
+    op: (entry: SandboxEntry) => Promise<T>,
+  ): Promise<T> {
+    let entry = await this.ensureSandbox(projectId);
+    entry.lastUsedAt = Date.now();
+    try {
+      return await op(entry);
+    } catch (err) {
+      if (!isSandboxGoneError(err)) throw err;
+      console.warn(
+        `[E2BSandboxClient][${projectId.slice(-8)}] sandbox gone (${(err as Error).message.slice(0, 100)}); recreating + retrying once`,
+      );
+      // Drop the stale entry, recreate, and try the op once more. If it
+      // fails again, let the caller see the error.
+      try {
+        const stale = this.sandboxes.get(projectId);
+        if (stale) {
+          try { await stale.sandbox.kill(); } catch { /* may already be dead */ }
+        }
+      } finally {
+        this.sandboxes.delete(projectId);
+      }
+      entry = await this.ensureSandbox(projectId);
+      entry.lastUsedAt = Date.now();
+      return await op(entry);
+    }
+  }
 
   private async ensureSandbox(projectId: string): Promise<SandboxEntry> {
     const cached = this.sandboxes.get(projectId);
@@ -244,4 +288,29 @@ export class E2BSandboxClient implements SandboxClientLike {
     this.sandboxes.set(projectId, entry);
     return entry;
   }
+}
+
+/**
+ * Best-effort detection of E2B "sandbox is gone" errors. The SDK throws
+ * different shapes depending on which call hit the dead sandbox; match
+ * on common substrings.
+ *
+ * Examples observed in production:
+ *   - "The sandbox was not found"
+ *   - "sandbox not running"
+ *   - "sandbox xxxx not found"
+ *   - "[404] sandbox ..."
+ *   - "sandbox is paused" (when our resume logic missed)
+ */
+function isSandboxGoneError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes('sandbox was not found') ||
+    msg.includes('sandbox not found') ||
+    msg.includes('sandbox not running') ||
+    msg.includes('sandbox is paused') ||
+    (msg.includes('sandbox') && msg.includes('404')) ||
+    (msg.includes('sandbox') && msg.includes('timeout'))
+  );
 }

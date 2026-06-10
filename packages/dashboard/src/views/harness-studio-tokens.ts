@@ -611,6 +611,136 @@ export function renderHarnessStylesheet(): string {
       to   { transform: rotate(360deg); }
     }
 
+    /* ---------- Code tab ---------- */
+    .harness-code-tab {
+      position: absolute; inset: 0;
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      background: ${t.bg.elevated};
+    }
+    .harness-code-files {
+      overflow-y: auto;
+      border-right: 1px solid ${t.border.subtle};
+      padding: ${s.sm}px 0;
+      background: ${t.bg.base};
+    }
+    .harness-file-row {
+      display: block; width: 100%;
+      padding: ${s.xs}px ${s.md}px;
+      background: transparent; border: 0; cursor: pointer;
+      color: ${t.text.secondary};
+      font: ${t.type.sizes.sm}px/1.4 ${t.type.mono};
+      text-align: left;
+      white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+    }
+    .harness-file-row:hover { background: ${t.bg.elevated2}; color: ${t.text.primary}; }
+    .harness-file-row.is-active { background: ${t.accent.primarySoft}; color: ${t.text.primary}; }
+    .harness-code-editor {
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .harness-code-toolbar {
+      display: flex; align-items: center; gap: ${s.sm}px;
+      padding: ${s.sm}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.subtle};
+      background: ${t.bg.elevated};
+    }
+    .harness-code-path {
+      color: ${t.text.primary};
+      font: ${t.type.sizes.sm}px/1.4 ${t.type.mono};
+    }
+    .harness-code-textarea {
+      flex: 1; min-height: 0;
+      width: 100%;
+      padding: ${s.md}px;
+      border: 0; outline: 0; resize: none;
+      background: ${t.bg.base};
+      color: ${t.text.primary};
+      font: 13px/1.55 ${t.type.mono};
+      tab-size: 2;
+    }
+    .harness-pane-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: ${t.text.tertiary};
+      font-size: ${t.type.sizes.sm}px;
+    }
+
+    /* ---------- Ship tab ---------- */
+    .harness-ship-tab {
+      position: absolute; inset: 0;
+      overflow-y: auto;
+      padding: ${s.lg}px;
+      background: ${t.bg.base};
+      display: flex; flex-direction: column; gap: ${s.md}px;
+    }
+    .harness-ship-card {
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: 12px;
+      padding: ${s.md}px ${s.lg}px;
+    }
+    .harness-ship-card h3 {
+      margin: 0 0 ${s.xs}px 0;
+      font-size: ${t.type.sizes.lg}px;
+      font-weight: ${t.type.weights.semibold};
+      color: ${t.text.primary};
+    }
+    .harness-ship-sub {
+      margin: 0 0 ${s.sm}px 0;
+      color: ${t.text.secondary};
+      font-size: ${t.type.sizes.sm}px;
+    }
+    .harness-ship-actions {
+      display: flex; gap: ${s.sm}px; flex-wrap: wrap;
+      margin: ${s.sm}px 0;
+    }
+    .harness-ship-status {
+      margin-top: ${s.sm}px;
+      color: ${t.text.tertiary};
+      font: ${t.type.sizes.sm}px/1.4 ${t.type.mono};
+    }
+    .harness-ship-artifact { margin-top: ${s.xs}px; }
+    .harness-ship-artifact a {
+      color: ${t.accent.primary};
+      text-decoration: none;
+      font-size: ${t.type.sizes.sm}px;
+    }
+    .harness-ship-listing {
+      margin-top: ${s.sm}px;
+      padding: ${s.sm}px ${s.md}px;
+      background: ${t.bg.base};
+      border-radius: 8px;
+      color: ${t.text.primary};
+      font-size: ${t.type.sizes.sm}px;
+      line-height: 1.55;
+    }
+    .harness-ship-listing-desc {
+      margin-top: ${s.xs}px;
+      color: ${t.text.secondary};
+      white-space: pre-wrap;
+    }
+    .harness-ship-listing-meta {
+      margin-top: ${s.xs}px;
+      color: ${t.text.tertiary};
+      font-size: ${t.type.sizes.xs}px;
+    }
+    .harness-ship-checklist {
+      margin-top: ${s.sm}px;
+      display: flex; flex-direction: column; gap: ${s.xs}px;
+    }
+    .harness-ship-check {
+      display: flex; gap: ${s.sm}px; align-items: flex-start;
+      color: ${t.text.primary};
+      font-size: ${t.type.sizes.sm}px;
+    }
+    .harness-ship-crash {
+      padding: ${s.xs}px 0;
+      color: ${t.text.secondary};
+      font: ${t.type.sizes.sm}px/1.4 ${t.type.mono};
+      border-top: 1px solid ${t.border.subtle};
+    }
+    .harness-ship-crash:first-child { border-top: 0; }
+
     /* Honor reduced-motion. */
     @media (prefers-reduced-motion: reduce) {
       .harness-studio *, .harness-studio *::before, .harness-studio *::after {

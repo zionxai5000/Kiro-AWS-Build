@@ -80,6 +80,10 @@ export interface AppDevHandlers {
   sentryWebhook: (req: APIRequest) => Promise<APIResponse>;
   /** GET /app-dev/metrics — per-hook counters. */
   getMetrics: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/projects/:id/crashes — list recent Sentry crashes. */
+  getCrashes: (req: APIRequest) => Promise<APIResponse>;
+  /** GET /app-dev/projects/:id/cost — today's cost + per-hook metrics for the active user. */
+  getCost: (req: APIRequest) => Promise<APIResponse>;
   /** GET /app-dev/health — overall pipeline health. */
   getHealth: (req: APIRequest) => Promise<APIResponse>;
   /** GET /app-dev/escalations — list unresolved escalations. */
@@ -365,6 +369,24 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
                 });
               sendEvent({ type: 'done', ...result });
 
+              // Record cost for the user (use case 15). Cost is approximate
+              // — we use Claude Sonnet 4 list pricing as a default. The
+              // ceiling is enforced by getCostSnapshot.exceeded checked at
+              // the entry of each request.
+              try {
+                const { recordCost } = await import('../services/cost-tracker.js');
+                const inTok = result.tokens?.input ?? 0;
+                const outTok = result.tokens?.output ?? 0;
+                // Sonnet 4 pricing: $3/MTok input, $15/MTok output. Estimate.
+                const costUsd = (inTok / 1_000_000) * 3 + (outTok / 1_000_000) * 15;
+                recordCost({
+                  userId: req.userId ?? req.tenantId ?? 'anonymous',
+                  hookId: 'agent-loop',
+                  costUsd,
+                  tokens: inTok + outTok,
+                });
+              } catch { /* non-fatal */ }
+
               // Provision the preview sandbox in the background so the
               // dashboard's preview pane lights up. Without this, the agent
               // produces files in the workspace but no E2B sandbox exists
@@ -572,10 +594,35 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
       }
       if (existing && existing.state === 'building') {
         // Don't kick off a duplicate build if one is already in flight
-        // anywhere — but only respect that if it's recent (< 8 minutes).
+        // anywhere — but only respect that if it's recent (< 8 minutes)
+        // AND if we can still reach the sandbox. Stale records from
+        // crashed/timed-out tasks would otherwise lock out new wakes.
         const ageMs = Date.now() - new Date(existing.startedAt).getTime();
-        if (ageMs < 8 * 60_000) {
-          return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
+        const recent = ageMs < 8 * 60_000;
+        if (recent) {
+          // Validate that the sandbox is reachable. If getPublicUrl
+          // throws or returns a URL pointing at a dead sandbox, the
+          // record is stale and we should overwrite it with a fresh wake.
+          let sandboxAlive = false;
+          try {
+            const url = await client.getPublicUrl(projectId);
+            // Quick HEAD check on port 8081 (4s timeout). If the build
+            // has already started serving, this returns 200; if the
+            // sandbox is dead, this throws or returns 502.
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 4000);
+            try {
+              const r = await fetch(url, { method: 'GET', signal: ctrl.signal });
+              sandboxAlive = r.status < 500;
+            } finally {
+              clearTimeout(t);
+            }
+          } catch { sandboxAlive = false; }
+          if (sandboxAlive) {
+            return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
+          }
+          // Sandbox dead — log and fall through to start a fresh wake.
+          console.warn(`[wake][${projectId.slice(-8)}] stale 'building' record (${Math.round(ageMs/1000)}s old) but sandbox unreachable; starting fresh wake`);
         }
       }
 
@@ -1157,26 +1204,74 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
 
     // -----------------------------------------------------------------------
     // POST /app-dev/projects/:id/store-listing
+    //   Generate App Store + Play store listing assets (title, subtitle,
+    //   description, keywords, category, age rating) via the LLM.
+    //   Pushes the listing to App Store Connect when ascAppId resolves;
+    //   generates placeholder screenshots and uploads them too.
     // -----------------------------------------------------------------------
     async generateStoreListing(req: APIRequest): Promise<APIResponse> {
       const projectId = req.params.id;
       if (!projectId) {
         return { statusCode: 400, body: { error: 'project id is required' } };
       }
+      if (!credentialManager) {
+        return { statusCode: 500, body: { error: 'Credential manager not configured' } };
+      }
 
-      // TODO Phase 8: delegate to pipeline/08-store-listing-writer.run()
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const body = (req.body as Record<string, unknown> | null) ?? {};
+      const appName = (body.appName as string) || (body.name as string) || '';
+      const appDescription = (body.appDescription as string) || (body.description as string) || '';
+      if (!appName || !appDescription) {
+        return { statusCode: 400, body: { error: 'appName and appDescription are required' } };
+      }
+
+      const { run: runStoreListingWriter } = await import('../pipeline/08-store-listing-writer.js');
+      const ctx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: (msg: string) => console.log(msg),
+      };
+      const result = await runStoreListingWriter(
+        {
+          projectId,
+          appName,
+          appDescription,
+          category: body.category as string | undefined,
+          credentialManager,
+        },
+        ctx,
+      );
+
+      if (!result.success) {
+        return {
+          statusCode: 500,
+          body: { error: result.error ?? 'store listing generation failed' },
+        };
+      }
+
       return {
-        statusCode: 202,
+        statusCode: 200,
         body: {
           projectId,
-          status: 'accepted',
-          message: 'Store listing generation queued (pipeline stub — Phase 8)',
+          listing: result.data?.listing,
+          ascAppId: result.data?.ascAppId,
+          screenshotsGenerated: result.data?.screenshotsGenerated ?? 0,
+          durationMs: result.durationMs,
         },
       };
     },
 
     // -----------------------------------------------------------------------
     // POST /app-dev/projects/:id/submit
+    //   Run the pre-submission checklist for either iOS or Android. Returns
+    //   pass/fail/warn per item. Use the returned `readyForConfirmation`
+    //   flag to decide whether to enable the Submit button in the UI.
+    //   Confirm-submit (POST /confirm-submit) actually pushes the build.
     // -----------------------------------------------------------------------
     async prepareSubmission(req: APIRequest): Promise<APIResponse> {
       const projectId = req.params.id;
@@ -1184,17 +1279,39 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         return { statusCode: 400, body: { error: 'project id is required' } };
       }
 
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
       const body = req.body as { platform?: string } | null;
       const platform = (body?.platform as 'ios' | 'android') || 'ios';
+      if (platform !== 'ios' && platform !== 'android') {
+        return { statusCode: 400, body: { error: 'platform must be "ios" or "android"' } };
+      }
 
-      // TODO Phase 8: delegate to pipeline/09-submission-prep.run()
+      const ctx = {
+        executionId: randomUUID(),
+        dryRun: false,
+        startedAt: new Date().toISOString(),
+        log: (msg: string) => console.log(msg),
+      };
+      const result = await runSubmissionPrep({ projectId, platform }, ctx);
+      if (!result.success) {
+        return {
+          statusCode: 500,
+          body: { error: result.error ?? 'submission preparation failed' },
+        };
+      }
+
       return {
-        statusCode: 202,
+        statusCode: 200,
         body: {
           projectId,
           platform,
-          status: 'accepted',
-          message: 'Submission preparation queued (pipeline stub — Phase 8). Requires confirm-submit to finalize.',
+          checklist: result.data?.checklist,
+          readyForConfirmation: result.data?.readyForConfirmation ?? false,
+          missingItems: result.data?.missingItems ?? [],
+          ascAppId: result.data?.ascAppId,
         },
       };
     },
@@ -1664,6 +1781,21 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         ctx,
       );
 
+      // Persist to workspace .zionx/crashes/ so the studio can list crashes.
+      if (result.data?.observed && result.data.sentryEventId) {
+        try {
+          const { recordCrash } = await import('../services/crash-store.js');
+          await recordCrash(workspace, projectId, {
+            sentryEventId: result.data.sentryEventId,
+            errorMessage: result.data.errorMessage ?? 'Unknown crash',
+            platform: result.data.platform,
+            observedAt: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn(`[sentryWebhook] persist crash failed: ${(e as Error).message}`);
+        }
+      }
+
       return {
         statusCode: 200,
         body: {
@@ -1684,6 +1816,53 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           hooks: getMetricsSnapshot(),
           recentErrorRate: getRecentErrorRate(),
           collectedAt: new Date().toISOString(),
+        },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/crashes
+    //   Recent Sentry crashes for this project, persisted by Hook 10.
+    // -----------------------------------------------------------------------
+    async getCrashes(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) return { statusCode: 400, body: { error: 'project id is required' } };
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const { listCrashes } = await import('../services/crash-store.js');
+      const crashes = await listCrashes(workspace, projectId, 50);
+      return {
+        statusCode: 200,
+        body: { projectId, crashes, count: crashes.length },
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // GET /app-dev/projects/:id/cost
+    //   Today's cost + per-hook metrics for the requesting user.
+    //   Per-user budget; resets at UTC midnight.
+    // -----------------------------------------------------------------------
+    async getCost(req: APIRequest): Promise<APIResponse> {
+      const projectId = req.params.id;
+      if (!projectId) return { statusCode: 400, body: { error: 'project id is required' } };
+      const ownership = await (await import('./project-ownership.js'))
+        .requireProjectOwnerFromParams(req, workspace);
+      if (ownership.reject) return ownership.reject;
+
+      const userId = req.userId ?? 'anonymous';
+      const { getCostSnapshot } = await import('../services/cost-tracker.js');
+      const snap = getCostSnapshot(userId);
+      return {
+        statusCode: 200,
+        body: {
+          projectId,
+          todayUsd: snap.todayUsd,
+          dailyLimitUsd: snap.dailyLimitUsd,
+          totalTokens: snap.totalTokens,
+          perHook: snap.perHook,
+          exceeded: snap.exceeded,
         },
       };
     },

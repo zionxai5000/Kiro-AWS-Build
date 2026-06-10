@@ -117,6 +117,16 @@ export function createAppDevRoutes(deps: AppDevHandlerDeps): RouteHandler[] {
     },
     {
       method: 'GET',
+      path: '/app-dev/projects/:id/crashes',
+      handler: h.getCrashes,
+    },
+    {
+      method: 'GET',
+      path: '/app-dev/projects/:id/cost',
+      handler: h.getCost,
+    },
+    {
+      method: 'GET',
       path: '/app-dev/health',
       handler: h.getHealth,
     },

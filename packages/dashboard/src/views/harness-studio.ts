@@ -26,6 +26,8 @@ export interface HarnessProject {
   qualityBarFailed?: boolean;
   /** ISO timestamp of last write. */
   updatedAt?: string;
+  /** File list (lazy-loaded when the Code or Files tab is opened). */
+  files?: string[];
 }
 
 export interface AgentChunk {
@@ -73,6 +75,54 @@ export interface PreviewState {
   errorMessage?: string;
 }
 
+/**
+ * Ship-tab state — covers Build, Listing, Submit, Crashes, Cost.
+ * Each section has its own status field so they can update independently.
+ */
+export interface ShipState {
+  // Build (Hook 6)
+  buildStatus: 'idle' | 'queued' | 'in_progress' | 'finished' | 'errored';
+  buildPlatform: 'ios' | 'android' | 'all';
+  buildEasId?: string;
+  buildArtifacts?: { ios?: string; android?: string };
+  buildError?: string;
+
+  // Listing (Hook 8)
+  listingStatus: 'idle' | 'generating' | 'ready' | 'errored';
+  listing?: {
+    name: string;
+    subtitle: string;
+    description: string;
+    keywords: string;
+    category: string;
+  };
+  listingError?: string;
+
+  // Preflight (Hook 9)
+  preflightStatus: 'idle' | 'checking' | 'ready' | 'blocked';
+  preflightChecklist?: Array<{ id: string; label: string; status: 'pass' | 'fail' | 'warn'; detail?: string }>;
+  preflightPlatform: 'ios' | 'android';
+
+  // Submit (Hook 9b)
+  submitStatus: 'idle' | 'submitting' | 'submitted' | 'failed';
+  submitResult?: { submissionId?: string; status: string; errorMessage?: string };
+
+  // Crashes (Hook 10)
+  crashes: Array<{
+    sentryEventId: string;
+    errorMessage: string;
+    platform: 'ios' | 'android' | 'unknown';
+    observedAt: string;
+  }>;
+
+  // Cost (Use case 15)
+  cost?: {
+    todayUsd: number;
+    dailyLimitUsd: number;
+    perHook?: Record<string, { count: number; durationMs: number; failureRate: number }>;
+  };
+}
+
 export interface HarnessStudioState {
   projects: HarnessProject[];
   activeProjectId: string | null;
@@ -84,8 +134,15 @@ export interface HarnessStudioState {
   preview: PreviewState;
   /** Showing the QR modal? */
   qrModalOpen: boolean;
-  /** Bottom-tab content swap (preview | logs | files). */
-  paneTab: 'preview' | 'logs' | 'files';
+  /** Bottom-tab content swap. */
+  paneTab: 'preview' | 'logs' | 'files' | 'code' | 'ship';
+  /** Active file in the Code tab + buffered edit content. */
+  codeOpenPath: string | null;
+  codeContent: string;
+  codeSavedAt: number | null;
+  codeIsDirty: boolean;
+  /** Build / submit / listing state for the Ship tab. */
+  ship: ShipState;
   /** Plan card collapsed state. */
   planCollapsed: boolean;
 }
@@ -107,10 +164,19 @@ export interface HarnessStudioCallbacks {
   onPhone: () => void;
   /** Close the QR modal. */
   onModalClose: () => void;
-  /** Switch between preview / logs / files tabs. */
-  onPaneTab: (tab: 'preview' | 'logs' | 'files') => void;
+  /** Switch between preview / logs / files / code / ship tabs. */
+  onPaneTab: (tab: 'preview' | 'logs' | 'files' | 'code' | 'ship') => void;
   /** Toggle plan card collapsed. */
   onPlanToggle: () => void;
+  /** Code tab — file/edit/save. */
+  onCodeFileOpen?: (path: string) => void;
+  onCodeContentChange?: (path: string, content: string) => void;
+  onCodeSave?: (path: string, content: string) => void;
+  /** Ship tab — build, listing, submit. */
+  onBuild?: (platform: 'ios' | 'android' | 'all') => void;
+  onGenerateListing?: () => void;
+  onPreflight?: (platform: 'ios' | 'android') => void;
+  onSubmitConfirm?: (platform: 'ios' | 'android', easBuildId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +210,19 @@ export class HarnessStudioView {
     preview: { url: null, status: 'idle' },
     qrModalOpen: false,
     paneTab: 'preview',
+    codeOpenPath: null,
+    codeContent: '',
+    codeSavedAt: null,
+    codeIsDirty: false,
+    ship: {
+      buildStatus: 'idle',
+      buildPlatform: 'all',
+      listingStatus: 'idle',
+      preflightStatus: 'idle',
+      preflightPlatform: 'ios',
+      submitStatus: 'idle',
+      crashes: [],
+    },
     planCollapsed: false,
   };
   private callbacks: HarnessStudioCallbacks;
@@ -156,6 +235,11 @@ export class HarnessStudioView {
   setState(partial: Partial<HarnessStudioState>): void {
     this.state = { ...this.state, ...partial };
     this.render();
+  }
+
+  /** Read the current state. */
+  getState(): HarnessStudioState {
+    return this.state;
   }
 
   /** Append a chat message and re-render. */
@@ -233,6 +317,8 @@ export class HarnessStudioView {
         <div class="harness-sidebar__projects">${projectsHtml}</div>
         <div class="harness-sidebar__util">
           <button data-action="pane-tab" data-pane-tab="preview"  ${this.state.paneTab === 'preview' ? 'aria-pressed="true"' : ''}>Preview</button>
+          <button data-action="pane-tab" data-pane-tab="code"     ${this.state.paneTab === 'code' ? 'aria-pressed="true"' : ''}>Code</button>
+          <button data-action="pane-tab" data-pane-tab="ship"     ${this.state.paneTab === 'ship' ? 'aria-pressed="true"' : ''}>Ship</button>
           <button data-action="pane-tab" data-pane-tab="logs"     ${this.state.paneTab === 'logs' ? 'aria-pressed="true"' : ''}>Logs</button>
           <button data-action="pane-tab" data-pane-tab="files"    ${this.state.paneTab === 'files' ? 'aria-pressed="true"' : ''}>Files</button>
           <div class="harness-sidebar__status">
@@ -368,6 +454,10 @@ export class HarnessStudioView {
       viewportContent = `<pre style="margin:0;padding:${harnessTokens.space.lg}px;color:${harnessTokens.text.secondary};font-family:${harnessTokens.type.mono};font-size:${harnessTokens.type.sizes.sm}px;line-height:1.5;height:100%;overflow:auto;background:${harnessTokens.bg.elevated};">Logs will stream here when the sandbox is provisioned.</pre>`;
     } else if (this.state.paneTab === 'files') {
       viewportContent = `<div style="padding:${harnessTokens.space.lg}px;color:${harnessTokens.text.secondary};font-size:${harnessTokens.type.sizes.sm}px;">File tree will show here.</div>`;
+    } else if (this.state.paneTab === 'code') {
+      viewportContent = this.renderCodeTab();
+    } else if (this.state.paneTab === 'ship') {
+      viewportContent = this.renderShipTab();
     } else if (!previewSrc) {
       viewportContent = `<div class="harness-preview__overlay">
         <div style="font-size:${harnessTokens.type.sizes.lg}px;font-weight:${harnessTokens.type.weights.semibold};">No preview yet</div>
@@ -422,6 +512,112 @@ export class HarnessStudioView {
         </div>
       </section>
     `;
+  }
+
+  private renderCodeTab(): string {
+    const project = this.activeProject();
+    if (!project) {
+      return `<div class="harness-pane-empty">Select a project to view its code.</div>`;
+    }
+    const files = (project.files ?? []).filter((f) => !f.startsWith('.meta/') && !f.startsWith('node_modules/') && !f.startsWith('dist/')).sort();
+    const fileListHtml = files.length
+      ? files.map((f) => {
+          const active = this.state.codeOpenPath === f ? ' is-active' : '';
+          return `<button class="harness-file-row${active}" data-action="code-open" data-path="${escapeHtml(f)}" type="button">${escapeHtml(f)}</button>`;
+        }).join('')
+      : '<div class="harness-pane-empty" style="padding:12px;font-size:12px;">No files yet — generate some via chat.</div>';
+
+    const dirty = this.state.codeIsDirty;
+    const hasFile = !!this.state.codeOpenPath;
+
+    return `<div class="harness-code-tab">
+      <div class="harness-code-files">${fileListHtml}</div>
+      <div class="harness-code-editor">
+        <div class="harness-code-toolbar">
+          <span class="harness-code-path">${escapeHtml(this.state.codeOpenPath ?? '(no file)')}${dirty ? ' •' : ''}</span>
+          <span class="harness-preview__spacer"></span>
+          <button class="harness-input-button" data-action="code-save" type="button" ${!hasFile || !dirty ? 'disabled' : ''}>Save</button>
+        </div>
+        ${hasFile
+          ? `<textarea class="harness-code-textarea" data-input="code-content" spellcheck="false">${escapeHtml(this.state.codeContent)}</textarea>`
+          : `<div class="harness-pane-empty">Click a file on the left to open it.</div>`}
+      </div>
+    </div>`;
+  }
+
+  private renderShipTab(): string {
+    const project = this.activeProject();
+    if (!project) {
+      return `<div class="harness-pane-empty">Select a project to ship.</div>`;
+    }
+    const ship = this.state.ship;
+
+    const buildCard = `<div class="harness-ship-card">
+      <h3>Build for stores</h3>
+      <p class="harness-ship-sub">EAS produces an .ipa for iOS and an .aab for Android.</p>
+      <div class="harness-ship-actions">
+        <button class="harness-input-button" data-action="ship-build" data-platform="ios"     type="button" ${ship.buildStatus === 'in_progress' ? 'disabled' : ''}>Build iOS</button>
+        <button class="harness-input-button" data-action="ship-build" data-platform="android" type="button" ${ship.buildStatus === 'in_progress' ? 'disabled' : ''}>Build Android</button>
+        <button class="harness-input-button" data-action="ship-build" data-platform="all"     type="button" ${ship.buildStatus === 'in_progress' ? 'disabled' : ''}>Build both</button>
+      </div>
+      <div class="harness-ship-status">Status: ${escapeHtml(ship.buildStatus)}${ship.buildEasId ? ` · build ${escapeHtml(ship.buildEasId.slice(0, 8))}` : ''}${ship.buildError ? ` · ${escapeHtml(ship.buildError.slice(0, 200))}` : ''}</div>
+      ${ship.buildArtifacts?.ios     ? `<div class="harness-ship-artifact"><a href="${escapeHtml(ship.buildArtifacts.ios)}"     target="_blank" rel="noopener">Download .ipa</a></div>` : ''}
+      ${ship.buildArtifacts?.android ? `<div class="harness-ship-artifact"><a href="${escapeHtml(ship.buildArtifacts.android)}" target="_blank" rel="noopener">Download .aab</a></div>` : ''}
+    </div>`;
+
+    const listingCard = `<div class="harness-ship-card">
+      <h3>Store listing</h3>
+      <p class="harness-ship-sub">LLM-generated title, subtitle, description, keywords, category.</p>
+      <div class="harness-ship-actions">
+        <button class="harness-input-button" data-action="ship-listing" type="button" ${ship.listingStatus === 'generating' ? 'disabled' : ''}>${ship.listing ? 'Regenerate' : 'Generate listing'}</button>
+      </div>
+      <div class="harness-ship-status">Status: ${escapeHtml(ship.listingStatus)}${ship.listingError ? ` · ${escapeHtml(ship.listingError.slice(0, 200))}` : ''}</div>
+      ${ship.listing ? `<div class="harness-ship-listing">
+        <div><strong>${escapeHtml(ship.listing.name)}</strong> — <em>${escapeHtml(ship.listing.subtitle)}</em></div>
+        <div class="harness-ship-listing-desc">${escapeHtml(ship.listing.description.slice(0, 600))}${ship.listing.description.length > 600 ? '…' : ''}</div>
+        <div class="harness-ship-listing-meta">Keywords: ${escapeHtml(ship.listing.keywords)} · Category: ${escapeHtml(ship.listing.category)}</div>
+      </div>` : ''}
+    </div>`;
+
+    const checklistRowsHtml = (ship.preflightChecklist ?? []).map((item) => {
+      const icon = item.status === 'pass' ? '✅' : item.status === 'warn' ? '⚠' : '❌';
+      return `<div class="harness-ship-check"><span>${icon}</span><span>${escapeHtml(item.label)}${item.detail ? ` — ${escapeHtml(item.detail)}` : ''}</span></div>`;
+    }).join('');
+    const canSubmit = ship.preflightStatus === 'ready' && ship.buildEasId;
+    const submitCard = `<div class="harness-ship-card">
+      <h3>Submit to App Store / Play Store</h3>
+      <p class="harness-ship-sub">Pre-flight runs Hook 9. After all checks pass, Confirm runs eas submit.</p>
+      <div class="harness-ship-actions">
+        <button class="harness-input-button" data-action="ship-preflight" data-platform="ios"     type="button">Pre-flight iOS</button>
+        <button class="harness-input-button" data-action="ship-preflight" data-platform="android" type="button">Pre-flight Android</button>
+      </div>
+      ${ship.preflightChecklist ? `<div class="harness-ship-checklist">${checklistRowsHtml}</div>` : ''}
+      ${ship.preflightChecklist ? `<div class="harness-ship-actions">
+        <button class="harness-input-button harness-input-button--send" data-action="ship-submit" data-platform="${ship.preflightPlatform}" type="button" ${canSubmit ? '' : 'disabled'}>${canSubmit ? `Confirm submit (${ship.preflightPlatform})` : 'Pre-flight must pass first'}</button>
+      </div>` : ''}
+      <div class="harness-ship-status">Status: ${escapeHtml(ship.submitStatus)}${ship.submitResult?.errorMessage ? ` · ${escapeHtml(ship.submitResult.errorMessage.slice(0, 200))}` : ''}${ship.submitResult?.submissionId ? ` · submission ${escapeHtml(ship.submitResult.submissionId.slice(0, 8))}` : ''}</div>
+    </div>`;
+
+    const crashesCard = `<div class="harness-ship-card">
+      <h3>Crashes</h3>
+      <p class="harness-ship-sub">Sentry-reported runtime crashes for this project.</p>
+      ${ship.crashes.length === 0
+        ? `<div class="harness-pane-empty" style="padding:8px;font-size:12px;">No crashes reported. ✓</div>`
+        : ship.crashes.slice(0, 10).map((c) => `<div class="harness-ship-crash"><strong>${escapeHtml(c.platform)}</strong> · ${escapeHtml(c.errorMessage.slice(0, 200))} <span style="opacity:.6;">${escapeHtml(c.observedAt)}</span></div>`).join('')}
+    </div>`;
+
+    const costCard = ship.cost ? `<div class="harness-ship-card">
+      <h3>Cost & observability</h3>
+      <p class="harness-ship-sub">Today: $${ship.cost.todayUsd.toFixed(4)} of $${ship.cost.dailyLimitUsd.toFixed(2)} daily limit.</p>
+    </div>` : '';
+
+    return `<div class="harness-ship-tab">
+      ${buildCard}
+      ${listingCard}
+      ${submitCard}
+      ${crashesCard}
+      ${costCard}
+    </div>`;
   }
 
   private renderQrModal(): string {
@@ -505,8 +701,41 @@ export class HarnessStudioView {
           this.setState({ planCollapsed: !this.state.planCollapsed });
           break;
         case 'pane-tab': {
-          const tab = actionEl.dataset.paneTab as 'preview' | 'logs' | 'files';
+          const tab = actionEl.dataset.paneTab as 'preview' | 'logs' | 'files' | 'code' | 'ship';
           if (tab) this.callbacks.onPaneTab(tab);
+          break;
+        }
+        case 'code-open': {
+          const path = actionEl.dataset.path;
+          if (path && this.callbacks.onCodeFileOpen) this.callbacks.onCodeFileOpen(path);
+          break;
+        }
+        case 'code-save': {
+          if (this.state.codeOpenPath && this.callbacks.onCodeSave) {
+            this.callbacks.onCodeSave(this.state.codeOpenPath, this.state.codeContent);
+          }
+          break;
+        }
+        case 'ship-build': {
+          const platform = (actionEl.dataset.platform as 'ios' | 'android' | 'all') ?? 'all';
+          if (this.callbacks.onBuild) this.callbacks.onBuild(platform);
+          break;
+        }
+        case 'ship-listing': {
+          if (this.callbacks.onGenerateListing) this.callbacks.onGenerateListing();
+          break;
+        }
+        case 'ship-preflight': {
+          const platform = (actionEl.dataset.platform as 'ios' | 'android') ?? 'ios';
+          if (this.callbacks.onPreflight) this.callbacks.onPreflight(platform);
+          break;
+        }
+        case 'ship-submit': {
+          const platform = (actionEl.dataset.platform as 'ios' | 'android') ?? 'ios';
+          const easBuildId = this.state.ship.buildEasId;
+          if (easBuildId && this.callbacks.onSubmitConfirm) {
+            this.callbacks.onSubmitConfirm(platform, easBuildId);
+          }
           break;
         }
         case 'modal-close':
@@ -557,6 +786,17 @@ export class HarnessStudioView {
             this.callbacks.onSubmit(prompt, this.state.activeProjectId);
             ta.value = '';
           }
+        }
+      });
+    }
+
+    // Code-tab editor: track input changes and notify controller.
+    const codeTa = root.querySelector<HTMLTextAreaElement>('[data-input="code-content"]');
+    if (codeTa) {
+      codeTa.addEventListener('input', () => {
+        const path = this.state.codeOpenPath;
+        if (path && this.callbacks.onCodeContentChange) {
+          this.callbacks.onCodeContentChange(path, codeTa.value);
         }
       });
     }

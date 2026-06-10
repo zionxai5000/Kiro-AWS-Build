@@ -57,8 +57,19 @@ export class HarnessStudioController {
       onFullscreen: this.handleFullscreen.bind(this),
       onPhone: this.handlePhone.bind(this),
       onModalClose: () => this.view.setState({ qrModalOpen: false }),
-      onPaneTab: (tab) => this.view.setState({ paneTab: tab }),
+      onPaneTab: (tab) => {
+        this.view.setState({ paneTab: tab });
+        if (tab === 'code' || tab === 'ship') void this.refreshActiveProjectFiles();
+        if (tab === 'ship') void this.refreshShipState();
+      },
       onPlanToggle: () => { /* handled inside the view */ },
+      onCodeFileOpen: this.handleCodeOpen.bind(this),
+      onCodeContentChange: this.handleCodeContentChange.bind(this),
+      onCodeSave: this.handleCodeSave.bind(this),
+      onBuild: this.handleBuild.bind(this),
+      onGenerateListing: this.handleGenerateListing.bind(this),
+      onPreflight: this.handlePreflight.bind(this),
+      onSubmitConfirm: this.handleSubmitConfirm.bind(this),
     });
     this.view.render();
   }
@@ -399,6 +410,245 @@ export class HarnessStudioController {
   private previewUrl(projectId: string): string {
     const apiOrigin = this.apiBase.replace(/\/api$/, '');
     return `${apiOrigin}/api/preview/${projectId}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Code tab handlers (use case 5)
+  // ---------------------------------------------------------------------------
+
+  private async refreshActiveProjectFiles(): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    try {
+      const res = await this.fetchJson<{ files: string[] }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/files`,
+        { method: 'GET' },
+      );
+      // Update the projects list with the file list for the active project.
+      const projects = this.view.getState().projects.map((p) =>
+        p.id === projectId ? { ...p, files: res.files } : p,
+      );
+      this.view.setState({ projects });
+    } catch (err) {
+      this.appendError(`Could not list files: ${(err as Error).message}`);
+    }
+  }
+
+  private async handleCodeOpen(path: string): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    try {
+      const res = await this.fetchJson<{ content: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(path)}`,
+        { method: 'GET' },
+      );
+      this.view.setState({
+        codeOpenPath: path,
+        codeContent: res.content,
+        codeIsDirty: false,
+        codeSavedAt: Date.now(),
+      });
+    } catch (err) {
+      this.appendError(`Could not open ${path}: ${(err as Error).message}`);
+    }
+  }
+
+  private handleCodeContentChange(path: string, content: string): void {
+    if (path !== this.view.getState().codeOpenPath) return;
+    this.view.setState({ codeContent: content, codeIsDirty: true });
+  }
+
+  private async handleCodeSave(path: string, content: string): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    try {
+      await this.fetchJson<{ bytesWritten: number; warnings: string[] }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(path)}`,
+        { method: 'PUT', body: JSON.stringify({ content }) },
+      );
+      this.view.setState({ codeIsDirty: false, codeSavedAt: Date.now() });
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: `✎ Saved ${path}` });
+
+      // Trigger a re-bundle so the iframe reflects the change.
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: '◐ Rebuilding preview…' });
+      await this.fetchJson<{ status: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox/wake`,
+        { method: 'POST', body: '{}' },
+      ).catch(() => {});
+      // Bump iframe with a cache-buster so it reloads after the next 'live' poll.
+      this.setState({
+        preview: { url: `${this.previewUrl(projectId)}#${Date.now()}`, status: 'building' },
+      });
+      // Background poll for live state (reuses handleSelect's strategy).
+      void this.pollSandboxUntilLive(projectId);
+    } catch (err) {
+      this.appendError(`Save failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ship tab handlers (use cases 7, 8, 9, 10, 11, 15)
+  // ---------------------------------------------------------------------------
+
+  /** Fetch crashes + cost in parallel and surface in ShipState. */
+  private async refreshShipState(): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    const projectIdEnc = encodeURIComponent(projectId);
+    const [crashes, cost] = await Promise.all([
+      this.fetchJson<{ crashes: Array<{ sentryEventId: string; errorMessage: string; platform: 'ios' | 'android' | 'unknown'; observedAt: string }> }>(
+        `/app-dev/projects/${projectIdEnc}/crashes`,
+        { method: 'GET' },
+      ).catch(() => ({ crashes: [] })),
+      this.fetchJson<{ todayUsd: number; dailyLimitUsd: number; perHook?: Record<string, { count: number; durationMs: number; failureRate: number }> }>(
+        `/app-dev/projects/${projectIdEnc}/cost`,
+        { method: 'GET' },
+      ).catch(() => null),
+    ]);
+    const ship = { ...this.view.getState().ship };
+    ship.crashes = crashes.crashes;
+    if (cost) ship.cost = cost;
+    this.view.setState({ ship });
+  }
+
+  private async handleBuild(platform: 'ios' | 'android' | 'all'): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    const ship = { ...this.view.getState().ship, buildStatus: 'queued' as const, buildPlatform: platform, buildError: undefined };
+    this.view.setState({ ship });
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: `⚡ Building (${platform})…` });
+
+    try {
+      const res = await this.fetchJson<{ buildId?: string; easBuildId?: string; status?: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/build`,
+        { method: 'POST', body: JSON.stringify({ platform: platform === 'all' ? 'ios' : platform }) },
+      );
+      const buildId = res.easBuildId ?? res.buildId;
+      const next = { ...this.view.getState().ship, buildStatus: 'in_progress' as const, buildEasId: buildId };
+      this.view.setState({ ship: next });
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: `⚡ Build queued — id ${(buildId ?? 'unknown').slice(0, 8)}` });
+    } catch (err) {
+      const next = { ...this.view.getState().ship, buildStatus: 'errored' as const, buildError: (err as Error).message };
+      this.view.setState({ ship: next });
+      this.appendError(`Build kickoff failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async handleGenerateListing(): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    const project = this.view.getState().projects.find((p) => p.id === projectId);
+    if (!project) return;
+    const ship = { ...this.view.getState().ship, listingStatus: 'generating' as const, listingError: undefined };
+    this.view.setState({ ship });
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: '✦ Generating store listing…' });
+
+    try {
+      const res = await this.fetchJson<{
+        listing?: { name: string; subtitle: string; description: string; keywords: string; category: string };
+      }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/store-listing`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            appName: project.name,
+            appDescription: project.name + ' — generated by ZionX App Development',
+          }),
+        },
+      );
+      const next = { ...this.view.getState().ship, listingStatus: 'ready' as const, listing: res.listing };
+      this.view.setState({ ship: next });
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: `✦ Listing ready: "${res.listing?.name ?? ''}"` });
+    } catch (err) {
+      const next = { ...this.view.getState().ship, listingStatus: 'errored' as const, listingError: (err as Error).message };
+      this.view.setState({ ship: next });
+      this.appendError(`Listing generation failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async handlePreflight(platform: 'ios' | 'android'): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    const ship = { ...this.view.getState().ship, preflightStatus: 'checking' as const, preflightPlatform: platform };
+    this.view.setState({ ship });
+    try {
+      const res = await this.fetchJson<{
+        checklist?: { items: Array<{ id: string; label: string; status: 'pass' | 'fail' | 'warn'; detail?: string }> };
+        readyForConfirmation?: boolean;
+      }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/submit`,
+        { method: 'POST', body: JSON.stringify({ platform }) },
+      );
+      const next = {
+        ...this.view.getState().ship,
+        preflightStatus: (res.readyForConfirmation ? 'ready' : 'blocked') as 'ready' | 'blocked',
+        preflightChecklist: res.checklist?.items ?? [],
+        preflightPlatform: platform,
+      };
+      this.view.setState({ ship: next });
+    } catch (err) {
+      const next = { ...this.view.getState().ship, preflightStatus: 'blocked' as const };
+      this.view.setState({ ship: next });
+      this.appendError(`Pre-flight failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async handleSubmitConfirm(platform: 'ios' | 'android', easBuildId: string): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    const submissionId = rid() + '-' + Date.now();
+    const ship = { ...this.view.getState().ship, submitStatus: 'submitting' as const };
+    this.view.setState({ ship });
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: `📦 Submitting ${platform} build to store…` });
+    try {
+      const res = await this.fetchJson<{
+        submissionId: string;
+        status: string;
+        errorMessage?: string;
+      }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/confirm-submit`,
+        { method: 'POST', body: JSON.stringify({ platform, submissionId, easBuildId }) },
+      );
+      const next = {
+        ...this.view.getState().ship,
+        submitStatus: (res.status === 'submitted' ? 'submitted' : 'failed') as 'submitted' | 'failed',
+        submitResult: { submissionId: res.submissionId, status: res.status, errorMessage: res.errorMessage },
+      };
+      this.view.setState({ ship: next });
+      this.view.appendMessage({ id: rid(), kind: 'phase', text: `📦 Submission ${res.status}` });
+    } catch (err) {
+      const next = { ...this.view.getState().ship, submitStatus: 'failed' as const };
+      this.view.setState({ ship: next });
+      this.appendError(`Submit failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Shared helper — poll /sandbox until live or error.
+   * Used after Code-tab save (re-bundle on edit).
+   */
+  private async pollSandboxUntilLive(projectId: string, timeoutMs = 8 * 60_000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const status = await this.fetchJson<{ status: string; phase?: string; publicUrl?: string; error?: string }>(
+          `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox`,
+          { method: 'GET' },
+        );
+        if (status.status === 'live' || status.status === 'ready') {
+          this.setState({
+            preview: { url: `${this.previewUrl(projectId)}#${Date.now()}`, status: 'live' },
+          });
+          this.view.appendMessage({ id: rid(), kind: 'phase', text: '✦ Preview reloaded' });
+          return;
+        }
+        if (status.status === 'error') {
+          this.appendError(`Re-bundle failed: ${status.error ?? 'unknown'}`);
+          return;
+        }
+      } catch { /* keep polling */ }
+    }
   }
 }
 

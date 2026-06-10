@@ -78,6 +78,55 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
   const stageDir = join(tmpdir(), `zionx-bundle-${sanitize(opts.projectId)}`);
   const bundleDir = join(stageDir, 'dist');
 
+  // Set sandbox lifetime to 30 min UPFRONT — before npm install + expo
+  // export run server-side. Without this, E2B's default 5-min idle timer
+  // can reap the sandbox during the long server-side phases (we provision
+  // the sandbox first, then go silent for 4-5 min while bundling on
+  // ECS, then come back to upload — by which point the sandbox may be
+  // gone). Calling extendTimeout here resets the deadline relative to NOW.
+  if (opts.sandbox.extendTimeout) {
+    await opts.sandbox.extendTimeout(opts.projectId, 30 * 60_000).catch(() => {});
+  }
+
+  // Spin up a keepalive loop that pings the sandbox every 60s during the
+  // long server-side phases. Any tool call (`true` is cheapest) resets
+  // E2B's idle timer. Stops on completion (success OR error).
+  let keepaliveStopped = false;
+  const keepalive = (async () => {
+    while (!keepaliveStopped) {
+      await new Promise((r) => setTimeout(r, 60_000));
+      if (keepaliveStopped) break;
+      try {
+        await opts.sandbox.runCommand(opts.projectId, 'true', { timeoutMs: 5_000 });
+      } catch (e) {
+        // Don't bring down the bundle on a transient ping failure; the
+        // withSandbox wrapper inside runCommand already handles retry.
+        console.warn(`[server-bundler][${opts.projectId.slice(-8)}] keepalive ping warn: ${(e as Error).message.slice(0, 100)}`);
+      }
+    }
+  })();
+
+  try {
+    return await runBundle(opts, stageDir, bundleDir, start, progress);
+  } finally {
+    keepaliveStopped = true;
+    // Don't await keepalive — let it self-terminate next tick.
+    keepalive.catch(() => {});
+  }
+}
+
+/**
+ * The actual bundle pipeline, extracted so bundleAndServe can wrap it
+ * in the keepalive lifecycle.
+ */
+async function runBundle(
+  opts: BundleOptions,
+  stageDir: string,
+  bundleDir: string,
+  start: number,
+  progress: (phase: string, detail?: string) => void,
+): Promise<BundleResult> {
+
   try {
     progress('stage', `Staging files in ${stageDir}`);
     await mkdir(stageDir, { recursive: true });
@@ -238,11 +287,12 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // classification headaches: the JS bundle, sourcemaps, fonts, images,
     // hermes bytecode all go through unmodified.
     progress('upload', 'Pushing bundle into sandbox…');
-    // Refresh the sandbox lifetime — the long expo export ate most of
-    // the initial budget. Without this, every upload call hits a
-    // sandbox that E2B has already killed for inactivity.
+    // Refresh the sandbox lifetime once more before the upload. The
+    // up-front extendTimeout in bundleAndServe set 30 min, but the
+    // long server-side npm install + expo export burned through some
+    // of it. This call resets the deadline to NOW + 30 min.
     if (opts.sandbox.extendTimeout) {
-      await opts.sandbox.extendTimeout(opts.projectId, 15 * 60_000).catch(() => {});
+      await opts.sandbox.extendTimeout(opts.projectId, 30 * 60_000).catch(() => {});
     }
     await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/dist', { timeoutMs: 30_000 }).catch(() => {});
     let uploaded = 0;
@@ -278,30 +328,47 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // through E2B's shell layer).
     progress('serve', 'Starting static server in sandbox…');
 
-    // Step 1: kill anything currently on port 8081.
+    // Step 1: aggressive cleanup. Kill ANY prior http.server / supervisor
+    // and remove ANY prior supervisor scripts. This handles the
+    // sandbox-reuse case where a paused-then-resumed sandbox has stale
+    // files / processes from the last wake. The previous wake's
+    // /tmp/serve-supervisor.sh has been observed to throw "permission
+    // denied" on overwrite from the E2B SDK's files.write API.
     await opts.sandbox.runCommand(opts.projectId,
-      'pkill -f "http.server 8081" 2>/dev/null; pkill -f serve-supervisor 2>/dev/null; sleep 0.5; true',
+      [
+        'pkill -f "http.server 8081" 2>/dev/null',
+        'pkill -f serve-supervisor 2>/dev/null',
+        'rm -f /tmp/serve-supervisor.sh',
+        'rm -f /home/user/project/.zionx/serve-supervisor.sh',
+        'sleep 0.5',
+        'true',
+      ].join('; '),
       { timeoutMs: 10_000 }).catch(() => {});
 
     // Step 2: write the supervisor script as an actual file. Avoid
     // heredoc — the E2B runCommand wraps the command in a way that
     // mangles multi-line stdin.
+    //
+    // Write to the project workdir (NOT /tmp) — E2B's base template
+    // gives the user write access to /home/user/project but /tmp is
+    // sometimes locked down by ownership.
     const supervisorScript = [
       '#!/bin/bash',
       'cd /home/user/project/dist',
       'while true; do',
-      '  /usr/bin/python3 -m http.server 8081 >> /tmp/server.log 2>&1',
-      '  echo "[supervisor $(date)] http.server exited code=$?, restarting in 2s" >> /tmp/server.log',
+      '  /usr/bin/python3 -m http.server 8081 >> /home/user/project/.zionx-server.log 2>&1',
+      '  echo "[supervisor $(date)] http.server exited code=$?, restarting in 2s" >> /home/user/project/.zionx-server.log',
       '  sleep 2',
       'done',
       '',
     ].join('\n');
-    await opts.sandbox.writeFile(opts.projectId, '/tmp/serve-supervisor.sh', supervisorScript);
-    await opts.sandbox.runCommand(opts.projectId, 'chmod +x /tmp/serve-supervisor.sh', { timeoutMs: 5_000 }).catch(() => {});
+    await opts.sandbox.runCommand(opts.projectId, 'mkdir -p /home/user/project/.zionx', { timeoutMs: 5_000 }).catch(() => {});
+    await opts.sandbox.writeFile(opts.projectId, '/home/user/project/.zionx/serve-supervisor.sh', supervisorScript);
+    await opts.sandbox.runCommand(opts.projectId, 'chmod +x /home/user/project/.zionx/serve-supervisor.sh', { timeoutMs: 5_000 }).catch(() => {});
 
     // Step 3: launch via SDK background mode.
     await opts.sandbox.runCommand(opts.projectId,
-      'bash /tmp/serve-supervisor.sh',
+      'bash /home/user/project/.zionx/serve-supervisor.sh',
       { timeoutMs: 60_000, background: true }).catch((e) => {
         console.warn(`[server-bundler][${opts.projectId.slice(-8)}] supervisor launch warn: ${(e as Error).message}`);
       });
@@ -325,7 +392,7 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     // If still down, capture the supervisor log so we can see why.
     if (!httpCode.startsWith('2')) {
       const log = await opts.sandbox.runCommand(opts.projectId,
-        'cat /tmp/server.log 2>/dev/null | tail -30; echo ---; cat /tmp/serve-out.log 2>/dev/null | tail -10; echo ---; ps -ef | grep -E "supervisor|http.server" | grep -v grep',
+        'cat /home/user/project/.zionx-server.log 2>/dev/null | tail -30; echo ---; ps -ef | grep -E "supervisor|http.server" | grep -v grep',
         { timeoutMs: 5_000 }).catch(() => ({ stdout: '(no log)', stderr: '', exitCode: 1 }));
       console.log(`[server-bundler][${opts.projectId.slice(-8)}] supervisor diag:\n${log.stdout?.slice(0, 1500)}`);
     }

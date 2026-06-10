@@ -272,38 +272,63 @@ export async function bundleAndServe(opts: BundleOptions): Promise<BundleResult>
     }
 
     // Start a tiny http server inside the sandbox on port 8081.
-    // Use `setsid` + `disown` so it truly detaches from the shell session
-    // and survives when the E2B runCommand call returns. Plain `nohup ... &`
-    // had the server dying ~10 seconds after the runCommand session
-    // closed. Also write a tiny supervisor in /tmp that re-launches the
-    // server if it ever exits — defends against OOM, transient crash,
-    // and sandbox quirks where the parent process gets reaped.
+    // Use the SDK's background:true mode so the process is properly
+    // detached at the SDK level. Also write a supervisor script via a
+    // file write (heredoc-in-runCommand doesn't reliably propagate
+    // through E2B's shell layer).
     progress('serve', 'Starting static server in sandbox…');
-    const startServerCmd = [
-      'pkill -f "http.server 8081" 2>/dev/null',
-      'cat > /tmp/serve-supervisor.sh <<\'EOF\'',
+
+    // Step 1: kill anything currently on port 8081.
+    await opts.sandbox.runCommand(opts.projectId,
+      'pkill -f "http.server 8081" 2>/dev/null; pkill -f serve-supervisor 2>/dev/null; sleep 0.5; true',
+      { timeoutMs: 10_000 }).catch(() => {});
+
+    // Step 2: write the supervisor script as an actual file. Avoid
+    // heredoc — the E2B runCommand wraps the command in a way that
+    // mangles multi-line stdin.
+    const supervisorScript = [
       '#!/bin/bash',
       'cd /home/user/project/dist',
       'while true; do',
       '  /usr/bin/python3 -m http.server 8081 >> /tmp/server.log 2>&1',
-      '  echo "[supervisor $(date)] http.server exited, restarting in 2s" >> /tmp/server.log',
+      '  echo "[supervisor $(date)] http.server exited code=$?, restarting in 2s" >> /tmp/server.log',
       '  sleep 2',
       'done',
-      'EOF',
-      'chmod +x /tmp/serve-supervisor.sh',
-      'setsid bash /tmp/serve-supervisor.sh </dev/null >/tmp/serve-out.log 2>&1 &',
-      'disown',
-      'sleep 1',
-      'echo "supervisor_started=$(pgrep -f serve-supervisor.sh | head -1)"',
-      'echo "http_server_pid=$(pgrep -f \'http.server 8081\' | head -1)"',
-    ].join('; ');
-    await opts.sandbox.runCommand(opts.projectId, startServerCmd, { timeoutMs: 30_000 }).catch(() => {});
+      '',
+    ].join('\n');
+    await opts.sandbox.writeFile(opts.projectId, '/tmp/serve-supervisor.sh', supervisorScript);
+    await opts.sandbox.runCommand(opts.projectId, 'chmod +x /tmp/serve-supervisor.sh', { timeoutMs: 5_000 }).catch(() => {});
 
-    // Verify the server is listening before reporting ready.
-    const verify = await opts.sandbox.runCommand(opts.projectId,
-      'sleep 2; curl -sS -o /dev/null -w "%{http_code}" http://localhost:8081/index.html || echo "down"',
-      { timeoutMs: 10_000 }).catch(() => ({ stdout: 'down', stderr: '', exitCode: 1 }));
-    console.log(`[server-bundler][${opts.projectId.slice(-8)}] localhost:8081 verify → ${verify.stdout?.trim()}`);
+    // Step 3: launch via SDK background mode.
+    await opts.sandbox.runCommand(opts.projectId,
+      'bash /tmp/serve-supervisor.sh',
+      { timeoutMs: 60_000, background: true }).catch((e) => {
+        console.warn(`[server-bundler][${opts.projectId.slice(-8)}] supervisor launch warn: ${(e as Error).message}`);
+      });
+
+    // Verify the server is listening before reporting ready. Poll up to
+    // 10 seconds — the supervisor needs a moment to spawn python.
+    let httpCode = 'down';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const v = await opts.sandbox.runCommand(opts.projectId,
+        'curl -sS -o /dev/null -w "%{http_code}" http://localhost:8081/index.html 2>/dev/null || echo down',
+        { timeoutMs: 8_000 }).catch(() => ({ stdout: 'down', stderr: '', exitCode: 1 }));
+      const code = (v.stdout ?? '').trim();
+      if (code.startsWith('2') || code.startsWith('3')) {
+        httpCode = code;
+        break;
+      }
+      httpCode = code || 'down';
+    }
+    console.log(`[server-bundler][${opts.projectId.slice(-8)}] localhost:8081 verify → ${httpCode}`);
+    // If still down, capture the supervisor log so we can see why.
+    if (!httpCode.startsWith('2')) {
+      const log = await opts.sandbox.runCommand(opts.projectId,
+        'cat /tmp/server.log 2>/dev/null | tail -30; echo ---; cat /tmp/serve-out.log 2>/dev/null | tail -10; echo ---; ps -ef | grep -E "supervisor|http.server" | grep -v grep',
+        { timeoutMs: 5_000 }).catch(() => ({ stdout: '(no log)', stderr: '', exitCode: 1 }));
+      console.log(`[server-bundler][${opts.projectId.slice(-8)}] supervisor diag:\n${log.stdout?.slice(0, 1500)}`);
+    }
 
     // Keep the sandbox alive — E2B's idle timer only resets on tool
     // calls, not on incoming HTTP traffic. Without periodic touch the

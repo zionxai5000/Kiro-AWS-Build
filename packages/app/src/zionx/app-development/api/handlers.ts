@@ -593,37 +593,18 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
         } catch { /* tolerate */ }
       }
       if (existing && existing.state === 'building') {
-        // Don't kick off a duplicate build if one is already in flight
-        // anywhere — but only respect that if it's recent (< 8 minutes)
-        // AND if we can still reach the sandbox. Stale records from
-        // crashed/timed-out tasks would otherwise lock out new wakes.
+        // A bundle is already in flight (somewhere in this or another
+        // ECS task). Trust the building record for up to 6 minutes —
+        // long enough to cover the worst-case bundle (npm install ~3 min
+        // + expo export ~3 min). Without this trust window, the dashboard
+        // polling loop kicks off a new wake every 150s and starves the
+        // in-flight bundle. After 6 min, treat the record as stale (the
+        // task probably crashed) and start fresh.
         const ageMs = Date.now() - new Date(existing.startedAt).getTime();
-        const recent = ageMs < 8 * 60_000;
-        if (recent) {
-          // Validate that the sandbox is reachable. If getPublicUrl
-          // throws or returns a URL pointing at a dead sandbox, the
-          // record is stale and we should overwrite it with a fresh wake.
-          let sandboxAlive = false;
-          try {
-            const url = await client.getPublicUrl(projectId);
-            // Quick HEAD check on port 8081 (4s timeout). If the build
-            // has already started serving, this returns 200; if the
-            // sandbox is dead, this throws or returns 502.
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 4000);
-            try {
-              const r = await fetch(url, { method: 'GET', signal: ctrl.signal });
-              sandboxAlive = r.status < 500;
-            } finally {
-              clearTimeout(t);
-            }
-          } catch { sandboxAlive = false; }
-          if (sandboxAlive) {
-            return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
-          }
-          // Sandbox dead — log and fall through to start a fresh wake.
-          console.warn(`[wake][${projectId.slice(-8)}] stale 'building' record (${Math.round(ageMs/1000)}s old) but sandbox unreachable; starting fresh wake`);
+        if (ageMs < 6 * 60_000) {
+          return { statusCode: 202, body: { projectId, status: 'building', message: 'Bundle already in progress', startedAt: existing.startedAt } };
         }
+        console.warn(`[wake][${projectId.slice(-8)}] stale 'building' record (${Math.round(ageMs/1000)}s old, > 6 min); starting fresh wake`);
       }
 
       const state: WakeState = { state: 'building', startedAt: new Date().toISOString(), publicUrl: null, error: null, phase: 'starting' };

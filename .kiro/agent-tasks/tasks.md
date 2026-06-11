@@ -36,6 +36,32 @@ groups" at the bottom.
 - A group is "closed" when all its rows are ✅ AND the underlying domain
   rows are also ✅.
 
+### G3 — wakeSandbox bundle-loop bug fix (immediate, deploying now)
+
+- **Started:** 2026-06-10 (post-G1)
+- **Goal:** Stop the "validate-before-respect" HTTP probe in
+  `wakeSandbox` that was killing in-flight bundles every 150s.
+  Restore the simple "trust the building record for 6 min" window so
+  bundles complete and the preview shows up in the studio.
+- **Root cause:** Commit `28b8295` (G1's batch fix) added an HTTP probe
+  to port 8081 to detect stale "building" records. Port 8081 isn't open
+  until *after* `expo export` finishes (~3 min into the bundle), so the
+  probe always failed during normal progress and caused the dashboard
+  poll loop to start a fresh wake every 150 seconds — preventing any
+  bundle from ever finishing.
+- **Maps to:** G1 row #2 (View in sandbox preview).
+
+| ✅/⬜ | Item |
+|---|---|
+| ✅ | Removed the HTTP probe in `wakeSandbox` (handlers.ts ~line 530) |
+| ✅ | Replaced with a simple 6-min trust window over `state.startedAt` |
+| 🔄 | Build & deploy fixed image to ECS (path: EC2 build VM, no git) |
+| ⬜ | Run `scripts/probe-delivery-tree-e2e.mjs` against the new task def |
+| ⬜ | King visually confirms preview shows up in the studio |
+| ⬜ | Then commit + push (king signed off the "no git until verified" rule lift for bug fixes) |
+
+---
+
 ### G2 — Preview pane scaling + VibeCode-parity platform UX
 
 - **Started:** 2026-06-10

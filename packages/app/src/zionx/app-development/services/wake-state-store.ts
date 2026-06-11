@@ -117,17 +117,34 @@ export function setWakeStateStore(store: WakeStateStore): void {
  * timeout. Returns true if it responded with anything other than a 5xx /
  * connection failure (the E2B "closed port" page returns 502, so we
  * treat 502 as dead).
+ *
+ * Retries up to 3 times with 2-second spacing. A single transient failure
+ * during E2B sandbox warm-up (DNS hiccup, brief 502 between bundle phases)
+ * was previously enough to wipe the wake state and restart the entire
+ * bundle from scratch — the "sandbox taking forever to load" bug. Any
+ * single attempt succeeding short-circuits and returns true.
  */
-export async function isPreviewReachable(url: string, timeoutMs = 4000): Promise<boolean> {
+export async function isPreviewReachable(url: string, timeoutMs = 8000): Promise<boolean> {
   if (!url || !url.startsWith('http')) return false;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { method: 'GET', signal: ctrl.signal });
-    return res.status < 500;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
+  const RETRIES = 3;
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
+    if (attempt > 0) {
+      // Wait 2 seconds between attempts. Skip the wait on the first attempt.
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { method: 'GET', signal: ctrl.signal });
+      if (res.status < 500) {
+        clearTimeout(timer);
+        return true;
+      }
+    } catch {
+      // Fall through to the next retry.
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return false;
 }

@@ -135,7 +135,10 @@ export interface HarnessStudioState {
   /** Showing the QR modal? */
   qrModalOpen: boolean;
   /** Bottom-tab content swap. */
-  paneTab: 'preview' | 'logs' | 'files' | 'code' | 'ship';
+  paneTab: 'preview' | 'logs' | 'files' | 'code' | 'ship' | 'image' | 'audio' | 'db' | 'request' | 'deploy';
+  /** Preview pane render mode — scale-to-fit a 390x844 device frame, or
+   *  scroll the iframe inside the column. */
+  viewMode: 'scale' | 'scroll';
   /** Active file in the Code tab + buffered edit content. */
   codeOpenPath: string | null;
   codeContent: string;
@@ -145,6 +148,36 @@ export interface HarnessStudioState {
   ship: ShipState;
   /** Plan card collapsed state. */
   planCollapsed: boolean;
+  /** Files tab — search + type filter. */
+  filesSearch: string;
+  filesFilter: 'all' | 'code' | 'image' | 'audio' | 'data' | 'config';
+  /** Image gallery — populated from project files matching image extensions. */
+  imagePrompt: string;
+  imageGenerating: boolean;
+  /** Audio panel — populated from project files matching audio extensions. */
+  audioPrompt: string;
+  /** Database — list of detected schemas / data files. */
+  dbTables: Array<{ name: string; columns: string[]; rowCount: number; source: string }>;
+  /** Logs panel — runtime + build streams (subscribed via WebSocket from controller). */
+  logs: Array<{ id: string; level: 'info' | 'warn' | 'error' | 'debug'; source: 'agent' | 'build' | 'runtime' | 'system'; text: string; ts: string; traceId?: string }>;
+  logsFilter: 'all' | 'info' | 'warn' | 'error' | 'debug';
+  logsSearch: string;
+  /** Request inspector — captured API/network requests with replay. */
+  requests: Array<{ id: string; method: string; url: string; status: number; ms: number; ts: string; reqBody?: string; resBody?: string; traceId?: string; byMessageId?: string }>;
+  requestsFilter: 'all' | '2xx' | '4xx' | '5xx';
+  requestsSearch: string;
+  selectedRequestId: string | null;
+  /** Deploy snapshot list — versions, current, rollback. */
+  deploySnapshots: Array<{ id: string; version: string; env: 'preview' | 'prod'; createdAt: string; status: 'live' | 'archived' | 'building'; commitSha?: string; bundleHash?: string; sizeBytes?: number; ipaUrl?: string; aabUrl?: string }>;
+  deployActiveEnv: 'preview' | 'prod';
+  /** Two-way linking: which message-id is currently highlighted in the Code/Files/etc tabs. */
+  highlightedMessageId: string | null;
+  /** Streaming "thinking" — the current tokens streaming before the agent acts. */
+  thinking: { text: string; collapsed: boolean; visible: boolean };
+  /** Agents Live presence cards — Builder, Critic, Marketing. */
+  agents: Array<{ id: string; name: string; role: 'builder' | 'critic' | 'marketing'; status: 'idle' | 'thinking' | 'working' | 'done' | 'failed'; task?: string; lastHeartbeat: string }>;
+  /** Memory & context panel — what AI knows about this project. */
+  memoryOpen: boolean;
 }
 
 export interface HarnessStudioCallbacks {
@@ -164,8 +197,8 @@ export interface HarnessStudioCallbacks {
   onPhone: () => void;
   /** Close the QR modal. */
   onModalClose: () => void;
-  /** Switch between preview / logs / files / code / ship tabs. */
-  onPaneTab: (tab: 'preview' | 'logs' | 'files' | 'code' | 'ship') => void;
+  /** Switch between preview / logs / files / code / ship / image / audio / db / request / deploy tabs. */
+  onPaneTab: (tab: 'preview' | 'logs' | 'files' | 'code' | 'ship' | 'image' | 'audio' | 'db' | 'request' | 'deploy') => void;
   /** Toggle plan card collapsed. */
   onPlanToggle: () => void;
   /** Code tab — file/edit/save. */
@@ -177,6 +210,22 @@ export interface HarnessStudioCallbacks {
   onGenerateListing?: () => void;
   onPreflight?: (platform: 'ios' | 'android') => void;
   onSubmitConfirm?: (platform: 'ios' | 'android', easBuildId: string) => void;
+  /** G2.B — Files / Image / Audio / Database tabs. */
+  onFileOpen?: (path: string) => void;
+  onImageGenerate?: (prompt: string) => void;
+  onImageUseAsIcon?: (path: string) => void;
+  onImageUseInApp?: (path: string) => void;
+  onAudioTts?: (prompt: string) => void;
+  onAudioRecord?: () => void;
+  onAudioWire?: (path: string) => void;
+  /** G2.C — Logs / Request — "Ask AI" deep-link to Chat. */
+  onAskAiAboutLog?: (logId: string) => void;
+  onRequestReplay?: (requestId: string) => void;
+  /** G2.D — Deploy snapshot + rollback. */
+  onDeployNow?: (env: 'preview' | 'prod') => void;
+  onDeployRollback?: (snapshotId: string) => void;
+  /** G2.E — Two-way linking: jump to chat message that produced an artifact. */
+  onLinkBackToMessage?: (messageId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +259,7 @@ export class HarnessStudioView {
     preview: { url: null, status: 'idle' },
     qrModalOpen: false,
     paneTab: 'preview',
+    viewMode: 'scale',
     codeOpenPath: null,
     codeContent: '',
     codeSavedAt: null,
@@ -224,6 +274,29 @@ export class HarnessStudioView {
       crashes: [],
     },
     planCollapsed: false,
+    filesSearch: '',
+    filesFilter: 'all',
+    imagePrompt: '',
+    imageGenerating: false,
+    audioPrompt: '',
+    dbTables: [],
+    logs: [],
+    logsFilter: 'all',
+    logsSearch: '',
+    requests: [],
+    requestsFilter: 'all',
+    requestsSearch: '',
+    selectedRequestId: null,
+    deploySnapshots: [],
+    deployActiveEnv: 'preview',
+    highlightedMessageId: null,
+    thinking: { text: '', collapsed: false, visible: false },
+    agents: [
+      { id: 'builder', name: 'Builder', role: 'builder', status: 'idle', lastHeartbeat: new Date().toISOString() },
+      { id: 'critic', name: 'Critic / QA', role: 'critic', status: 'idle', lastHeartbeat: new Date().toISOString() },
+      { id: 'marketing', name: 'Marketing', role: 'marketing', status: 'idle', lastHeartbeat: new Date().toISOString() },
+    ],
+    memoryOpen: false,
   };
   private callbacks: HarnessStudioCallbacks;
 
@@ -316,11 +389,19 @@ export class HarnessStudioView {
         <div class="harness-sidebar__section-title">Projects</div>
         <div class="harness-sidebar__projects">${projectsHtml}</div>
         <div class="harness-sidebar__util">
-          <button data-action="pane-tab" data-pane-tab="preview"  ${this.state.paneTab === 'preview' ? 'aria-pressed="true"' : ''}>Preview</button>
-          <button data-action="pane-tab" data-pane-tab="code"     ${this.state.paneTab === 'code' ? 'aria-pressed="true"' : ''}>Code</button>
-          <button data-action="pane-tab" data-pane-tab="ship"     ${this.state.paneTab === 'ship' ? 'aria-pressed="true"' : ''}>Ship</button>
-          <button data-action="pane-tab" data-pane-tab="logs"     ${this.state.paneTab === 'logs' ? 'aria-pressed="true"' : ''}>Logs</button>
-          <button data-action="pane-tab" data-pane-tab="files"    ${this.state.paneTab === 'files' ? 'aria-pressed="true"' : ''}>Files</button>
+          <div class="harness-sidebar__group-label">Workspace</div>
+          <button data-action="pane-tab" data-pane-tab="preview"  ${this.state.paneTab === 'preview' ? 'aria-pressed="true"' : ''}>👁 Preview</button>
+          <button data-action="pane-tab" data-pane-tab="code"     ${this.state.paneTab === 'code' ? 'aria-pressed="true"' : ''}>📄 Code</button>
+          <button data-action="pane-tab" data-pane-tab="files"    ${this.state.paneTab === 'files' ? 'aria-pressed="true"' : ''}>📁 Files</button>
+          <button data-action="pane-tab" data-pane-tab="image"    ${this.state.paneTab === 'image' ? 'aria-pressed="true"' : ''}>🖼 Image</button>
+          <button data-action="pane-tab" data-pane-tab="audio"    ${this.state.paneTab === 'audio' ? 'aria-pressed="true"' : ''}>🔊 Audio</button>
+          <button data-action="pane-tab" data-pane-tab="db"       ${this.state.paneTab === 'db' ? 'aria-pressed="true"' : ''}>🗄 Database</button>
+          <div class="harness-sidebar__group-label">Observe</div>
+          <button data-action="pane-tab" data-pane-tab="logs"     ${this.state.paneTab === 'logs' ? 'aria-pressed="true"' : ''}>📋 Logs</button>
+          <button data-action="pane-tab" data-pane-tab="request"  ${this.state.paneTab === 'request' ? 'aria-pressed="true"' : ''}>🌐 Request</button>
+          <div class="harness-sidebar__group-label">Deliver</div>
+          <button data-action="pane-tab" data-pane-tab="ship"     ${this.state.paneTab === 'ship' ? 'aria-pressed="true"' : ''}>🚀 Ship</button>
+          <button data-action="pane-tab" data-pane-tab="deploy"   ${this.state.paneTab === 'deploy' ? 'aria-pressed="true"' : ''}>☁ Deploy</button>
           <div class="harness-sidebar__status">
             <span class="harness-status-dot" data-state="${this.state.preview.status === 'live' ? 'awake' : this.state.preview.status === 'waking' ? 'waking' : this.state.preview.status === 'error' ? 'error' : ''}"></span>
             ${this.formatSandboxStatus()}
@@ -349,12 +430,48 @@ export class HarnessStudioView {
   private renderChat(): string {
     return `
       <section class="harness-chat" aria-label="Agent chat">
+        ${this.renderAgentsLive()}
+        ${this.renderThinkingStrip()}
         <div class="harness-chat__stream" data-region="messages">
           ${this.state.messages.length === 0 ? this.renderEmptyChat() : this.state.messages.map((m) => this.renderMessage(m)).join('')}
         </div>
         ${this.renderInput()}
       </section>
     `;
+  }
+
+  /** G2.F — Agents Live presence cards (Builder · Critic · Marketing). */
+  private renderAgentsLive(): string {
+    if (!this.state.agents.length) return '';
+    return `<div class="harness-agents-live">
+      ${this.state.agents.map((a) => {
+        const dotClass = a.status === 'thinking' || a.status === 'working' ? 'awake' : a.status === 'failed' ? 'error' : '';
+        return `<div class="harness-agent-card" data-agent-id="${escapeHtml(a.id)}">
+          <span class="harness-status-dot" data-state="${dotClass}"></span>
+          <span class="harness-agent-card__name">${escapeHtml(a.name)}</span>
+          <span class="harness-agent-card__task">${escapeHtml(a.task ?? a.status)}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  /** G2.F — Streaming "thinking" strip that shows the agent's plan tokens
+   *  before action. Collapsible. */
+  private renderThinkingStrip(): string {
+    const t = this.state.thinking;
+    if (!t.visible || !t.text) return '';
+    if (t.collapsed) {
+      return `<div class="harness-thinking is-collapsed">
+        <button data-action="thinking-toggle" type="button">▸ Reasoning (${t.text.length} chars)</button>
+      </div>`;
+    }
+    return `<div class="harness-thinking">
+      <div class="harness-thinking__head">
+        <span>✦ Reasoning…</span>
+        <button data-action="thinking-toggle" type="button">▾ collapse</button>
+      </div>
+      <div class="harness-thinking__body">${escapeHtml(t.text)}</div>
+    </div>`;
   }
 
   private renderEmptyChat(): string {
@@ -370,28 +487,29 @@ export class HarnessStudioView {
   }
 
   private renderMessage(m: ChatMessage): string {
+    const idAttr = `data-message-id="${escapeHtml(m.id)}"`;
     switch (m.kind) {
       case 'user':
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">›</div><div class="harness-chat__text harness-chat__text--user">${escapeHtml(m.text ?? '')}</div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">›</div><div class="harness-chat__text harness-chat__text--user">${escapeHtml(m.text ?? '')}</div></div>`;
       case 'agent-text':
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">✦</div><div class="harness-chat__text harness-chat__text--agent">${escapeHtml(m.text ?? '')}</div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">✦</div><div class="harness-chat__text harness-chat__text--agent">${escapeHtml(m.text ?? '')}</div></div>`;
       case 'tool-chip': {
         const cls = m.toolKind ?? 'read';
         const icon = ICON_FOR_KIND[cls] ?? '·';
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">${icon}</div><div class="harness-chat__text"><span class="harness-chat__chip harness-chat__chip--${cls}">${escapeHtml(m.label ?? cls)}</span></div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">${icon}</div><div class="harness-chat__text"><span class="harness-chat__chip harness-chat__chip--${cls}">${escapeHtml(m.label ?? cls)}</span></div></div>`;
       }
       case 'reviewer': {
         const passed = (m.scores ?? []).every((s) => s.passed);
         const klass = passed ? 'harness-quality-pill--pass' : 'harness-quality-pill--fail';
         const text = (m.scores ?? []).map((s) => `${s.name}: ${s.score ?? '–'}`).join(' · ');
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">${passed ? '✓' : '✗'}</div><div class="harness-chat__text"><span class="harness-quality-pill ${klass}">${escapeHtml(text || 'Quality gate')}</span></div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">${passed ? '✓' : '✗'}</div><div class="harness-chat__text"><span class="harness-quality-pill ${klass}">${escapeHtml(text || 'Quality gate')}</span></div></div>`;
       }
       case 'plan':
         return this.renderPlanCard(m.plan);
       case 'phase':
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">·</div><div class="harness-chat__text">${escapeHtml(m.text ?? '')}</div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">·</div><div class="harness-chat__text">${escapeHtml(m.text ?? '')}</div></div>`;
       case 'error':
-        return `<div class="harness-chat__row"><div class="harness-chat__icon">⚠</div><div class="harness-chat__text" style="color:${harnessTokens.status.danger}">${escapeHtml(m.text ?? '')}</div></div>`;
+        return `<div class="harness-chat__row" ${idAttr}><div class="harness-chat__icon">⚠</div><div class="harness-chat__text" style="color:${harnessTokens.status.danger}">${escapeHtml(m.text ?? '')}</div></div>`;
     }
   }
 
@@ -451,9 +569,19 @@ export class HarnessStudioView {
     const previewSrc = this.state.preview.url ?? '';
     let viewportContent = '';
     if (this.state.paneTab === 'logs') {
-      viewportContent = `<pre style="margin:0;padding:${harnessTokens.space.lg}px;color:${harnessTokens.text.secondary};font-family:${harnessTokens.type.mono};font-size:${harnessTokens.type.sizes.sm}px;line-height:1.5;height:100%;overflow:auto;background:${harnessTokens.bg.elevated};">Logs will stream here when the sandbox is provisioned.</pre>`;
+      viewportContent = this.renderLogsTab();
     } else if (this.state.paneTab === 'files') {
-      viewportContent = `<div style="padding:${harnessTokens.space.lg}px;color:${harnessTokens.text.secondary};font-size:${harnessTokens.type.sizes.sm}px;">File tree will show here.</div>`;
+      viewportContent = this.renderFilesTab();
+    } else if (this.state.paneTab === 'image') {
+      viewportContent = this.renderImageTab();
+    } else if (this.state.paneTab === 'audio') {
+      viewportContent = this.renderAudioTab();
+    } else if (this.state.paneTab === 'db') {
+      viewportContent = this.renderDatabaseTab();
+    } else if (this.state.paneTab === 'request') {
+      viewportContent = this.renderRequestTab();
+    } else if (this.state.paneTab === 'deploy') {
+      viewportContent = this.renderDeployTab();
     } else if (this.state.paneTab === 'code') {
       viewportContent = this.renderCodeTab();
     } else if (this.state.paneTab === 'ship') {
@@ -483,12 +611,22 @@ export class HarnessStudioView {
         <button class="harness-input-button harness-input-button--send" data-action="pane-tab" data-pane-tab="logs" type="button" style="width:auto;padding:0 16px;">Open Logs</button>
       </div>`;
     } else {
-      viewportContent = `<iframe src="${escapeHtml(previewSrc)}" title="App preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`;
+      // The iframe loads the auth-proxied preview URL. Wrap it in a
+      // .harness-device-frame so the scale/scroll modes (set on the
+      // viewport via .is-scale / .is-scroll) can size it predictably.
+      viewportContent = `<div class="harness-device-frame"><iframe src="${escapeHtml(previewSrc)}" title="App preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe></div>`;
     }
 
     const reloadLabel = this.state.preview.lastReloadMs
       ? `last reload ${(this.state.preview.lastReloadMs / 1000).toFixed(1)}s ago`
       : '–';
+
+    // The Fit/Scroll mode pill only makes sense when an actual preview is
+    // showing — hide it on tabs like code/files/ship.
+    const showViewModePill = this.state.paneTab === 'preview' && !!previewSrc && this.state.preview.status === 'live';
+    const viewportClass = this.state.paneTab === 'preview' && !!previewSrc && this.state.preview.status === 'live'
+      ? `harness-preview__viewport is-${this.state.viewMode}`
+      : 'harness-preview__viewport';
 
     return `
       <section class="harness-preview" aria-label="Live preview">
@@ -498,12 +636,16 @@ export class HarnessStudioView {
             <button data-action="platform" data-platform="ios"     aria-pressed="${this.state.platform === 'ios'}">📱 iOS</button>
             <button data-action="platform" data-platform="android" aria-pressed="${this.state.platform === 'android'}">🤖 Android</button>
           </div>
+          ${showViewModePill ? `<div class="harness-preview__viewmode" role="tablist" aria-label="Preview view mode">
+            <button data-action="view-mode" data-view-mode="scale"  aria-pressed="${this.state.viewMode === 'scale'}"  title="Scale phone to fit the column">⬛ Fit</button>
+            <button data-action="view-mode" data-view-mode="scroll" aria-pressed="${this.state.viewMode === 'scroll'}" title="Scroll inside the pane">↕ Scroll</button>
+          </div>` : ''}
           <span class="harness-preview__spacer"></span>
           <button class="harness-preview__action" data-action="refresh"    aria-label="Refresh"   type="button">↻</button>
           <button class="harness-preview__action" data-action="fullscreen" aria-label="Fullscreen" type="button">⛶</button>
           <button class="harness-preview__action" data-action="phone"      aria-label="Open on phone" type="button">📲</button>
         </div>
-        <div class="harness-preview__viewport">${viewportContent}</div>
+        <div class="${viewportClass}" data-view-mode="${this.state.viewMode}">${viewportContent}</div>
         <div class="harness-preview__statusbar">
           <span class="harness-status-dot" data-state="${this.state.preview.status === 'live' ? 'awake' : this.state.preview.status === 'waking' ? 'waking' : this.state.preview.status === 'error' ? 'error' : ''}"></span>
           <span>${this.formatPreviewStatus()}</span>
@@ -620,6 +762,291 @@ export class HarnessStudioView {
     </div>`;
   }
 
+  // ---------------------------------------------------------------------------
+  // G2.B — Workspace tabs (Files · Image · Audio · Database)
+  // ---------------------------------------------------------------------------
+
+  private renderFilesTab(): string {
+    const project = this.activeProject();
+    if (!project) return `<div class="harness-pane-empty">Select a project to view its files.</div>`;
+    const allFiles = (project.files ?? []).filter((f) => !f.startsWith('.meta/') && !f.startsWith('node_modules/') && !f.startsWith('dist/'));
+    const search = this.state.filesSearch.toLowerCase();
+    const filter = this.state.filesFilter;
+    const filtered = allFiles.filter((f) => {
+      if (search && !f.toLowerCase().includes(search)) return false;
+      if (filter === 'all') return true;
+      const lower = f.toLowerCase();
+      switch (filter) {
+        case 'code':   return /\.(ts|tsx|js|jsx|json|md|css|html)$/.test(lower);
+        case 'image':  return /\.(png|jpg|jpeg|gif|svg|webp|ico)$/.test(lower);
+        case 'audio':  return /\.(mp3|wav|m4a|ogg|aac|flac)$/.test(lower);
+        case 'data':   return /\.(json|csv|xml|yaml|yml|sqlite|db)$/.test(lower);
+        case 'config': return /(\.env|\.config|app\.json|eas\.json|package\.json|tsconfig|babel\.config|metro\.config)/.test(lower);
+        default: return true;
+      }
+    }).sort();
+
+    const filterPills = ['all', 'code', 'image', 'audio', 'data', 'config'].map((f) =>
+      `<button class="harness-pane-filter" data-action="files-filter" data-filter="${f}" aria-pressed="${filter === f}" type="button">${f}</button>`
+    ).join('');
+
+    const fileRows = filtered.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No files match.</div>`
+      : filtered.map((f) => {
+          const ext = f.split('.').pop() ?? '';
+          const icon = iconForExt(ext);
+          return `<button class="harness-file-row" data-action="file-open" data-path="${escapeHtml(f)}" type="button">
+            <span class="harness-file-row__icon">${icon}</span>
+            <span class="harness-file-row__path">${escapeHtml(f)}</span>
+          </button>`;
+        }).join('');
+
+    return `<div class="harness-files-tab">
+      <div class="harness-pane-toolbar">
+        <input class="harness-pane-search" data-input="files-search" placeholder="Search files…" value="${escapeHtml(this.state.filesSearch)}" type="search" />
+        <span class="harness-preview__spacer"></span>
+        <span class="harness-pane-meta">${filtered.length} of ${allFiles.length}</span>
+      </div>
+      <div class="harness-pane-filters">${filterPills}</div>
+      <div class="harness-pane-list">${fileRows}</div>
+    </div>`;
+  }
+
+  private renderImageTab(): string {
+    const project = this.activeProject();
+    if (!project) return `<div class="harness-pane-empty">Select a project to manage images.</div>`;
+    const all = (project.files ?? []).filter((f) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(f));
+    const grid = all.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No images yet — generate one with the prompt above.</div>`
+      : `<div class="harness-image-grid">${all.map((path) => `
+          <div class="harness-image-tile">
+            <button class="harness-image-tile__preview" data-action="file-open" data-path="${escapeHtml(path)}" type="button" title="Open in Code">
+              <span class="harness-image-tile__icon">🖼</span>
+            </button>
+            <div class="harness-image-tile__path">${escapeHtml(path)}</div>
+            <div class="harness-image-tile__actions">
+              <button class="harness-input-button" data-action="image-use-icon" data-path="${escapeHtml(path)}" type="button" title="Set as app icon">As icon</button>
+              <button class="harness-input-button" data-action="image-use-app"  data-path="${escapeHtml(path)}" type="button" title="Insert reference into Code">Use in app</button>
+            </div>
+          </div>
+        `).join('')}</div>`;
+
+    const generating = this.state.imageGenerating;
+    return `<div class="harness-image-tab">
+      <div class="harness-pane-toolbar">
+        <input class="harness-pane-search" data-input="image-prompt" placeholder="Describe an image to generate…" value="${escapeHtml(this.state.imagePrompt)}" />
+        <button class="harness-input-button harness-input-button--send" data-action="image-generate" type="button" ${generating ? 'disabled' : ''}>${generating ? 'Generating…' : 'Generate'}</button>
+      </div>
+      ${grid}
+    </div>`;
+  }
+
+  private renderAudioTab(): string {
+    const project = this.activeProject();
+    if (!project) return `<div class="harness-pane-empty">Select a project to manage audio.</div>`;
+    const all = (project.files ?? []).filter((f) => /\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(f));
+    const list = all.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No audio yet — record a clip or generate TTS above.</div>`
+      : all.map((path) => `
+          <div class="harness-audio-row">
+            <button class="harness-audio-row__path" data-action="file-open" data-path="${escapeHtml(path)}" type="button" title="Open in Code">🔊 ${escapeHtml(path)}</button>
+            <div class="harness-audio-row__actions">
+              <button class="harness-input-button" data-action="audio-wire" data-path="${escapeHtml(path)}" type="button" title="Wire to an event in Code">Wire to event</button>
+            </div>
+          </div>
+        `).join('');
+
+    return `<div class="harness-audio-tab">
+      <div class="harness-pane-toolbar">
+        <input class="harness-pane-search" data-input="audio-prompt" placeholder="Describe a sound (TTS / SFX)…" value="${escapeHtml(this.state.audioPrompt)}" />
+        <button class="harness-input-button" data-action="audio-tts" type="button">Generate TTS</button>
+        <button class="harness-input-button" data-action="audio-record" type="button">Record</button>
+      </div>
+      <div class="harness-pane-list">${list}</div>
+    </div>`;
+  }
+
+  private renderDatabaseTab(): string {
+    const project = this.activeProject();
+    if (!project) return `<div class="harness-pane-empty">Select a project to view its data.</div>`;
+    const tables = this.state.dbTables;
+    if (tables.length === 0) {
+      // Surface common data files that look schema-like as a fallback so
+      // users can still see *something* even before the backend wires up.
+      const dataFiles = (project.files ?? []).filter((f) => /\.(json|csv|sqlite|db)$/i.test(f) && !f.includes('package.json') && !f.includes('eas.json') && !f.includes('app.json') && !f.includes('tsconfig'));
+      if (dataFiles.length === 0) {
+        return `<div class="harness-pane-empty">No tables detected yet. Use chat: "create a table for high scores".</div>`;
+      }
+      const rows = dataFiles.map((f) => `<button class="harness-file-row" data-action="file-open" data-path="${escapeHtml(f)}" type="button"><span class="harness-file-row__icon">🗄</span><span class="harness-file-row__path">${escapeHtml(f)}</span></button>`).join('');
+      return `<div class="harness-db-tab">
+        <div class="harness-pane-toolbar">
+          <span class="harness-pane-meta">No live schema yet — showing detected data files</span>
+        </div>
+        <div class="harness-pane-list">${rows}</div>
+      </div>`;
+    }
+    return `<div class="harness-db-tab">
+      <div class="harness-pane-toolbar">
+        <span class="harness-pane-meta">${tables.length} table${tables.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="harness-pane-list">
+        ${tables.map((t) => `
+          <div class="harness-db-table">
+            <div class="harness-db-table__header">
+              <strong>${escapeHtml(t.name)}</strong>
+              <span class="harness-pane-meta">${t.rowCount} row${t.rowCount === 1 ? '' : 's'} · ${escapeHtml(t.source)}</span>
+            </div>
+            <div class="harness-db-table__cols">${t.columns.map((c) => `<span class="harness-db-col">${escapeHtml(c)}</span>`).join('')}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // G2.C — Observe (Logs · Request)
+  // ---------------------------------------------------------------------------
+
+  private renderLogsTab(): string {
+    const search = this.state.logsSearch.toLowerCase();
+    const filter = this.state.logsFilter;
+    const filtered = this.state.logs.filter((l) => {
+      if (filter !== 'all' && l.level !== filter) return false;
+      if (search && !l.text.toLowerCase().includes(search)) return false;
+      return true;
+    });
+    const filterPills = ['all', 'info', 'warn', 'error', 'debug'].map((f) =>
+      `<button class="harness-pane-filter" data-action="logs-filter" data-filter="${f}" aria-pressed="${filter === f}" type="button">${f}</button>`
+    ).join('');
+    const lines = filtered.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No logs yet. They stream here while the agent runs and the sandbox boots.</div>`
+      : filtered.slice(-500).map((l) => `
+          <div class="harness-log-line harness-log-line--${l.level}" data-trace-id="${escapeHtml(l.traceId ?? '')}">
+            <span class="harness-log-time">${formatTime(l.ts)}</span>
+            <span class="harness-log-level harness-log-level--${l.level}">${l.level}</span>
+            <span class="harness-log-source">${escapeHtml(l.source)}</span>
+            <span class="harness-log-text">${escapeHtml(l.text)}</span>
+            <button class="harness-log-ask" data-action="ask-ai-log" data-log-id="${escapeHtml(l.id)}" title="Ask AI about this line" type="button">Ask AI</button>
+          </div>
+        `).join('');
+    return `<div class="harness-logs-tab">
+      <div class="harness-pane-toolbar">
+        <input class="harness-pane-search" data-input="logs-search" placeholder="Search logs…" value="${escapeHtml(this.state.logsSearch)}" type="search" />
+        <span class="harness-preview__spacer"></span>
+        <span class="harness-pane-meta">${filtered.length} of ${this.state.logs.length}</span>
+      </div>
+      <div class="harness-pane-filters">${filterPills}</div>
+      <div class="harness-pane-list harness-logs-list">${lines}</div>
+    </div>`;
+  }
+
+  private renderRequestTab(): string {
+    const search = this.state.requestsSearch.toLowerCase();
+    const filter = this.state.requestsFilter;
+    const filtered = this.state.requests.filter((r) => {
+      if (search && !`${r.method} ${r.url}`.toLowerCase().includes(search)) return false;
+      if (filter === '2xx' && (r.status < 200 || r.status >= 300)) return false;
+      if (filter === '4xx' && (r.status < 400 || r.status >= 500)) return false;
+      if (filter === '5xx' && (r.status < 500 || r.status >= 600)) return false;
+      return true;
+    });
+    const filterPills = ['all', '2xx', '4xx', '5xx'].map((f) =>
+      `<button class="harness-pane-filter" data-action="requests-filter" data-filter="${f}" aria-pressed="${filter === f}" type="button">${f}</button>`
+    ).join('');
+
+    const selected = this.state.requests.find((r) => r.id === this.state.selectedRequestId);
+    const list = filtered.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No requests captured yet.</div>`
+      : filtered.slice(-200).map((r) => {
+          const statusClass = r.status >= 500 ? 'err' : r.status >= 400 ? 'warn' : r.status >= 200 ? 'ok' : 'pending';
+          const sel = r.id === this.state.selectedRequestId ? ' is-active' : '';
+          return `<button class="harness-req-row${sel}" data-action="request-select" data-request-id="${escapeHtml(r.id)}" type="button">
+            <span class="harness-req-method">${escapeHtml(r.method)}</span>
+            <span class="harness-req-status harness-req-status--${statusClass}">${r.status}</span>
+            <span class="harness-req-url">${escapeHtml(r.url)}</span>
+            <span class="harness-req-ms">${r.ms}ms</span>
+          </button>`;
+        }).join('');
+
+    const detail = selected ? `<div class="harness-req-detail">
+      <div class="harness-req-detail__header">
+        <strong>${escapeHtml(selected.method)} ${escapeHtml(selected.url)}</strong>
+        <span class="harness-pane-meta">${selected.status} · ${selected.ms}ms · ${formatTime(selected.ts)}${selected.traceId ? ` · trace ${escapeHtml(selected.traceId.slice(0, 8))}` : ''}</span>
+      </div>
+      ${selected.reqBody ? `<details open><summary>Request body</summary><pre>${escapeHtml(selected.reqBody.slice(0, 4000))}</pre></details>` : ''}
+      ${selected.resBody ? `<details><summary>Response body</summary><pre>${escapeHtml(selected.resBody.slice(0, 4000))}</pre></details>` : ''}
+      <div class="harness-req-detail__actions">
+        <button class="harness-input-button" data-action="request-replay" data-request-id="${escapeHtml(selected.id)}" type="button">Replay</button>
+        ${selected.byMessageId ? `<button class="harness-input-button" data-action="link-back" data-message-id="${escapeHtml(selected.byMessageId)}" type="button">← made by</button>` : ''}
+      </div>
+    </div>` : '';
+
+    return `<div class="harness-request-tab">
+      <div class="harness-pane-toolbar">
+        <input class="harness-pane-search" data-input="requests-search" placeholder="Search method or URL…" value="${escapeHtml(this.state.requestsSearch)}" type="search" />
+        <span class="harness-preview__spacer"></span>
+        <span class="harness-pane-meta">${filtered.length} of ${this.state.requests.length}</span>
+      </div>
+      <div class="harness-pane-filters">${filterPills}</div>
+      <div class="harness-request-split">
+        <div class="harness-pane-list">${list}</div>
+        ${detail}
+      </div>
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // G2.D — Deploy (snapshot + rollback)
+  // ---------------------------------------------------------------------------
+
+  private renderDeployTab(): string {
+    const project = this.activeProject();
+    if (!project) return `<div class="harness-pane-empty">Select a project to deploy.</div>`;
+    const snaps = this.state.deploySnapshots;
+    const env = this.state.deployActiveEnv;
+    const live = snaps.find((s) => s.status === 'live' && s.env === env);
+
+    const envPill = `<div class="harness-preview__viewmode" role="tablist" aria-label="Environment">
+      <button data-action="deploy-env" data-env="preview" aria-pressed="${env === 'preview'}" type="button">Preview</button>
+      <button data-action="deploy-env" data-env="prod"    aria-pressed="${env === 'prod'}"    type="button">Production</button>
+    </div>`;
+
+    const head = `<div class="harness-ship-card">
+      <h3>Deploy snapshot</h3>
+      <p class="harness-ship-sub">Each deploy captures Code + Files + DB at a point in time. Roll back to any version with one click.</p>
+      <div class="harness-ship-actions">
+        ${envPill}
+        <button class="harness-input-button harness-input-button--send" data-action="deploy-now" data-env="${env}" type="button">Deploy ${env}</button>
+      </div>
+      ${live ? `<div class="harness-ship-status">Live: ${escapeHtml(live.version)} · ${formatTime(live.createdAt)}${live.bundleHash ? ` · ${escapeHtml(live.bundleHash.slice(0, 10))}` : ''}</div>` : `<div class="harness-ship-status">No active ${env} deploy yet.</div>`}
+    </div>`;
+
+    const versionsBody = snaps.length === 0
+      ? `<div class="harness-pane-empty" style="padding:18px;font-size:13px;">No snapshots yet.</div>`
+      : snaps.filter((s) => s.env === env).map((s) => `
+          <div class="harness-deploy-snap">
+            <div class="harness-deploy-snap__head">
+              <strong>${escapeHtml(s.version)}</strong>
+              <span class="harness-pane-meta">${formatTime(s.createdAt)}${s.commitSha ? ` · ${escapeHtml(s.commitSha.slice(0, 7))}` : ''}${s.sizeBytes ? ` · ${humanSize(s.sizeBytes)}` : ''}</span>
+              <span class="harness-deploy-snap__status harness-deploy-snap__status--${s.status}">${s.status}</span>
+            </div>
+            <div class="harness-deploy-snap__actions">
+              ${s.ipaUrl ? `<a class="harness-input-button" href="${escapeHtml(s.ipaUrl)}" target="_blank" rel="noopener">.ipa</a>` : ''}
+              ${s.aabUrl ? `<a class="harness-input-button" href="${escapeHtml(s.aabUrl)}" target="_blank" rel="noopener">.aab</a>` : ''}
+              ${s.status !== 'live' ? `<button class="harness-input-button" data-action="deploy-rollback" data-snap-id="${escapeHtml(s.id)}" type="button">Rollback</button>` : ''}
+            </div>
+          </div>
+        `).join('');
+
+    return `<div class="harness-deploy-tab">
+      ${head}
+      <div class="harness-ship-card">
+        <h3>Versions (${env})</h3>
+        <div class="harness-pane-list">${versionsBody}</div>
+      </div>
+    </div>`;
+  }
+
   private renderQrModal(): string {
     const project = this.activeProject();
     const qrData = encodeURIComponent(this.state.preview.url ?? '');
@@ -700,9 +1127,19 @@ export class HarnessStudioView {
         case 'plan-toggle':
           this.setState({ planCollapsed: !this.state.planCollapsed });
           break;
+        case 'thinking-toggle':
+          this.setState({ thinking: { ...this.state.thinking, collapsed: !this.state.thinking.collapsed } });
+          break;
         case 'pane-tab': {
-          const tab = actionEl.dataset.paneTab as 'preview' | 'logs' | 'files' | 'code' | 'ship';
+          const tab = actionEl.dataset.paneTab as 'preview' | 'logs' | 'files' | 'code' | 'ship' | 'image' | 'audio' | 'db' | 'request' | 'deploy';
           if (tab) this.callbacks.onPaneTab(tab);
+          break;
+        }
+        case 'view-mode': {
+          const mode = actionEl.dataset.viewMode as 'scale' | 'scroll';
+          if (mode && (mode === 'scale' || mode === 'scroll')) {
+            this.setState({ viewMode: mode });
+          }
           break;
         }
         case 'code-open': {
@@ -745,6 +1182,96 @@ export class HarnessStudioView {
           }
           this.callbacks.onModalClose();
           break;
+        case 'files-filter': {
+          const f = actionEl.dataset.filter as HarnessStudioState['filesFilter'];
+          if (f) this.setState({ filesFilter: f });
+          break;
+        }
+        case 'file-open': {
+          const path = actionEl.dataset.path;
+          if (path) {
+            // Opening from any tab routes to Code with that file loaded.
+            this.callbacks.onPaneTab('code');
+            if (this.callbacks.onCodeFileOpen) this.callbacks.onCodeFileOpen(path);
+            if (this.callbacks.onFileOpen) this.callbacks.onFileOpen(path);
+          }
+          break;
+        }
+        case 'image-generate': {
+          const prompt = (root.querySelector<HTMLInputElement>('[data-input="image-prompt"]')?.value ?? this.state.imagePrompt).trim();
+          if (prompt && this.callbacks.onImageGenerate) {
+            this.callbacks.onImageGenerate(prompt);
+          }
+          break;
+        }
+        case 'image-use-icon': {
+          const path = actionEl.dataset.path;
+          if (path && this.callbacks.onImageUseAsIcon) this.callbacks.onImageUseAsIcon(path);
+          break;
+        }
+        case 'image-use-app': {
+          const path = actionEl.dataset.path;
+          if (path && this.callbacks.onImageUseInApp) this.callbacks.onImageUseInApp(path);
+          break;
+        }
+        case 'audio-tts': {
+          const prompt = (root.querySelector<HTMLInputElement>('[data-input="audio-prompt"]')?.value ?? this.state.audioPrompt).trim();
+          if (prompt && this.callbacks.onAudioTts) this.callbacks.onAudioTts(prompt);
+          break;
+        }
+        case 'audio-record':
+          if (this.callbacks.onAudioRecord) this.callbacks.onAudioRecord();
+          break;
+        case 'audio-wire': {
+          const path = actionEl.dataset.path;
+          if (path && this.callbacks.onAudioWire) this.callbacks.onAudioWire(path);
+          break;
+        }
+        case 'logs-filter': {
+          const f = actionEl.dataset.filter as HarnessStudioState['logsFilter'];
+          if (f) this.setState({ logsFilter: f });
+          break;
+        }
+        case 'requests-filter': {
+          const f = actionEl.dataset.filter as HarnessStudioState['requestsFilter'];
+          if (f) this.setState({ requestsFilter: f });
+          break;
+        }
+        case 'request-select': {
+          const id = actionEl.dataset.requestId;
+          if (id) this.setState({ selectedRequestId: id });
+          break;
+        }
+        case 'request-replay': {
+          const id = actionEl.dataset.requestId;
+          if (id && this.callbacks.onRequestReplay) this.callbacks.onRequestReplay(id);
+          break;
+        }
+        case 'ask-ai-log': {
+          const logId = actionEl.dataset.logId;
+          if (logId && this.callbacks.onAskAiAboutLog) this.callbacks.onAskAiAboutLog(logId);
+          break;
+        }
+        case 'deploy-env': {
+          const env = actionEl.dataset.env as 'preview' | 'prod';
+          if (env) this.setState({ deployActiveEnv: env });
+          break;
+        }
+        case 'deploy-now': {
+          const env = (actionEl.dataset.env as 'preview' | 'prod') ?? 'preview';
+          if (this.callbacks.onDeployNow) this.callbacks.onDeployNow(env);
+          break;
+        }
+        case 'deploy-rollback': {
+          const snapId = actionEl.dataset.snapId;
+          if (snapId && this.callbacks.onDeployRollback) this.callbacks.onDeployRollback(snapId);
+          break;
+        }
+        case 'link-back': {
+          const messageId = actionEl.dataset.messageId;
+          if (messageId && this.callbacks.onLinkBackToMessage) this.callbacks.onLinkBackToMessage(messageId);
+          break;
+        }
         case 'example': {
           const prompt = actionEl.dataset.prompt;
           if (prompt) {
@@ -801,10 +1328,88 @@ export class HarnessStudioView {
       });
     }
 
+    // Files-search / logs-search / requests-search — debounced state updates.
+    const filesSearch = root.querySelector<HTMLInputElement>('[data-input="files-search"]');
+    if (filesSearch) {
+      filesSearch.addEventListener('input', () => {
+        this.state.filesSearch = filesSearch.value;
+        // Cheap re-render: update the visible list region without re-binding everything.
+        // Full re-render is fine here since the lists are small.
+        this.render();
+        const next = this.container.querySelector<HTMLInputElement>('[data-input="files-search"]');
+        if (next) { next.focus(); next.setSelectionRange(filesSearch.value.length, filesSearch.value.length); }
+      });
+    }
+    const logsSearch = root.querySelector<HTMLInputElement>('[data-input="logs-search"]');
+    if (logsSearch) {
+      logsSearch.addEventListener('input', () => {
+        this.state.logsSearch = logsSearch.value;
+        this.render();
+        const next = this.container.querySelector<HTMLInputElement>('[data-input="logs-search"]');
+        if (next) { next.focus(); next.setSelectionRange(logsSearch.value.length, logsSearch.value.length); }
+      });
+    }
+    const requestsSearch = root.querySelector<HTMLInputElement>('[data-input="requests-search"]');
+    if (requestsSearch) {
+      requestsSearch.addEventListener('input', () => {
+        this.state.requestsSearch = requestsSearch.value;
+        this.render();
+        const next = this.container.querySelector<HTMLInputElement>('[data-input="requests-search"]');
+        if (next) { next.focus(); next.setSelectionRange(requestsSearch.value.length, requestsSearch.value.length); }
+      });
+    }
+    const imagePrompt = root.querySelector<HTMLInputElement>('[data-input="image-prompt"]');
+    if (imagePrompt) {
+      imagePrompt.addEventListener('input', () => {
+        this.state.imagePrompt = imagePrompt.value;
+      });
+    }
+    const audioPrompt = root.querySelector<HTMLInputElement>('[data-input="audio-prompt"]');
+    if (audioPrompt) {
+      audioPrompt.addEventListener('input', () => {
+        this.state.audioPrompt = audioPrompt.value;
+      });
+    }
+
     // Auto-scroll the chat to the bottom on each render.
     const stream = root.querySelector<HTMLElement>('[data-region="messages"]');
     if (stream) {
       requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight; });
+    }
+
+    // Preview pane scale-to-fit. In `is-scale` mode we render a 390x844
+    // device frame and scale it down to fit the viewport. The CSS variable
+    // `--harness-scale` is set on the viewport from a ResizeObserver so the
+    // phone reflows when the column resizes (window resize, dev tools open,
+    // etc.). In `is-scroll` mode we leave it alone — the viewport scrolls.
+    const viewport = root.querySelector<HTMLElement>('.harness-preview__viewport.is-scale');
+    if (viewport) {
+      const fit = (): void => {
+        const rect = viewport.getBoundingClientRect();
+        // Wait for layout — first measurements after innerHTML can be 0.
+        if (rect.width <= 1 || rect.height <= 1) return;
+        const FRAME_W = 390;
+        const FRAME_H = 844;
+        const PAD = 24; // breathing room
+        const sx = (rect.width - PAD) / FRAME_W;
+        const sy = (rect.height - PAD) / FRAME_H;
+        // Take the smaller (so the frame fits both dimensions). Don't upscale
+        // beyond 1.0 — at large screens we want the phone at native size.
+        // Don't floor too high — at very narrow columns we still want to
+        // show *something* even if it's small.
+        let scale = Math.min(sx, sy, 1);
+        if (!Number.isFinite(scale) || scale <= 0) scale = 1;
+        if (scale < 0.3) scale = 0.3; // unreadably small below this
+        viewport.style.setProperty('--harness-scale', String(scale));
+      };
+      // Run after layout settles.
+      requestAnimationFrame(() => requestAnimationFrame(fit));
+      // Reflow on column / window resize.
+      const prior = (viewport as unknown as { __resizeObs?: ResizeObserver }).__resizeObs;
+      prior?.disconnect();
+      const ro = new ResizeObserver(() => fit());
+      ro.observe(viewport);
+      (viewport as unknown as { __resizeObs?: ResizeObserver }).__resizeObs = ro;
     }
   }
 }
@@ -907,4 +1512,33 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function iconForExt(ext: string): string {
+  const e = ext.toLowerCase();
+  if (['ts','tsx','js','jsx','mjs'].includes(e)) return '𝙏𝙎';
+  if (['json','yaml','yml','xml','csv'].includes(e)) return '⌥';
+  if (['md','txt'].includes(e)) return '📄';
+  if (['png','jpg','jpeg','gif','svg','webp','ico'].includes(e)) return '🖼';
+  if (['mp3','wav','m4a','ogg','aac','flac'].includes(e)) return '🔊';
+  if (['css','scss','sass','less'].includes(e)) return '𝘾𝘚𝘚';
+  if (['html','htm'].includes(e)) return '⟨⟩';
+  if (['sqlite','db'].includes(e)) return '🗄';
+  return '·';
+}
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  } catch {
+    return iso;
+  }
+}
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
 }

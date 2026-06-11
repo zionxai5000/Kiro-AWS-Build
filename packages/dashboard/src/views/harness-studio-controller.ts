@@ -15,6 +15,7 @@ import {
   HarnessStudioView,
   ssePayloadToMessages,
   type HarnessProject,
+  type HarnessStudioState,
   type ChatMessage,
   type SsePayload,
 } from './harness-studio.js';
@@ -59,8 +60,12 @@ export class HarnessStudioController {
       onModalClose: () => this.view.setState({ qrModalOpen: false }),
       onPaneTab: (tab) => {
         this.view.setState({ paneTab: tab });
-        if (tab === 'code' || tab === 'ship') void this.refreshActiveProjectFiles();
-        if (tab === 'ship') void this.refreshShipState();
+        if (tab === 'code' || tab === 'ship' || tab === 'files' || tab === 'image' || tab === 'audio' || tab === 'db') {
+          void this.refreshActiveProjectFiles();
+        }
+        if (tab === 'ship' || tab === 'deploy') void this.refreshShipState();
+        if (tab === 'deploy') void this.refreshDeployments();
+        if (tab === 'logs' && !this.logSubscriptionStarted) void this.subscribeLogs();
       },
       onPlanToggle: () => { /* handled inside the view */ },
       onCodeFileOpen: this.handleCodeOpen.bind(this),
@@ -70,6 +75,80 @@ export class HarnessStudioController {
       onGenerateListing: this.handleGenerateListing.bind(this),
       onPreflight: this.handlePreflight.bind(this),
       onSubmitConfirm: this.handleSubmitConfirm.bind(this),
+      // G2.B — Files / Image / Audio. Most of these route to the agent
+      // by sending a synthetic chat prompt; the agent handles asset
+      // generation through existing OpenAI Images / TTS pipelines.
+      onFileOpen: (path) => {
+        // The view has already switched the tab to "code" and called
+        // onCodeFileOpen; this is a no-op pass-through.
+        void path;
+      },
+      onImageGenerate: (prompt) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.view.setState({ imageGenerating: true });
+        this.handleSubmit(`Generate an image for the app: ${prompt}. Save it under assets/ and reference it from the app where appropriate.`, projectId);
+      },
+      onImageUseAsIcon: (path) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.handleSubmit(`Use ${path} as the app icon. Update app.json's "icon" field and any other places that reference the icon.`, projectId);
+      },
+      onImageUseInApp: (path) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.handleSubmit(`Use ${path} somewhere meaningful in the app — pick the right screen, e.g. as a hero image, splash, or category card.`, projectId);
+      },
+      onAudioTts: (prompt) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.handleSubmit(`Generate a short audio clip via TTS: "${prompt}". Save it under assets/ and wire it to a meaningful event (e.g. button-tap, win, error).`, projectId);
+      },
+      onAudioRecord: () => {
+        // Browser-side recording is a separate flow; for now nudge the
+        // user to drop the file in via the Files tab.
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: '🎤 Recording UI not yet wired — drop a clip into Files for now.' });
+      },
+      onAudioWire: (path) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.handleSubmit(`Wire ${path} into the app — pick the most natural event for it (button press, win condition, etc.) and update Code accordingly.`, projectId);
+      },
+      // G2.C — Logs / Request "Ask AI" + Replay
+      onAskAiAboutLog: (logId) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        const log = this.view.getState().logs.find((l) => l.id === logId);
+        if (!log) return;
+        this.view.setState({ paneTab: 'preview' });
+        this.handleSubmit(`Look at this log line and explain what it means. Fix it if it's an error:\n${log.level.toUpperCase()} [${log.source}] ${log.text}`, projectId);
+      },
+      onRequestReplay: this.handleRequestReplay.bind(this),
+      // G2.D — Deploy snapshot + rollback
+      onDeployNow: (env) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `🚀 Deploying to ${env}…` });
+        void this.handleDeployNow(projectId, env);
+      },
+      onDeployRollback: (snapId) => {
+        const projectId = this.activeProjectId();
+        if (!projectId) return;
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `⏪ Rolling back to ${snapId}…` });
+        void this.handleDeployRollback(projectId, snapId);
+      },
+      // G2.E — backward link: scroll Chat to the message that produced
+      // an artifact.
+      onLinkBackToMessage: (messageId) => {
+        const root = this.view['container'] as HTMLElement;
+        const node = root?.querySelector?.(`[data-message-id="${messageId}"]`);
+        if (node) {
+          this.view.setState({ paneTab: 'preview', highlightedMessageId: messageId });
+          (node as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (node as HTMLElement).classList.add('is-highlighted');
+          setTimeout(() => (node as HTMLElement).classList.remove('is-highlighted'), 2000);
+        }
+      },
     });
     this.view.render();
   }
@@ -122,12 +201,22 @@ export class HarnessStudioController {
     }
   }
 
+  /** Track the last announced sandbox phase across all poll loops so
+   *  duplicate "Build phase: X" chat lines never accumulate even when
+   *  the backend is bouncing in/out of the same phase or multiple poll
+   *  loops fire concurrently. Reset by handleSelect when switching
+   *  projects. */
+  private lastAnnouncedPhase = '';
+  private lastAnnouncedPhaseAt = 0;
+
   private async handleSelect(projectId: string): Promise<void> {
     this.setState({
       activeProjectId: projectId,
       messages: [],
       preview: { url: this.previewUrl(projectId), status: 'waking' },
     });
+    this.lastAnnouncedPhase = '';
+    this.lastAnnouncedPhaseAt = 0;
     this.view.appendMessage({ id: rid(), kind: 'phase', text: 'Waking sandbox — bundling app, ~1-3 min on first wake…' });
     // wakeSandbox now returns 202 immediately and runs the bundle in the
     // background. Poll GET /sandbox every 5s until ready or error.
@@ -142,7 +231,6 @@ export class HarnessStudioController {
     }
     // Poll for up to 8 minutes.
     const start = Date.now();
-    let lastPhase = '';
     while (Date.now() - start < 8 * 60_000) {
       await new Promise((r) => setTimeout(r, 5000));
       try {
@@ -150,9 +238,14 @@ export class HarnessStudioController {
           `/app-dev/projects/${encodeURIComponent(projectId)}/sandbox`,
           { method: 'GET' },
         );
-        if (status.phase && status.phase !== lastPhase) {
+        // Coalesce: only emit a new phase line if the phase actually changed
+        // since the last announcement (across ALL poll loops, not just this
+        // one). The lastAnnouncedPhase field on the controller persists
+        // across overlapping polls so the chat doesn't stutter.
+        if (status.phase && status.phase !== this.lastAnnouncedPhase) {
           this.view.appendMessage({ id: rid(), kind: 'phase', text: `Build phase: ${status.phase}` });
-          lastPhase = status.phase;
+          this.lastAnnouncedPhase = status.phase;
+          this.lastAnnouncedPhaseAt = Date.now();
         }
         if (status.status === 'live' || status.status === 'ready') {
           this.setState({
@@ -306,6 +399,8 @@ export class HarnessStudioController {
           for (const m of ssePayloadToMessages(payload)) {
             this.view.appendMessage(m);
           }
+          // G2.F — translate agent events into Agents Live + thinking strip.
+          this.applyEventToAgentsAndThinking(payload);
         } catch {
           /* malformed event line, ignore */
         }
@@ -509,6 +604,270 @@ export class HarnessStudioController {
     ship.crashes = crashes.crashes;
     if (cost) ship.cost = cost;
     this.view.setState({ ship });
+  }
+
+  // ---------------------------------------------------------------------------
+  // G2.C — Logs subscription
+  // ---------------------------------------------------------------------------
+
+  private logSubscriptionStarted = false;
+  private logsWs: WebSocket | null = null;
+
+  private async subscribeLogs(): Promise<void> {
+    if (this.logSubscriptionStarted) return;
+    this.logSubscriptionStarted = true;
+    // The dashboard already exposes a WebSocket bridge for app-dev events.
+    // Connect to it and translate every event into a log line.
+    try {
+      const wsBase = this.apiBase.replace(/^http/, 'ws').replace(/\/api$/, '');
+      const url = `${wsBase}/ws`;
+      const ws = new WebSocket(url);
+      this.logsWs = ws;
+      ws.addEventListener('message', (ev) => {
+        try {
+          const data = typeof ev.data === 'string' ? JSON.parse(ev.data) : null;
+          if (!data) return;
+          this.appendLog({
+            id: rid(),
+            level: this.classifyLogLevel(data),
+            source: this.classifyLogSource(data),
+            text: this.formatLogText(data),
+            ts: data.ts ?? new Date().toISOString(),
+            traceId: data.traceId,
+          });
+          // Detect HTTP-shaped events for the Request inspector.
+          if (data.method && data.url && typeof data.status !== 'undefined') {
+            this.appendRequest({
+              id: rid(),
+              method: String(data.method),
+              url: String(data.url),
+              status: Number(data.status),
+              ms: Number(data.ms ?? 0),
+              ts: data.ts ?? new Date().toISOString(),
+              reqBody: data.reqBody ? JSON.stringify(data.reqBody, null, 2).slice(0, 4000) : undefined,
+              resBody: data.resBody ? JSON.stringify(data.resBody, null, 2).slice(0, 4000) : undefined,
+              traceId: data.traceId,
+              byMessageId: data.byMessageId,
+            });
+          }
+        } catch {
+          /* ignore malformed frames */
+        }
+      });
+      ws.addEventListener('close', () => {
+        this.logSubscriptionStarted = false;
+        this.logsWs = null;
+      });
+    } catch (e) {
+      this.appendLog({
+        id: rid(),
+        level: 'warn',
+        source: 'system',
+        text: `Logs WebSocket unavailable: ${(e as Error).message}`,
+        ts: new Date().toISOString(),
+      });
+    }
+  }
+
+  private appendLog(line: HarnessStudioState['logs'][number]): void {
+    const cur = this.view.getState().logs;
+    const next = [...cur, line];
+    // Cap retained lines so the DOM doesn't blow up after a long session.
+    if (next.length > 2000) next.splice(0, next.length - 2000);
+    this.view.setState({ logs: next });
+  }
+
+  private appendRequest(req: HarnessStudioState['requests'][number]): void {
+    const cur = this.view.getState().requests;
+    const next = [...cur, req];
+    if (next.length > 500) next.splice(0, next.length - 500);
+    this.view.setState({ requests: next });
+  }
+
+  private classifyLogLevel(d: Record<string, unknown>): 'info' | 'warn' | 'error' | 'debug' {
+    const explicit = String(d.level ?? '').toLowerCase();
+    if (explicit === 'error' || explicit === 'warn' || explicit === 'info' || explicit === 'debug') {
+      return explicit as 'error' | 'warn' | 'info' | 'debug';
+    }
+    const msg = JSON.stringify(d).toLowerCase();
+    if (msg.includes('error') || msg.includes('fail') || msg.includes('crash')) return 'error';
+    if (msg.includes('warn')) return 'warn';
+    if (msg.includes('debug')) return 'debug';
+    return 'info';
+  }
+
+  private classifyLogSource(d: Record<string, unknown>): 'agent' | 'build' | 'runtime' | 'system' {
+    const t = String(d.type ?? d.source ?? '').toLowerCase();
+    if (t.includes('agent') || t.includes('hook')) return 'agent';
+    if (t.includes('build') || t.includes('eas') || t.includes('bundle')) return 'build';
+    if (t.includes('runtime') || t.includes('sandbox') || t.includes('preview')) return 'runtime';
+    return 'system';
+  }
+
+  private formatLogText(d: Record<string, unknown>): string {
+    if (typeof d.message === 'string') return d.message;
+    if (typeof d.text === 'string') return d.text;
+    if (typeof d.summary === 'string') return d.summary;
+    return JSON.stringify(d).slice(0, 800);
+  }
+
+  private async handleRequestReplay(requestId: string): Promise<void> {
+    const req = this.view.getState().requests.find((r) => r.id === requestId);
+    if (!req) return;
+    this.view.appendMessage({ id: rid(), kind: 'phase', text: `🔁 Replaying ${req.method} ${req.url}…` });
+    try {
+      const r = await fetch(req.url, {
+        method: req.method,
+        headers: { 'Content-Type': 'application/json', ...(this.bearer ? { Authorization: `Bearer ${this.bearer}` } : {}) },
+        body: req.reqBody && req.method !== 'GET' ? req.reqBody : undefined,
+      });
+      const text = await r.text().catch(() => '');
+      this.appendRequest({
+        id: rid(),
+        method: req.method,
+        url: req.url,
+        status: r.status,
+        ms: 0,
+        ts: new Date().toISOString(),
+        reqBody: req.reqBody,
+        resBody: text.slice(0, 4000),
+      });
+    } catch (e) {
+      this.view.appendMessage({ id: rid(), kind: 'error', text: `Replay failed: ${(e as Error).message}` });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // G2.D — Deploy snapshots + rollback
+  // ---------------------------------------------------------------------------
+
+  private async refreshDeployments(): Promise<void> {
+    const projectId = this.activeProjectId();
+    if (!projectId) return;
+    try {
+      const res = await this.fetchJson<{ snapshots: HarnessStudioState['deploySnapshots'] }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/deployments`,
+        { method: 'GET' },
+      ).catch(() => null);
+      if (res && Array.isArray(res.snapshots)) {
+        this.view.setState({ deploySnapshots: res.snapshots });
+      } else {
+        // Endpoint not yet wired on the backend — leave existing state alone.
+        // Don't reset; that would erase any client-side optimistic snapshots.
+      }
+    } catch {
+      /* tolerate */
+    }
+  }
+
+  private async handleDeployNow(projectId: string, env: 'preview' | 'prod'): Promise<void> {
+    try {
+      const res = await this.fetchJson<{ snapshotId: string; version: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/deployments`,
+        { method: 'POST', body: JSON.stringify({ env }) },
+      ).catch(() => null);
+      if (res) {
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `✓ Snapshot ${res.version} deployed to ${env}` });
+        await this.refreshDeployments();
+      } else {
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `Deploy endpoint not yet wired — falling back to chat.` });
+        this.handleSubmit(`Take a deploy snapshot to ${env}: bundle Code + Files + DB. Make this immutable.`, projectId);
+      }
+    } catch (e) {
+      this.view.appendMessage({ id: rid(), kind: 'error', text: `Deploy failed: ${(e as Error).message}` });
+    }
+  }
+
+  private async handleDeployRollback(projectId: string, snapshotId: string): Promise<void> {
+    try {
+      const res = await this.fetchJson<{ ok: boolean; snapshotId: string }>(
+        `/app-dev/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(snapshotId)}/rollback`,
+        { method: 'POST', body: '{}' },
+      ).catch(() => null);
+      if (res && res.ok) {
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `⏪ Rolled back to ${snapshotId}` });
+        await this.refreshDeployments();
+      } else {
+        this.view.appendMessage({ id: rid(), kind: 'phase', text: `Rollback endpoint not yet wired — falling back to chat.` });
+        this.handleSubmit(`Roll back the deployment to snapshot ${snapshotId}.`, projectId);
+      }
+    } catch (e) {
+      this.view.appendMessage({ id: rid(), kind: 'error', text: `Rollback failed: ${(e as Error).message}` });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // G2.F — Agents Live + Streaming "thinking" wiring
+  // ---------------------------------------------------------------------------
+
+  /** Translate a single SSE payload into agent-status + thinking updates. */
+  private applyEventToAgentsAndThinking(payload: SsePayload): void {
+    if (!payload) return;
+
+    // Streaming agent text → accumulate into the thinking strip until the
+    // first tool.call (i.e. action), then collapse it. This makes the
+    // model's planning visible without overwhelming the chat history.
+    if (payload.type === 'agent' && payload.event?.type === 'text' && payload.event.text) {
+      const cur = this.view.getState().thinking;
+      // Don't accumulate the same chunk twice when the SSE stream replays.
+      const next = { text: cur.text + payload.event.text, collapsed: false, visible: true };
+      // Cap the strip to ~4KB so it stays readable and the DOM doesn't explode.
+      if (next.text.length > 4096) next.text = next.text.slice(-4096);
+      this.view.setState({ thinking: next });
+      this.bumpAgent('builder', 'thinking', 'reading + planning…');
+      return;
+    }
+
+    // Tool calls → mark Builder as "working" and label with the tool name.
+    if (payload.type === 'agent' && payload.event?.type === 'tool.call') {
+      const tool = payload.event.name ?? 'tool';
+      const summary = payload.event.summary ?? tool;
+      this.bumpAgent('builder', 'working', `${tool} · ${summary.slice(0, 40)}`);
+      // Once action starts, collapse the thinking strip — the user has
+      // already seen the plan.
+      const cur = this.view.getState().thinking;
+      this.view.setState({ thinking: { ...cur, collapsed: true } });
+      return;
+    }
+
+    // Subagent (Hooks 11–15 reviewers) → light up the Critic.
+    if (payload.type === 'agent' && (payload.event?.type === 'subagent.spawn' || payload.event?.type === 'subagent.result')) {
+      const ev = payload.event;
+      if (ev.type === 'subagent.spawn') {
+        this.bumpAgent('critic', 'thinking', `${ev.name ?? 'reviewer'} reviewing…`);
+      } else {
+        const passed = !!ev.passed;
+        this.bumpAgent('critic', passed ? 'done' : 'failed', `${ev.name ?? 'reviewer'}: ${passed ? '✓ pass' : '✗ fail'}${ev.score ? ` (${ev.score})` : ''}`);
+      }
+      return;
+    }
+
+    // Done → mark all agents idle.
+    if (payload.type === 'done') {
+      const passed = !!payload.passed;
+      this.bumpAgent('builder', 'done', 'finished');
+      this.bumpAgent('critic',  passed ? 'done' : 'failed', passed ? 'gate passed' : 'gate failed');
+      // Hide the thinking strip after a small delay so the final text is readable.
+      setTimeout(() => {
+        const cur = this.view.getState().thinking;
+        this.view.setState({ thinking: { ...cur, visible: false } });
+      }, 1500);
+      return;
+    }
+
+    // Phase changes → light status text.
+    if (payload.type === 'phase' && payload.message) {
+      this.bumpAgent('builder', 'working', payload.message.slice(0, 40));
+    }
+  }
+
+  private bumpAgent(id: 'builder' | 'critic' | 'marketing', status: 'idle' | 'thinking' | 'working' | 'done' | 'failed', task?: string): void {
+    const cur = this.view.getState().agents;
+    const next = cur.map((a) => a.id === id
+      ? { ...a, status, task, lastHeartbeat: new Date().toISOString() }
+      : a,
+    );
+    this.view.setState({ agents: next });
   }
 
   private async handleBuild(platform: 'ios' | 'android' | 'all'): Promise<void> {

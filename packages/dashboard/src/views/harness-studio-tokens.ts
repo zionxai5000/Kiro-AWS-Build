@@ -175,7 +175,8 @@ export function renderHarnessStylesheet(): string {
       padding: ${px(s.base)};
       gap: ${px(s.md)};
       border-right: 1px solid ${t.border.hairline};
-      overflow-y: auto;
+      min-height: 0;          /* critical — children scroll, not the sidebar itself */
+      overflow: hidden;       /* clip overflow so inner regions own scroll */
       background: rgba(22, 30, 51, 0.4);
       backdrop-filter: blur(20px) saturate(140%);
     }
@@ -200,7 +201,13 @@ export function renderHarnessStylesheet(): string {
     }
     .harness-sidebar__new:hover { background: rgba(124, 131, 255, 0.24); }
     .harness-sidebar__new:active { transform: scale(0.98); }
-    .harness-sidebar__projects { display: flex; flex-direction: column; gap: ${px(s.xs)}; }
+    .harness-sidebar__projects {
+      flex: 1;                /* take all remaining space between New App and util */
+      overflow-y: auto;       /* scroll inside the projects region only */
+      min-height: 0;          /* allow shrinking below content size when sidebar is short */
+      display: flex; flex-direction: column;
+      gap: ${px(s.xs)};
+    }
     .harness-project-row {
       display: flex; flex-direction: column;
       gap: ${px(s.xs)};
@@ -238,10 +245,12 @@ export function renderHarnessStylesheet(): string {
     .harness-pill--saved { background: ${t.bg.elevated2}; color: ${t.text.secondary}; }
 
     .harness-sidebar__util {
-      margin-top: auto;
+      flex: none;             /* don't shrink — keep all menu buttons visible */
       padding-top: ${px(s.lg)};
       border-top: 1px solid ${t.border.hairline};
       display: flex; flex-direction: column; gap: ${px(s.xs)};
+      max-height: 60%;        /* if many tabs, scroll inside util — never push beyond sidebar */
+      overflow-y: auto;
     }
     .harness-sidebar__util button {
       padding: ${px(s.sm)} ${px(s.md)};
@@ -487,11 +496,85 @@ export function renderHarnessStylesheet(): string {
     .harness-preview__viewport {
       position: relative;
       overflow: hidden;
+      min-height: 0;
+      background: #0b0e14;
     }
     .harness-preview__viewport iframe {
       width: 100%; height: 100%;
       border: 0;
       background: transparent;
+    }
+
+    /* SCALE mode (default) — wraps iframe in a 390x844 device frame and
+       scales it down to fit the viewport. --harness-scale is computed by
+       a ResizeObserver in the view's bindEvents(). The frame stays at
+       a fixed 390x844 in layout terms; only the visual transform changes,
+       which avoids reflowing the iframe content (slow / janky). */
+    .harness-preview__viewport.is-scale {
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .harness-preview__viewport.is-scale .harness-device-frame {
+      width: 390px; height: 844px;
+      flex: none;
+      transform: scale(var(--harness-scale, 1));
+      transform-origin: center;
+      border-radius: 36px;
+      border: 8px solid #1c2230;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+      transition: transform ${t.motion.fast};
+    }
+    .harness-preview__viewport.is-scale .harness-device-frame iframe {
+      width: 100%; height: 100%; border: 0;
+      background: transparent;
+    }
+
+    /* SCROLL mode — iframe stretches to its natural height inside a
+       scrollable column. Use this when the user wants to read long
+       content without zooming. */
+    .harness-preview__viewport.is-scroll {
+      display: block;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .harness-preview__viewport.is-scroll .harness-device-frame {
+      width: 100%; height: 100%;
+      min-height: 100%;
+      border: 0; border-radius: 0;
+      background: transparent;
+    }
+    .harness-preview__viewport.is-scroll .harness-device-frame iframe {
+      width: 100%; height: 100%;
+      min-height: 100%;
+      border: 0; background: transparent;
+      display: block;
+    }
+
+    /* Toolbar mode-toggle pill — sits next to the platform tabs */
+    .harness-preview__viewmode {
+      display: inline-flex; gap: 0;
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: ${px(t.radius.md)};
+      padding: 2px;
+    }
+    .harness-preview__viewmode button {
+      padding: 4px 10px; min-width: 60px;
+      background: transparent; border: 0;
+      color: ${t.text.tertiary};
+      font-size: ${t.type.sizes.xs}px;
+      cursor: pointer; border-radius: ${px(t.radius.sm)};
+      transition: background ${t.motion.fast}, color ${t.motion.fast};
+    }
+    .harness-preview__viewmode button:hover {
+      color: ${t.text.primary};
+    }
+    .harness-preview__viewmode button[aria-pressed="true"] {
+      background: ${t.accent.primarySoft};
+      color: ${t.text.primary};
     }
 
     .harness-preview__statusbar {
@@ -740,6 +823,380 @@ export function renderHarnessStylesheet(): string {
       border-top: 1px solid ${t.border.subtle};
     }
     .harness-ship-crash:first-child { border-top: 0; }
+
+    /* ---------- G2.B Workspace tabs (Files / Image / Audio / DB) ---------- */
+    .harness-files-tab,
+    .harness-image-tab,
+    .harness-audio-tab,
+    .harness-db-tab,
+    .harness-logs-tab,
+    .harness-request-tab,
+    .harness-deploy-tab {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      background: ${t.bg.base};
+    }
+    .harness-pane-toolbar {
+      display: flex; align-items: center; gap: ${s.sm}px;
+      padding: ${s.sm}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.hairline};
+      background: rgba(14, 20, 36, 0.6);
+      flex: none;
+    }
+    .harness-pane-search {
+      flex: 1;
+      min-width: 120px;
+      padding: 6px 12px;
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: 8px;
+      color: ${t.text.primary};
+      font-size: ${t.type.sizes.sm}px;
+    }
+    .harness-pane-search:focus { outline: none; border-color: ${t.accent.primary}; }
+    .harness-pane-meta {
+      color: ${t.text.tertiary};
+      font-size: ${t.type.sizes.xs}px;
+      font-family: ${t.type.mono};
+    }
+    .harness-pane-filters {
+      display: flex; gap: 4px; flex-wrap: wrap;
+      padding: ${s.xs}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.hairline};
+      flex: none;
+    }
+    .harness-pane-filter {
+      padding: 4px 12px;
+      background: transparent;
+      color: ${t.text.tertiary};
+      border: 1px solid ${t.border.subtle};
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: ${t.type.sizes.xs}px;
+      transition: ${t.motion.fast};
+    }
+    .harness-pane-filter:hover { color: ${t.text.primary}; }
+    .harness-pane-filter[aria-pressed="true"] {
+      background: ${t.accent.primarySoft};
+      color: ${t.text.primary};
+      border-color: ${t.accent.primary};
+    }
+    .harness-pane-list {
+      flex: 1; overflow-y: auto; min-height: 0;
+      padding: ${s.xs}px;
+    }
+    .harness-file-row {
+      display: flex; align-items: center; gap: ${s.sm}px;
+      width: 100%;
+      padding: 6px 12px;
+      background: transparent;
+      color: ${t.text.secondary};
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      font: ${t.type.sizes.sm}px ${t.type.mono};
+      transition: ${t.motion.fast};
+    }
+    .harness-file-row:hover { background: ${t.bg.elevated}; color: ${t.text.primary}; }
+    .harness-file-row.is-active { background: ${t.accent.primarySoft}; color: ${t.text.primary}; }
+    .harness-file-row__icon { width: 24px; text-align: center; opacity: 0.7; }
+    .harness-file-row__path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+    /* Image gallery */
+    .harness-image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: ${s.sm}px;
+      padding: ${s.sm}px;
+      overflow-y: auto;
+      flex: 1; min-height: 0;
+    }
+    .harness-image-tile {
+      display: flex; flex-direction: column; gap: 4px;
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .harness-image-tile__preview {
+      width: 100%; height: 140px;
+      display: grid; place-items: center;
+      background: ${t.bg.elevated2};
+      border: 0;
+      cursor: pointer;
+      transition: ${t.motion.fast};
+    }
+    .harness-image-tile__preview:hover { background: ${t.accent.primarySoft}; }
+    .harness-image-tile__icon { font-size: 36px; opacity: 0.6; }
+    .harness-image-tile__path {
+      padding: 6px 10px;
+      color: ${t.text.tertiary};
+      font: ${t.type.sizes.xs}px ${t.type.mono};
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .harness-image-tile__actions {
+      display: flex; gap: 4px;
+      padding: 6px 8px 8px;
+    }
+
+    /* Audio rows */
+    .harness-audio-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: ${s.sm}px;
+      align-items: center;
+      padding: ${s.sm}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.hairline};
+    }
+    .harness-audio-row__path {
+      color: ${t.text.primary};
+      font: ${t.type.sizes.sm}px ${t.type.mono};
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .harness-audio-row__player { width: 280px; }
+    .harness-audio-row__actions { display: flex; gap: 4px; }
+
+    /* Database tables */
+    .harness-db-table {
+      padding: ${s.sm}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.hairline};
+    }
+    .harness-db-table__header {
+      display: flex; align-items: baseline; gap: ${s.sm}px;
+      color: ${t.text.primary};
+    }
+    .harness-db-table__cols {
+      display: flex; gap: 4px; flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .harness-db-col {
+      padding: 2px 8px;
+      background: ${t.bg.elevated};
+      color: ${t.text.secondary};
+      border-radius: 999px;
+      font: ${t.type.sizes.xs}px ${t.type.mono};
+    }
+
+    /* G2.C Logs */
+    .harness-logs-list {
+      font-family: ${t.type.mono};
+    }
+    .harness-log-line {
+      display: grid;
+      grid-template-columns: 80px 60px 80px 1fr auto;
+      gap: 8px;
+      padding: 4px 8px;
+      align-items: baseline;
+      font-size: ${t.type.sizes.xs}px;
+      color: ${t.text.secondary};
+      border-bottom: 1px solid rgba(167, 174, 203, 0.05);
+    }
+    .harness-log-line:hover { background: ${t.bg.elevated}; }
+    .harness-log-time { color: ${t.text.tertiary}; }
+    .harness-log-level {
+      padding: 1px 6px;
+      border-radius: 4px;
+      text-align: center;
+      font-weight: ${t.type.weights.semibold};
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+    .harness-log-level--info  { background: rgba(124, 131, 255, 0.16); color: ${t.accent.primary}; }
+    .harness-log-level--warn  { background: rgba(232, 181, 138, 0.18); color: ${t.accent.warm}; }
+    .harness-log-level--error { background: rgba(226, 128, 124, 0.18); color: ${t.status.danger}; }
+    .harness-log-level--debug { background: ${t.bg.elevated2}; color: ${t.text.tertiary}; }
+    .harness-log-source { color: ${t.text.tertiary}; opacity: 0.8; }
+    .harness-log-text {
+      color: ${t.text.primary};
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .harness-log-line--error .harness-log-text { color: ${t.status.danger}; }
+    .harness-log-line--warn .harness-log-text { color: ${t.accent.warm}; }
+    .harness-log-ask {
+      padding: 1px 8px;
+      background: transparent;
+      border: 1px solid ${t.border.subtle};
+      color: ${t.text.tertiary};
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      opacity: 0;
+      transition: ${t.motion.fast};
+    }
+    .harness-log-line:hover .harness-log-ask { opacity: 1; }
+    .harness-log-ask:hover { color: ${t.accent.primary}; border-color: ${t.accent.primary}; }
+
+    /* G2.C Request */
+    .harness-request-split {
+      flex: 1; min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 0;
+      grid-auto-columns: 1fr;
+      gap: 0;
+      overflow: hidden;
+    }
+    .harness-request-split:has(.harness-req-detail) { grid-template-columns: 1fr 1fr; }
+    .harness-req-row {
+      display: grid;
+      grid-template-columns: 50px 50px 1fr 60px;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      padding: 6px 12px;
+      background: transparent;
+      color: ${t.text.secondary};
+      border: 0;
+      border-bottom: 1px solid rgba(167, 174, 203, 0.05);
+      cursor: pointer;
+      text-align: left;
+      font: ${t.type.sizes.xs}px ${t.type.mono};
+    }
+    .harness-req-row:hover { background: ${t.bg.elevated}; }
+    .harness-req-row.is-active { background: ${t.accent.primarySoft}; }
+    .harness-req-method { color: ${t.accent.primary}; font-weight: ${t.type.weights.semibold}; }
+    .harness-req-status {
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: ${t.type.weights.semibold};
+      text-align: center;
+    }
+    .harness-req-status--ok      { background: ${t.status.successSoft}; color: ${t.status.success}; }
+    .harness-req-status--warn    { background: rgba(232, 181, 138, 0.18); color: ${t.accent.warm}; }
+    .harness-req-status--err     { background: ${t.status.dangerSoft};  color: ${t.status.danger}; }
+    .harness-req-status--pending { background: ${t.bg.elevated2}; color: ${t.text.tertiary}; }
+    .harness-req-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ${t.text.primary}; }
+    .harness-req-ms { color: ${t.text.tertiary}; text-align: right; }
+    .harness-req-detail {
+      border-left: 1px solid ${t.border.hairline};
+      padding: ${s.sm}px ${s.md}px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .harness-req-detail__header { margin-bottom: ${s.sm}px; }
+    .harness-req-detail details { margin-bottom: ${s.sm}px; }
+    .harness-req-detail summary {
+      cursor: pointer;
+      color: ${t.text.secondary};
+      font-size: ${t.type.sizes.sm}px;
+      padding: 4px 0;
+    }
+    .harness-req-detail pre {
+      margin: 0; padding: ${s.sm}px;
+      background: ${t.bg.elevated};
+      border-radius: 6px;
+      color: ${t.text.primary};
+      font: ${t.type.sizes.xs}px/1.45 ${t.type.mono};
+      overflow: auto;
+      max-height: 240px;
+    }
+    .harness-req-detail__actions {
+      display: flex; gap: ${s.sm}px; margin-top: ${s.sm}px;
+    }
+
+    /* G2.D Deploy */
+    .harness-deploy-tab { padding: ${s.sm}px; gap: ${s.sm}px; overflow-y: auto; }
+    .harness-deploy-snap {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: ${s.sm}px;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid ${t.border.hairline};
+    }
+    .harness-deploy-snap__head {
+      display: flex; gap: ${s.sm}px; align-items: baseline; flex-wrap: wrap;
+    }
+    .harness-deploy-snap__status {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .harness-deploy-snap__status--live      { background: ${t.status.successSoft}; color: ${t.status.success}; }
+    .harness-deploy-snap__status--archived  { background: ${t.bg.elevated2}; color: ${t.text.tertiary}; }
+    .harness-deploy-snap__status--building  { background: ${t.accent.primarySoft}; color: ${t.accent.primary}; }
+    .harness-deploy-snap__actions { display: flex; gap: 4px; }
+
+    /* Sidebar group label between sections */
+    .harness-sidebar__group-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: ${t.text.tertiary};
+      padding: ${s.sm}px ${s.sm}px 4px;
+      margin-top: ${s.sm}px;
+    }
+    .harness-sidebar__group-label:first-child { margin-top: 0; }
+
+    /* G2.F — Agents Live cards (Builder · Critic · Marketing) */
+    .harness-agents-live {
+      display: flex; gap: ${s.sm}px;
+      padding: ${s.sm}px ${s.md}px;
+      border-bottom: 1px solid ${t.border.hairline};
+      flex-wrap: wrap;
+      flex: none;
+    }
+    .harness-agent-card {
+      display: inline-flex; align-items: center; gap: ${s.xs}px;
+      padding: 4px 10px;
+      background: ${t.bg.elevated};
+      border: 1px solid ${t.border.subtle};
+      border-radius: 999px;
+      font-size: ${t.type.sizes.xs}px;
+      color: ${t.text.secondary};
+    }
+    .harness-agent-card__name { color: ${t.text.primary}; font-weight: ${t.type.weights.medium}; }
+    .harness-agent-card__task { color: ${t.text.tertiary}; }
+
+    /* G2.F — Streaming "thinking" strip */
+    .harness-thinking {
+      margin: ${s.sm}px ${s.md}px;
+      background: rgba(124, 131, 255, 0.06);
+      border: 1px solid ${t.accent.primarySoft};
+      border-radius: 12px;
+      padding: ${s.sm}px ${s.md}px;
+      flex: none;
+    }
+    .harness-thinking.is-collapsed {
+      padding: 4px ${s.md}px;
+    }
+    .harness-thinking__head {
+      display: flex; justify-content: space-between; align-items: center;
+      color: ${t.accent.primary};
+      font-size: ${t.type.sizes.xs}px;
+      font-weight: ${t.type.weights.medium};
+    }
+    .harness-thinking__head button,
+    .harness-thinking button {
+      background: transparent;
+      color: ${t.text.tertiary};
+      border: 0;
+      cursor: pointer;
+      font-size: ${t.type.sizes.xs}px;
+      padding: 2px 6px;
+    }
+    .harness-thinking__head button:hover { color: ${t.text.primary}; }
+    .harness-thinking__body {
+      margin-top: 6px;
+      color: ${t.text.secondary};
+      font: ${t.type.sizes.xs}px/1.55 ${t.type.mono};
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    /* G2.E — Highlighted-message visual cue when scrolled to via back-link */
+    .harness-chat__row.is-highlighted {
+      background: ${t.accent.primarySoft};
+      border-radius: 8px;
+      animation: harness-flash 1.6s ease-out;
+    }
+    @keyframes harness-flash {
+      0%   { background: ${t.accent.primarySoft}; }
+      100% { background: transparent; }
+    }
 
     /* Honor reduced-motion. */
     @media (prefers-reduced-motion: reduce) {

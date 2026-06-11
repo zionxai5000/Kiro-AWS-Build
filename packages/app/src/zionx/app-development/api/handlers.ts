@@ -513,15 +513,30 @@ export function createHandlers(deps: AppDevHandlerDeps): AppDevHandlers {
           return { statusCode: 200, body: { projectId, status: 'error', error: wake.error, phase: wake.phase } };
         }
         if (wake.state === 'ready' && wake.publicUrl) {
-          // Verify the cached URL still responds. E2B sandboxes get GC'd
-          // after idle timeouts, leaving the wake-state pointing at a
-          // dead URL. If unreachable, drop the state and fall through to
-          // 'idle' so the dashboard knows to re-wake.
+          // 60-second grace window — if we've recently confirmed this URL
+          // reachable, trust the cache and skip the network probe. This
+          // prevents a single transient 502 from wiping the wake state
+          // between two close-together polls. The lastReachableAt ts is
+          // module-local so it survives within this ECS task.
+          const reachableCache = (globalThis as unknown as { __zionxReachable?: Map<string, number> });
+          if (!reachableCache.__zionxReachable) reachableCache.__zionxReachable = new Map();
+          const cache = reachableCache.__zionxReachable;
+          const lastOkMs = cache.get(projectId);
+          const GRACE_MS = 60_000;
+          if (lastOkMs && Date.now() - lastOkMs < GRACE_MS) {
+            return { statusCode: 200, body: { projectId, status: 'live', publicUrl: wake.publicUrl, phase: wake.phase } };
+          }
+          // Outside grace window — verify the cached URL still responds.
+          // E2B sandboxes get GC'd after idle timeouts, leaving the wake-
+          // state pointing at a dead URL. isPreviewReachable now retries
+          // 3× to absorb transient failures.
           const reachable = await isPreviewReachable(wake.publicUrl);
           if (reachable) {
+            cache.set(projectId, Date.now());
             return { statusCode: 200, body: { projectId, status: 'live', publicUrl: wake.publicUrl, phase: wake.phase } };
           }
           // Stale — clear and report idle.
+          cache.delete(projectId);
           if (wakeMap) wakeMap.delete(projectId);
           if (wakeStore) await wakeStore.clear(projectId).catch(() => {});
           return { statusCode: 200, body: { projectId, status: 'idle', reason: 'cached preview URL is unreachable' } };

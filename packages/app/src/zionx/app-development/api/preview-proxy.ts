@@ -278,6 +278,18 @@ async function proxyTo(
   var PREFIX=${JSON.stringify(proxyBase)};
   var PATTERNS=[/^\\/assets\\//,/^\\/_expo\\//,/^\\/static\\//,/^\\/fonts\\//];
   function rewrite(u){if(typeof u!=='string')return u;for(var i=0;i<PATTERNS.length;i++){if(PATTERNS[i].test(u))return PREFIX+u;}return u;}
+  // Reset the in-document URL to '/' so the SPA's router (expo-router /
+  // react-router / etc.) matches its index route. The proxy prefix
+  // (PREFIX) is for *transport* — the embedded app should think it's
+  // rooted at '/'. history.replaceState only changes the in-page URL
+  // state; the underlying iframe document URL is unaffected.
+  try{
+    if(window.location.pathname.indexOf(PREFIX)===0){
+      var search=window.location.search||'';
+      var hash=window.location.hash||'';
+      window.history.replaceState({},'','/'+search+hash);
+    }
+  }catch(e){}
   var of=window.fetch;window.fetch=function(input,init){if(typeof input==='string')input=rewrite(input);else if(input&&input.url)input=new Request(rewrite(input.url),input);return of.call(this,input,init);};
   var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var a=Array.prototype.slice.call(arguments);a[1]=rewrite(u);return oo.apply(this,a);};
   try{var d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');if(d&&d.set){Object.defineProperty(HTMLImageElement.prototype,'src',{set:function(v){d.set.call(this,rewrite(v));},get:function(){return d.get.call(this);},configurable:true});}}catch(e){}
